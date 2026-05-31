@@ -152,3 +152,95 @@
 | Historical full-text search | Post-MVP | Future enhancement |
 | Agent activity dashboard | Post-MVP | Future enhancement |
 | `better-sqlite3` vs `node:sqlite` | ✅ Resolved | Using built-in `node:sqlite` (Node 22+) — intentional improvement |
+
+---
+
+## v0.2 — Multi-Project Daemon with Streamable HTTP
+
+> **Status:** Planned (spec complete, not yet implemented)
+> **Spec:** [`docs/spec/docu-guard-mcp-v0.2-daemon-prd.md`](./spec/docu-guard-mcp-v0.2-daemon-prd.md)
+> **Plan:** [`docs/spec/docu-guard-mcp-v0.2-implementation-plan.md`](./spec/docu-guard-mcp-v0.2-implementation-plan.md)
+
+### CLI Commands
+
+| Command | Status | Notes |
+|---------|--------|-------|
+| `docu-guard daemon` | ⏳ Planned | Streamable HTTP daemon on localhost:3737 |
+| `docu-guard project add` | ⏳ Planned | Register a project in the local registry |
+| `docu-guard project remove` | ⏳ Planned | Remove a project from registry |
+| `docu-guard project list` | ⏳ Planned | List all registered projects |
+| `docu-guard project show` | ⏳ Planned | Show details for a registered project |
+| `docu-guard project default` | ⏳ Planned | Set the default project for daemon mode |
+| `docu-guard server` | ✅ Unchanged | Stdio mode preserved from v0.1 |
+
+### Architecture Components
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| `src/mcp/create-server.ts` | ⏳ Planned | Shared MCP server factory (extracted from `server.ts`) |
+| `src/mcp/stdio.ts` | ⏳ Planned | Stdio transport wrapper (refactored from `server.ts`) |
+| `src/mcp/http.ts` | ⏳ Planned | Streamable HTTP transport using Node.js built-in `http` |
+| `src/cli/daemon.ts` | ⏳ Planned | Daemon CLI command handler |
+| `src/cli/project.ts` | ⏳ Planned | Project registry CLI handlers |
+| `src/core/registry.ts` | ⏳ Planned | Registry class for `~/.config/docu-guard/projects.json` |
+
+### MCP Transport
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Stdio transport | ✅ Unchanged | Preserved from v0.1 |
+| Streamable HTTP transport | ⏳ Planned | `POST /mcp` endpoint |
+| Health check endpoint | ⏳ Planned | `GET /health` |
+| CORS support | ⏳ Planned | ACAO, ACAM, ACAH headers |
+| Origin validation | ⏳ Planned | Localhost origins by default |
+| Graceful shutdown | ⏳ Planned | SIGINT/SIGTERM handling |
+
+### Project Registry
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Registry CRUD | ⏳ Planned | add, remove, list, show |
+| Default project | ⏳ Planned | Fallback when `projectId` omitted |
+| Project resolution | ⏳ Planned | `projectId` → `projectRoot` |
+| Validation: unknown project | ⏳ Planned | Clear error + suggested command |
+| Validation: missing root | ⏳ Planned | Clear error |
+| Validation: uninitialized | ⏳ Planned | Clear error suggesting `docu-guard init` |
+| Validation: no default | ⏳ Planned | Clear error |
+| Config path | ⏳ Planned | `~/.config/docu-guard/projects.json` (respects `XDG_CONFIG_HOME`) |
+
+### Multi-Project Tool Dispatch
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Tools resolve `projectId` per-request | ⏳ Planned | Resolver pattern in daemon mode |
+| Stdio uses pre-loaded project | ✅ Unchanged | No resolver needed |
+| Default project fallback | ⏳ Planned | When `projectId` omitted in daemon mode |
+
+### Testing
+
+| Test Area | Status | Count |
+|-----------|--------|-------|
+| Registry unit tests | ⏳ Planned | ~10 tests |
+| HTTP server tests | ⏳ Planned | ~6 tests |
+| Daemon integration tests | ⏳ Planned | ~5 tests |
+| v0.1 regression | ✅ Required | All 25 tests must pass unchanged |
+
+### README Documentation
+
+| Section | Status | Notes |
+|---------|--------|-------|
+| Daemon mode | ⏳ Planned | How to start and use the daemon |
+| Project registry commands | ⏳ Planned | add, remove, list, show, default |
+| HTTP MCP client config | ⏳ Planned | Example for clients supporting Streamable HTTP |
+| Security notes | ⏳ Planned | Default localhost, warning about `0.0.0.0` |
+
+### Implementation Phases
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| Phase 1 | Extract shared MCP server registration | ⏳ Planned |
+| Phase 2 | Add project registry | ⏳ Planned |
+| Phase 3 | Add project CLI commands | ⏳ Planned |
+| Phase 4 | Add Streamable HTTP daemon | ⏳ Planned |
+| Phase 5 | Add multi-project resolution in tools | ⏳ Planned |
+| Phase 6 | Add docs, tests, dogfooding | ⏳ Planned |
