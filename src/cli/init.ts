@@ -10,7 +10,7 @@ export interface InitOptions {
 }
 
 /**
- * Run the `docs-mcp init` command.
+ * Run the `docu-guard init` command.
  */
 export async function initCommand(options: InitOptions): Promise<void> {
   const resolvedRoot = path.resolve(options.projectRoot);
@@ -27,52 +27,52 @@ export async function initCommand(options: InitOptions): Promise<void> {
     process.exit(1);
   }
 
-  console.log(`Initializing docs-mcp in ${resolvedRoot}...`);
+  console.log(`Initializing docu-guard in ${resolvedRoot}...`);
 
   const project = await Project.init({
     projectRoot: resolvedRoot,
     projectId: options.projectId,
   });
 
-  console.log(`✓ Created .docs-mcp/ directory`);
-  console.log(`✓ Initialized Git-backed docs store at .docs-mcp/repo.git`);
-  console.log(`✓ Created event log at .docs-mcp/events.sqlite`);
+  console.log(`✓ Created .docu-guard/ directory`);
+  console.log(`✓ Initialized Git-backed docs store at .docu-guard/repo.git`);
+  console.log(`✓ Created event log at .docu-guard/events.sqlite`);
   console.log(`✓ Created .docs-policy.yml`);
   console.log(`✓ Created docs/ directory structure`);
   console.log(`✓ Created/updated AGENTS.md with documentation safety rules`);
   console.log(`✓ Snapshotted initial documentation`);
-  console.log(`\n✅ docs-mcp project "${options.projectId}" initialized successfully.\n`);
-  console.log(`Next steps:`);
-  console.log(`  1. Start the server:  docs-mcp server --project-root .`);
+  console.log(`\n✅ docu-guard project "${options.projectId}" initialized successfully.\n`);
+
+    console.log(`  1. Start the server:  docu-guard server --project-root .`);
   console.log(`  2. Configure your MCP client to connect to the server`);
   console.log(`  3. Use docs.list, docs.read, and docs.propose_patch tools`);
 }
 
 /**
- * Run the `docs-mcp server` command.
+ * Run the `docu-guard server` command.
  */
 export async function serverCommand(options: InitOptions): Promise<void> {
   const resolvedRoot = path.resolve(options.projectRoot);
 
   // Verify initialization
-  const docsMcpDir = path.join(resolvedRoot, '.docs-mcp');
+  const docsMcpDir = path.join(resolvedRoot, '.docu-guard');
   try {
     await fs.promises.access(docsMcpDir);
   } catch {
     console.error(
-      `Error: "${resolvedRoot}" has not been initialized. Run "docs-mcp init" first.`,
+      `Error: "${resolvedRoot}" has not been initialized. Run "docu-guard init" first.`,
     );
     process.exit(1);
   }
 
-  // Load project config from .docs-mcp
+  // Load project config from .docu-guard
   let projectId = options.projectId;
   if (!projectId) {
     // Try to read project ID from a config file or just use dirname
     projectId = path.basename(resolvedRoot);
   }
 
-  console.error(`Starting docs-mcp server for project "${projectId}"...`);
+  console.error(`Starting docu-guard server for project "${projectId}"...`);
   console.error(`Project root: ${resolvedRoot}`);
 
   await startMcpServer({
@@ -82,7 +82,7 @@ export async function serverCommand(options: InitOptions): Promise<void> {
 }
 
 /**
- * Run the `docs-mcp list` command.
+ * Run the `docu-guard list` command.
  */
 export async function listCommand(projectRoot: string): Promise<void> {
   const resolvedRoot = path.resolve(projectRoot);
@@ -109,7 +109,7 @@ export async function listCommand(projectRoot: string): Promise<void> {
 }
 
 /**
- * Run the `docs-mcp history <path>` command.
+ * Run the `docu-guard history <path>` command.
  */
 export async function historyCommand(
   projectRoot: string,
@@ -136,7 +136,7 @@ export async function historyCommand(
 }
 
 /**
- * Run the `docs-mcp export` command.
+ * Run the `docu-guard export` command.
  */
 export async function exportCommand(
   projectRoot: string,
@@ -172,12 +172,12 @@ export async function exportCommand(
  * Require that a project has been initialized. Exits with a clear message if not.
  */
 async function requireInit(projectRoot: string): Promise<void> {
-  const docsMcpDir = path.join(projectRoot, '.docs-mcp');
+  const docsMcpDir = path.join(projectRoot, '.docu-guard');
   try {
     await fs.promises.access(docsMcpDir);
   } catch {
     console.error(
-      `Error: "${projectRoot}" has not been initialized. Run "docs-mcp init" first.`,
+      `Error: "${projectRoot}" has not been initialized. Run "docu-guard init" first.`,
     );
     process.exit(1);
   }

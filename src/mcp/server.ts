@@ -23,7 +23,7 @@ export async function startMcpServer(options: ServerOptions): Promise<void> {
 
   const server = new Server(
     {
-      name: 'docs-mcp',
+      name: 'docu-guard-mcp',
       version: '0.1.0',
     },
     {

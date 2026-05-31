@@ -1,8 +1,8 @@
-# docs-mcp
+# docu-guard-mcp
 
 **Safe, versioned, auditable documentation management for AI-assisted software projects.**
 
-`docs-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that acts as a gatekeeper for project documentation. AI agents can read documentation and propose changes through the server, but they **cannot directly overwrite** important project files.
+`docu-guard-mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that acts as a gatekeeper for project documentation. AI agents can read documentation and propose changes through the server, but they **cannot directly overwrite** important project files.
 
 All changes are tracked in Git, logged to SQLite, and validated against a configurable policy — giving you full auditability and control.
 
@@ -10,7 +10,7 @@ All changes are tracked in Git, logged to SQLite, and validated against a config
 
 ## Purpose
 
-AI coding assistants are powerful, but they can also accidentally overwrite documentation, delete content, or make changes without visibility. `docs-mcp` solves this by:
+AI coding assistants are powerful, but they can also accidentally overwrite documentation, delete content, or make changes without visibility. `docu-guard-mcp` solves this by:
 
 - **Versioning all docs in Git** — every change is a commit with a full history
 - **Requiring patches for changes** — no direct file writes, always a diff
@@ -23,13 +23,13 @@ AI coding assistants are powerful, but they can also accidentally overwrite docu
 ## Installation
 
 ```bash
-npm install -g docs-mcp
+npm install -g docu-guard-mcp
 ```
 
 Or use with `npx`:
 
 ```bash
-npx docs-mcp init --project-root . --project-id my-project
+npx docu-guard init --project-root . --project-id my-project
 ```
 
 ### Prerequisites
@@ -45,15 +45,15 @@ npx docs-mcp init --project-root . --project-id my-project
 ### Initialize a project
 
 ```bash
-docs-mcp init --project-root /path/to/project --project-id my-project
+docu-guard init --project-root /path/to/project --project-id my-project
 ```
 
-This creates the `.docs-mcp/` directory structure, initializes a Git repo, creates the SQLite event log, and snapshots the initial documentation.
+This creates the `.docu-guard/` directory structure, initializes a Git repo, creates the SQLite event log, and snapshots the initial documentation.
 
 ### Start the MCP server
 
 ```bash
-docs-mcp server --project-root /path/to/project
+docu-guard server --project-root /path/to/project
 ```
 
 The server runs on stdio, suitable for MCP-compatible clients like Claude Desktop, VS Code, or custom integrations.
@@ -61,19 +61,19 @@ The server runs on stdio, suitable for MCP-compatible clients like Claude Deskto
 ### List tracked files
 
 ```bash
-docs-mcp list --project-root /path/to/project
+docu-guard list --project-root /path/to/project
 ```
 
 ### View file history
 
 ```bash
-docs-mcp history docs/README.md --project-root /path/to/project
+docu-guard history docs/README.md --project-root /path/to/project
 ```
 
 ### Export documentation
 
 ```bash
-docs-mcp export --branch main --project-root /path/to/project
+docu-guard export --branch main --project-root /path/to/project
 ```
 
 ---
@@ -87,10 +87,10 @@ Add to your `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "docs-mcp": {
+    "docu-guard-mcp": {
       "command": "npx",
       "args": [
-        "docs-mcp",
+        "docu-guard",
         "server",
         "--project-root",
         "/absolute/path/to/your/project",
@@ -110,9 +110,9 @@ Add to your VS Code settings:
 {
   "mcp.enable": true,
   "mcp.servers": {
-    "docs-mcp": {
+    "docu-guard-mcp": {
       "command": "npx",
-      "args": ["docs-mcp", "server", "--project-root", "${workspaceFolder}", "--project-id", "my-project"],
+      "args": ["docu-guard", "server", "--project-root", "${workspaceFolder}", "--project-id", "my-project"],
       "env": {}
     }
   }
@@ -267,14 +267,14 @@ The policy file controls:
 ## Project Structure
 
 ```
-docs-mcp/
+docu-guard-mcp/
 ├── .docs-policy.yml          # Policy configuration
 ├── AGENTS.md                 # Agent safety rules
 ├── docs/                     # Project documentation
 │   ├── README.md
 │   ├── spec/README.md
 │   └── implementation-checklist.md
-└── .docs-mcp/                # Internal store (do not edit manually)
+└── .docu-guard/              # Internal store (do not edit manually)
     ├── repo.git/             # Git-backed documentation history
     └── events.sqlite         # SQLite event audit log
 ```
@@ -291,7 +291,7 @@ docs-mcp/
          │ stdio JSON-RPC
          ▼
 ┌──────────────────┐
-│  docs-mcp Server │
+│  docu-guard-mcp Server │
 │  (MCP Protocol)  │
 └────────┬─────────┘
          │
@@ -327,10 +327,10 @@ npm run dev
 
 - **Single-file patches only** — `propose_patch` operates on one file at a time. Multi-file changes require multiple proposals.
 - **AGENTS.md intent validated by keyword check** — Changes to `AGENTS.md` require an intent or summary referencing `AGENTS.md`, `agent instructions`, `safety rules`, or related keywords. Other files do not have path-specific intent validation.
-- **No pre-commit / CI integration** — Direct edits to tracked docs outside of docs-mcp are not automatically detected or blocked. Use the Git history for recovery.
+- **No pre-commit / CI integration** — Direct edits to tracked docs outside of docu-guard-mcp are not automatically detected or blocked. Use the Git history for recovery.
 - **No web review UI** — Proposals can be previewed via `docs.preview_diff` but there is no graphical review interface.
 - **No merge tool** — Branches created with `docs.create_branch` must be merged manually via Git.
-- **No file watcher** — Changes made directly to the working tree (outside docs-mcp) are not automatically snapshotted.
+- **No file watcher** — Changes made directly to the working tree (outside docu-guard-mcp) are not automatically snapshotted.
 - **Node.js 22+ required** — The built-in `node:sqlite` module is used, which requires Node.js 22 or later.
 
 ---

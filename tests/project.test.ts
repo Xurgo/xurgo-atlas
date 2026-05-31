@@ -12,7 +12,7 @@ import { assessPatchRisk } from '../src/core/risk.js';
 let tmpDir: string;
 
 beforeEach(async () => {
-  tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'docs-mcp-test-'));
+  tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'docu-guard-test-'));
 });
 
 afterEach(async () => {
@@ -26,18 +26,18 @@ describe('project initialization', () => {
       projectId: 'test-project',
     });
 
-    // Check .docs-mcp directory exists
-    const docsMcpDir = path.join(tmpDir, '.docs-mcp');
-    const stat = await fs.promises.stat(docsMcpDir);
+    // Check .docu-guard directory exists
+    const docsDirName = path.join(tmpDir, '.docu-guard');
+    const stat = await fs.promises.stat(docsDirName);
     expect(stat.isDirectory()).toBe(true);
 
     // Check Git store exists
-    const gitStoreDir = path.join(docsMcpDir, 'repo.git');
+    const gitStoreDir = path.join(docsDirName, 'repo.git');
     const gitStat = await fs.promises.stat(gitStoreDir);
     expect(gitStat.isDirectory()).toBe(true);
 
     // Check SQLite events DB exists
-    const eventsDb = path.join(docsMcpDir, 'events.sqlite');
+    const eventsDb = path.join(docsDirName, 'events.sqlite');
     const dbStat = await fs.promises.stat(eventsDb);
     expect(dbStat.isFile()).toBe(true);
 
@@ -74,7 +74,7 @@ describe('project initialization', () => {
     // Verify AGENTS.md contains the documentation safety rules
     const agentsContent = await fs.promises.readFile(agentsMd, 'utf-8');
     expect(agentsContent).toContain('Documentation Safety Rules');
-    expect(agentsContent).toContain('docs-mcp');
+    expect(agentsContent).toContain('docu-guard-mcp');
     expect(agentsContent).toContain('Never directly overwrite');
     expect(agentsContent).toContain('docs.propose_patch');
     expect(agentsContent).toContain('baseRevision');
@@ -358,13 +358,13 @@ describe('proposal storage', () => {
     expect(afterCommit!.committed_at).not.toBeNull();
   });
 
-  it('should return null for non-existent proposal', () => {
+  it('should return null for non-existent proposal', async () => {
     const project = new Project({
       projectRoot: tmpDir,
       projectId: 'test-project',
     });
-    // Manually init the event log for a direct test
-    const eventLog = new EventLog(path.join(tmpDir, '.docs-mcp', 'events.sqlite'));
+    await project.ensureEventLog();
+    const eventLog = project.eventLog;
 
     const result = eventLog.getProposal('prop_nonexistent');
     expect(result).toBeNull();

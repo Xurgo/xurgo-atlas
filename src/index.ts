@@ -10,13 +10,13 @@ import {
 
 function printUsage(): void {
   console.log(`
-docs-mcp — Safe, versioned, auditable documentation management for AI-assisted projects
+docu-guard — Safe, versioned, auditable documentation management for AI-assisted projects
 
 USAGE:
-  docs-mcp <command> [options]
+  docu-guard <command> [options]
 
 COMMANDS:
-  init       Initialize a docs-mcp project
+  init       Initialize a docu-guard project
     --project-root <path>   Path to the project root (default: .)
     --project-id <id>       Unique identifier for the project
 
@@ -37,11 +37,11 @@ COMMANDS:
     --project-root <path>   Path to the project root (default: .)
 
 EXAMPLES:
-  docs-mcp init --project-root . --project-id my-project
-  docs-mcp server --project-root .
-  docs-mcp list
-  docs-mcp history docs/README.md
-  docs-mcp export --branch main
+  docu-guard init --project-root . --project-id my-project
+  docu-guard server --project-root .
+  docu-guard list
+  docu-guard history docs/README.md
+  docu-guard export --branch main
 `);
 }
 
@@ -122,7 +122,7 @@ async function main(): Promise<void> {
       const filePath = args['_default'];
       if (!filePath) {
         console.error('Error: path argument is required for history');
-        console.log('Usage: docs-mcp history <path>');
+        console.log('Usage: docu-guard history <path>');
         process.exit(1);
       }
       await historyCommand(projectRoot, filePath);

@@ -362,7 +362,7 @@ export class GitStore {
       }
 
       // Write the patch to a temp file
-      const patchFile = path.join(workDir, '.docs-mcp-patch.tmp');
+      const patchFile = path.join(workDir, '.docu-guard-patch.tmp');
       await fs.promises.writeFile(patchFile, patchContent, 'utf-8');
 
       // Ensure the file exists (even if patch creates it)

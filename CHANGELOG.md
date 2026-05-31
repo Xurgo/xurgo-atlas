@@ -6,8 +6,8 @@
 
 ### Features
 
-- **`docs-mcp init`** — Initializes a project with Git-backed store, SQLite event log, policy file, starter docs, and AGENTS.md safety rules.
-- **`docs-mcp server`** — Starts an MCP server on stdio exposing all tools and resources.
+- **`docu-guard init`** — Initializes a project with Git-backed store, SQLite event log, policy file, starter docs, and AGENTS.md safety rules.
+- **`docu-guard server`** — Starts an MCP server on stdio exposing all tools and resources.
 - **`docs.list`** — Lists tracked documentation files with per-file revision and protected status.
 - **`docs.read`** — Reads a documentation file and returns its content with a stable revision hash.
 - **`docs.create_branch`** — Creates an agent branch from any source branch.
@@ -40,6 +40,13 @@
 
 - 25 tests covering all tools, validation rules, risk detection, proposal lifecycle, and AGENTS.md intent checks.
 - All tests pass; TypeScript compiles cleanly.
+
+### Dogfooding
+
+- docu-guard-mcp successfully managed its own documentation via the MCP protocol.
+- Full workflow verified: `list` → `read` → `create_branch` → `propose_patch` → `preview_diff` → `commit_patch`.
+- Stale proposal rejection, file restore from history, and working-tree export all verified against the server.
+- 10 events logged across all operations.
 
 ### Known Limitations
 
