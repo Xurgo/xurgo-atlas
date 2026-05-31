@@ -335,6 +335,145 @@ npm run dev
 
 ---
 
+## Daemon Mode
+
+The `docu-guard daemon` command starts a Streamable HTTP MCP server that can serve multiple projects simultaneously.
+
+### Starting the Daemon
+
+```bash
+docu-guard daemon --host 127.0.0.1 --port 3737
+```
+
+### Registering Projects for the Daemon
+
+Before using the daemon, register your projects:
+
+```bash
+# Register a project
+docu-guard project add --project-id my-web-app --project-root /path/to/web-app
+
+# Set a default project (used when no projectId is specified)
+docu-guard project default --project-id my-web-app
+
+# List registered projects
+docu-guard project list
+```
+
+### Using the Daemon with MCP Clients
+
+Once the daemon is running, MCP clients can connect to it via HTTP:
+
+#### Claude Desktop
+```json
+{
+  "mcpServers": {
+    "docu-guard-mcp": {
+      "url": "http://127.0.0.1:3737/mcp"
+    }
+  }
+}
+```
+
+#### VS Code (with MCP extension)
+```json
+{
+  "mcp.enable": true,
+  "mcp.servers": {
+    "docu-guard-mcp": {
+      "url": "http://127.0.0.1:3737/mcp",
+      "headers": {}
+    }
+  }
+}
+```
+
+## Project Registry
+
+The project registry allows managing multiple projects from a single daemon instance.
+
+### Project Registry Commands
+
+- `docu-guard project add --project-id <id> --project-root <path>` - Register a project
+- `docu-guard project remove --project-id <id>` - Remove a project from the registry
+- `docu-guard project list` - List all registered projects
+- `docu-guard project show --project-id <id>` - Show details for a registered project
+- `docu-guard project default --project-id <id>` - Set the default project
+
+### How It Works
+
+1. Projects are registered in `~/.config/docu-guard/projects.json` (respects `XDG_CONFIG_HOME`)
+2. The daemon loads the registry and caches project connections for performance
+3. Each MCP request includes a `projectId` parameter to specify which project to operate on
+4. If no `projectId` is provided, the daemon uses the default project
+
+## HTTP Configuration
+
+The daemon uses Streamable HTTP transport, which is supported by many MCP clients.
+
+### MCP Client Configuration Examples
+
+**Stdio (per-project, v0.1 compatible):**
+```json
+{
+  "mcpServers": {
+    "docu-guard-mcp": {
+      "command": "npx",
+      "args": ["docu-guard", "server", "--project-root", "/path/to/project", "--project-id", "my-project"]
+    }
+  }
+}
+```
+
+**HTTP (multi-project daemon):**
+```json
+{
+  "mcpServers": {
+    "docu-guard-mcp": {
+      "url": "http://127.0.0.1:3737/mcp"
+    }
+  }
+}
+```
+
+### Health Check Endpoint
+
+The daemon provides a health check endpoint:
+```
+GET http://127.0.0.1:3737/health
+```
+Returns: `{"status": "ok"}`
+
+## Security Notes
+
+### Default Binding
+
+The daemon binds to `127.0.0.1` (localhost) by default, which only allows connections from the same machine. This is the recommended and secure configuration.
+
+### Warning About `0.0.0.0`
+
+Binding to `0.0.0.0` makes the MCP server accessible to all machines on the network. This is **unsafe without authentication** and should only be used in trusted environments.
+
+```bash
+# This will show a warning:
+docu-guard daemon --host 0.0.0.0 --port 3737
+```
+
+### Origin Validation
+
+The daemon validates the `Origin` header on all MCP requests to prevent cross-site request forgery (CSRF) attacks. By default, it allows:
+- `null` origin (non-browser clients like curl)
+- Requests from `http://127.0.0.1:*` and `http://localhost:*`
+
+### Best Practices
+
+1. Always use `--host 127.0.0.1` for local development
+2. Never expose the daemon to public networks without proper authentication
+3. Use firewall rules to restrict access if binding to non-localhost addresses is necessary
+4. Regularly monitor logs for unexpected connection attempts
+
+---
+
 ## License
 
 MIT

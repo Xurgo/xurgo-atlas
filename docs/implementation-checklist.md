@@ -220,27 +220,27 @@
 
 | Test Area | Status | Count |
 |-----------|--------|-------|
-| Registry unit tests | ⏳ Planned | ~10 tests |
-| HTTP server tests | ⏳ Planned | ~6 tests |
-| Daemon integration tests | ⏳ Planned | ~5 tests |
+| Registry unit tests | ✅ Complete | 20 tests |
+| HTTP server tests | ✅ Complete | 6 tests |
+| Daemon integration tests | ✅ Complete | 4 tests |
 | v0.1 regression | ✅ Required | All 25 tests must pass unchanged |
 
 ### README Documentation
 
 | Section | Status | Notes |
 |---------|--------|-------|
-| Daemon mode | ⏳ Planned | How to start and use the daemon |
-| Project registry commands | ⏳ Planned | add, remove, list, show, default |
-| HTTP MCP client config | ⏳ Planned | Example for clients supporting Streamable HTTP |
-| Security notes | ⏳ Planned | Default localhost, warning about `0.0.0.0` |
+| Daemon mode | ✅ Complete | How to start and use the daemon |
+| Project registry commands | ✅ Complete | add, remove, list, show, default |
+| HTTP MCP client config | ✅ Complete | Example for clients supporting Streamable HTTP |
+| Security notes | ✅ Complete | Default localhost, warning about `0.0.0.0` |
 
 ### Implementation Phases
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| Phase 1 | Extract shared MCP server registration | ⏳ Planned |
-| Phase 2 | Add project registry | ⏳ Planned |
-| Phase 3 | Add project CLI commands | ⏳ Planned |
-| Phase 4 | Add Streamable HTTP daemon | ⏳ Planned |
-| Phase 5 | Add multi-project resolution in tools | ⏳ Planned |
-| Phase 6 | Add docs, tests, dogfooding | ⏳ Planned |
+| Phase 1 | Extract shared MCP server registration | ✅ Complete |
+| Phase 2 | Add project registry | ✅ Complete |
+| Phase 3 | Add project CLI commands | ✅ Complete |
+| Phase 4 | Add Streamable HTTP daemon | ✅ Complete |
+| Phase 5 | Add multi-project resolution in tools | ✅ Complete |
+| Phase 6 | Add docs, tests, dogfooding | ✅ Complete |

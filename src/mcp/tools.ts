@@ -6,6 +6,7 @@ import {
 import { z } from 'zod';
 import { zodToJsonSchema } from '../utils.js';
 import { Project } from '../core/project.js';
+import { ProjectResolver } from './types.js';
 import { validatePatch, PatchProposal } from '../core/patch.js';
 import { isPathTraversal } from '../core/patch.js';
 
@@ -77,8 +78,21 @@ const ExportSchema = z.object({
 
 // ── Tool Registration ────────────────────────────────────────────────
 
-export function registerTools(server: Server, project: Project): void {
-  // List tools
+/**
+ * Register all MCP tools on the server.
+ *
+ * Accepts either a single Project (stdio mode) or a ProjectResolver
+ * function (daemon mode). In daemon mode, the project is resolved
+ * per-request based on the `projectId` argument.
+ */
+export function registerTools(
+  server: Server,
+  projectOrResolver: Project | ProjectResolver,
+): void {
+  // Determine if we're in resolver mode (daemon) or single-project mode (stdio)
+  const isResolver = typeof projectOrResolver === 'function';
+
+  // List tools — returns the same tools regardless of mode
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
       tools: [
@@ -138,58 +152,48 @@ export function registerTools(server: Server, project: Project): void {
     };
   });
 
-  // Call tool handler
+  // Call tool handler — resolve project per-request in daemon mode
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
+    const { name, arguments: rawParams } = request.params;
+    const rawArgs = (rawParams as Record<string, unknown>) || {};
 
     try {
+      // Resolve the project for this request
+      const project = await resolveProjectForRequest(
+        rawArgs,
+        isResolver,
+        projectOrResolver,
+      );
+
+      // Inject the resolved projectId into args if not present
+      // (e.g., when a default project was resolved in daemon mode)
+      if (!rawArgs['projectId']) {
+        rawArgs['projectId'] = project.projectId;
+      }
+
       switch (name) {
         case 'docs.list':
-          return await handleList(project, args as Record<string, unknown>);
+          return await handleList(project, rawArgs);
         case 'docs.read':
-          return await handleRead(project, args as Record<string, unknown>);
+          return await handleRead(project, rawArgs);
         case 'docs.create_branch':
-          return await handleCreateBranch(
-            project,
-            args as Record<string, unknown>,
-          );
+          return await handleCreateBranch(project, rawArgs);
         case 'docs.propose_patch':
-          return await handleProposePatch(
-            project,
-            args as Record<string, unknown>,
-          );
+          return await handleProposePatch(project, rawArgs);
         case 'docs.preview_diff':
-          return await handlePreviewDiff(
-            project,
-            args as Record<string, unknown>,
-          );
+          return await handlePreviewDiff(project, rawArgs);
         case 'docs.commit_patch':
-          return await handleCommitPatch(
-            project,
-            args as Record<string, unknown>,
-          );
+          return await handleCommitPatch(project, rawArgs);
         case 'docs.history':
-          return await handleHistory(
-            project,
-            args as Record<string, unknown>,
-          );
+          return await handleHistory(project, rawArgs);
         case 'docs.restore_file':
-          return await handleRestoreFile(
-            project,
-            args as Record<string, unknown>,
-          );
+          return await handleRestoreFile(project, rawArgs);
         case 'docs.export':
-          return await handleExport(
-            project,
-            args as Record<string, unknown>,
-          );
+          return await handleExport(project, rawArgs);
         default:
           return {
             content: [
-              {
-                type: 'text',
-                text: `Unknown tool: ${name}`,
-              },
+              { type: 'text', text: `Unknown tool: ${name}` },
             ],
             isError: true,
           };
@@ -202,6 +206,28 @@ export function registerTools(server: Server, project: Project): void {
       };
     }
   });
+}
+
+/**
+ * Resolve a Project for the given request arguments.
+ *
+ * In resolver mode (daemon): calls the resolver with the projectId from args
+ *   (or empty string to trigger default resolution).
+ * In single-project mode (stdio): returns the pre-loaded project directly.
+ */
+async function resolveProjectForRequest(
+  rawArgs: Record<string, unknown>,
+  isResolver: boolean,
+  projectOrResolver: Project | ProjectResolver,
+): Promise<Project> {
+  if (isResolver) {
+    const resolver = projectOrResolver as ProjectResolver;
+    const projectId = (rawArgs['projectId'] as string) || '';
+    return resolver(projectId);
+  }
+
+  // Single-project mode: use the pre-loaded project directly
+  return projectOrResolver as Project;
 }
 
 // ── Tool Handlers ─────────────────────────────────────────────────────
