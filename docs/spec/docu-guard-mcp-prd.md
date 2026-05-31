@@ -1,8 +1,8 @@
-# PRD: Docs MCP — Versioned Documentation Control Plane for AI-Assisted Projects
+# PRD: docu-guard-mcp — Versioned Documentation Control Plane for AI-Assisted Projects
 
 ## 1. Overview
 
-`docs-mcp` is a local MCP server that provides safe, versioned, auditable documentation management for AI-assisted software projects.
+`docu-guard-mcp` is a local MCP server that provides safe, versioned, auditable documentation management for AI-assisted software projects.
 
 Many projects contain important documentation files such as:
 
@@ -15,7 +15,7 @@ docs/architecture.md
 docs/decisions/
 ```
 
-AI agents frequently read and modify these files. Over time, agents may accidentally overwrite, truncate, delete, or hallucinate changes to important project documentation. `docs-mcp` prevents this by making documentation changes go through a controlled API with version history, base-revision checks, diffs, branches, and recovery tools.
+AI agents frequently read and modify these files. Over time, agents may accidentally overwrite, truncate, delete, or hallucinate changes to important project documentation. `docu-guard-mcp` prevents this by making documentation changes go through a controlled API with version history, base-revision checks, diffs, branches, and recovery tools.
 
 The goal is to make documentation changes:
 
@@ -99,7 +99,7 @@ saving hallucinated changes
 
 Standard Git can recover these changes, but agents often write directly to the working tree, and the damage may go unnoticed.
 
-`docs-mcp` solves this by becoming a documentation gateway:
+`docu-guard-mcp` solves this by becoming a documentation gateway:
 
 ```text
 Agent reads docs through MCP.
@@ -117,7 +117,7 @@ MCP allows preview, commit, restore, and export.
 AI Agent / MCP Client
         |
         v
-docs-mcp server
+docu-guard server
         |
         +-- MCP resources
         +-- MCP tools
@@ -158,16 +158,16 @@ my-project/
     spec/
       README.md
   .docs-policy.yml
-  .docs-mcp/
+   .docu-guard/
     repo.git
     events.sqlite
     exports/
 ```
 
-The `docs-mcp` package itself should look like:
+The `docu-guard-mcp` package itself should look like:
 
 ```text
-docs-mcp/
+docu-guard-mcp/
   package.json
   tsconfig.json
   README.md
@@ -297,7 +297,7 @@ Returns revision history for one file.
   "history": [
     {
       "revision": "abc123",
-      "author": "docs-mcp",
+      "author": "docu-guard-mcp",
       "timestamp": "2026-05-27T10:30:00Z",
       "summary": "Initial spec"
     }
@@ -324,8 +324,8 @@ Input:
 
 Behavior:
 
-1. Create `.docs-mcp/`.
-2. Create bare Git repo at `.docs-mcp/repo.git`.
+1. Create `.docu-guard/`.
+2. Create bare Git repo at `.docu-guard/repo.git`.
 3. Create `.docs-policy.yml` if missing.
 4. Create starter `docs/` files if missing.
 5. Create or update `AGENTS.md` with documentation safety rules.
@@ -567,7 +567,7 @@ Output:
     {
       "revision": "abc123",
       "timestamp": "2026-05-27T10:30:00Z",
-      "actor": "docs-mcp",
+      "actor": "docu-guard-mcp",
       "summary": "Initial version"
     }
   ]
@@ -741,26 +741,26 @@ If a patch is rejected because the base revision is stale, reread the document a
 
 ## 14. CLI Commands
 
-The package should expose a CLI named `docs-mcp`.
+The package should expose a CLI named `docu-guard`.
 
 Required commands:
 
 ```text
-docs-mcp init
-docs-mcp server
-docs-mcp list
-docs-mcp history <path>
-docs-mcp export
+docu-guard init
+docu-guard server
+docu-guard list
+docu-guard history <path>
+docu-guard export
 ```
 
 Examples:
 
 ```bash
-docs-mcp init --project-root . --project-id my-project
-docs-mcp server --project-root .
-docs-mcp list
-docs-mcp history docs/spec/auth.md
-docs-mcp export --branch main
+docu-guard init --project-root . --project-id my-project
+docu-guard server --project-root .
+docu-guard list
+docu-guard history docs/spec/auth.md
+docu-guard export --branch main
 ```
 
 ---
@@ -769,8 +769,8 @@ docs-mcp export --branch main
 
 The MVP is complete when:
 
-1. A user can initialize a project with `docs-mcp init`.
-2. The MCP server starts successfully with `docs-mcp server`.
+1. A user can initialize a project with `docu-guard init`.
+2. The MCP server starts successfully with `docu-guard server`.
 3. An MCP client can call `docs.read`.
 4. `docs.read` returns file content and a stable revision.
 5. An MCP client can create an agent branch.
@@ -855,7 +855,7 @@ Future versions may add:
 
 ## 18. Summary
 
-`docs-mcp` should make this statement true:
+`docu-guard-mcp` should make this statement true:
 
 ```text
 An AI agent cannot accidentally erase, overwrite, or silently corrupt project documentation without creating a recoverable, inspectable history entry.

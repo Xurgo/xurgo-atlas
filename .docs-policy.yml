@@ -1,0 +1,27 @@
+protected_paths:
+  - AGENTS.md
+  - docs/**
+  - docs/spec/**
+  - docs/implementation-checklist.md
+  - docs/architecture.md
+  - docs/decisions/**
+write_mode:
+  default: propose_patch_only
+  protected: approval_required
+forbidden_operations:
+  - silent_delete
+  - whole_file_replace_without_base_revision
+  - overwrite_without_diff
+  - delete_protected_doc_without_approval
+required_metadata:
+  - intent
+  - baseRevision
+  - summary
+branching:
+  agent_branches: true
+  merge_to_main_requires: approval
+risk_rules:
+  large_deletion_percent: 25
+  whole_file_replacement_requires_approval: true
+  heading_removal_requires_approval: true
+  protected_file_change_requires_approval: true

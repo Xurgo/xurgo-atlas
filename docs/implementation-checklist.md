@@ -1,7 +1,7 @@
-# docs-mcp — Implementation Checklist
+# docu-guard-mcp — Implementation Checklist
 
-> Last updated: 2026-05-30
-> Status: **MVP Complete**
+> Last updated: 2026-05-30 (dogfooding verified)
+> Status: **v0.1.0 Release Ready**
 
 ---
 
@@ -9,8 +9,8 @@
 
 | # | Criterion | Status | Notes |
 |---|-----------|--------|-------|
-| 1 | User can `docs-mcp init` | ✅ Complete | Creates `.docs-mcp/`, Git bare repo, SQLite DB, policy, docs, AGENTS.md |
-| 2 | Server starts with `docs-mcp server` | ✅ Complete | MCP server on stdio with all tools registered |
+| 1 | User can `docu-guard init` | ✅ Complete | Creates `.docu-guard/`, Git bare repo, SQLite DB, policy, docs, AGENTS.md |
+| 2 | Server starts with `docu-guard server` | ✅ Complete | MCP server on stdio with all tools registered |
 | 3 | MCP client can call `docs.read` | ✅ Complete | Returns content + revision hash |
 | 4 | `docs.read` returns content + stable revision | ✅ Complete | Revision is the Git commit hash for the file |
 | 5 | Client can create an agent branch | ✅ Complete | `docs.create_branch` with `from` parameter |
@@ -60,11 +60,11 @@
 
 | Command | Status | Notes |
 |---------|--------|-------|
-| `docs-mcp init` | ✅ Complete | Creates full project structure |
-| `docs-mcp server` | ✅ Complete | Stdio MCP server |
-| `docs-mcp list` | ✅ Complete | Enriched output (per-file revision + protected) |
-| `docs-mcp history <path>` | ✅ Complete | Unified history output |
-| `docs-mcp export` | ✅ Complete | Exports to working tree |
+| `docu-guard init` | ✅ Complete | Creates full project structure |
+| `docu-guard server` | ✅ Complete | Stdio MCP server |
+| `docu-guard list` | ✅ Complete | Enriched output (per-file revision + protected) |
+| `docu-guard history <path>` | ✅ Complete | Unified history output |
+| `docu-guard export` | ✅ Complete | Exports to working tree |
 
 ---
 

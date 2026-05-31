@@ -4,15 +4,15 @@ import { GitStore, FileEntry } from './git-store.js';
 import { Policy } from './policy.js';
 import { EventLog } from './events.js';
 
-const AGENTS_MD_SAFETY_RULES = `# Agent Instructions for docs-mcp
+const AGENTS_MD_SAFETY_RULES = `# Agent Instructions for docu-guard-mcp
 
 ## Documentation Safety Rules
 
-This project uses **docs-mcp** for safe, versioned, auditable documentation management.
+This project uses **docu-guard-mcp** for safe, versioned, auditable documentation management.
 
 ### Rules for AI Agents
 
-1. **Never directly overwrite documentation files.** All documentation changes must go through the docs-mcp MCP server.
+1. **Never directly overwrite documentation files.** All documentation changes must go through the docu-guard-mcp MCP server.
 
 2. **Read before you write.** Always read the current version of a document before proposing changes.
 
@@ -32,7 +32,7 @@ This project uses **docs-mcp** for safe, versioned, auditable documentation mana
 
 ### Tracked Files
 
-The following files and directories are managed through docs-mcp and must not be edited directly:
+The following files and directories are managed through docu-guard-mcp and must not be edited directly:
 
 - \`AGENTS.md\`
 - \`docs/**\`
@@ -70,10 +70,10 @@ export class Project {
   constructor(config: ProjectConfig) {
     this.root = config.projectRoot;
     this.projectId = config.projectId;
-    this.docsMcpDir = path.join(this.root, '.docs-mcp');
+    this.docsMcpDir = path.join(this.root, '.docu-guard');
     this.gitStore = new GitStore(path.join(this.docsMcpDir, 'repo.git'));
     this.policy = new Policy();
-    // Ensure the .docs-mcp directory exists before EventLog is created
+    // Ensure the .docu-guard directory exists before EventLog is created
     this._ensureDir = fs.promises.mkdir(this.docsMcpDir, { recursive: true });
   }
 
@@ -104,7 +104,7 @@ export class Project {
   static async init(config: ProjectConfig): Promise<Project> {
     const project = new Project(config);
 
-    // .docs-mcp directory is being created in constructor via _ensureDir
+    // .docu-guard directory is being created in constructor via _ensureDir
 
     // Initialize the Git-backed docs store
     await project.gitStore.init();
@@ -140,10 +140,10 @@ export class Project {
     project.eventLog.logEvent({
       project_id: project.projectId,
       branch: 'main',
-      path: '.docs-mcp/init',
+      path: '.docu-guard/init',
       tool_name: 'init',
       intent: 'Project initialization',
-      summary: `Initialized docs-mcp project "${project.projectId}" at ${project.root}`,
+      summary: `Initialized docu-guard project "${project.projectId}" at ${project.root}`,
       result_revision: 'main',
     });
 
@@ -169,7 +169,7 @@ async function ensureDocsStructure(projectRoot: string): Promise<void> {
   await fs.promises.mkdir(docsDir, { recursive: true });
 
   const docsFiles: [string, string][] = [
-    ['README.md', '# Documentation\n\nThis directory contains project documentation managed by docs-mcp.\n'],
+    ['README.md', '# Documentation\n\nThis directory contains project documentation managed by docu-guard-mcp.\n'],
     ['spec/README.md', '# Specification\n\nThis directory contains project specifications.\n'],
   ];
 
@@ -209,7 +209,7 @@ async function ensureAgentsMd(projectRoot: string): Promise<void> {
   try {
     const existing = await fs.promises.readFile(agentsPath, 'utf-8');
     // Append safety rules if not present
-    if (!existing.includes('docs-mcp')) {
+    if (!existing.includes('docu-guard')) {
       await fs.promises.writeFile(
         agentsPath,
         existing + '\n\n' + AGENTS_MD_SAFETY_RULES,

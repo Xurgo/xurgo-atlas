@@ -1,10 +1,10 @@
 {
-  "name": "docs-mcp",
+  "name": "docu-guard-mcp",
   "version": "0.1.0",
   "description": "Safe, versioned, auditable documentation management for AI-assisted software projects",
   "type": "module",
   "bin": {
-    "docs-mcp": "./dist/index.js"
+    "docu-guard": "./dist/index.js"
   },
   "main": "./dist/index.js",
   "exports": {

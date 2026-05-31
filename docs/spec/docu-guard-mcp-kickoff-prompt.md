@@ -1,6 +1,6 @@
-You are building a new TypeScript MCP server called `docs-mcp`.
+You are building a new TypeScript MCP server called `docu-guard-mcp`.
 
-The purpose of `docs-mcp` is to provide safe, versioned, auditable documentation management for AI-assisted software projects. AI agents must not directly overwrite important project documentation. Instead, they should read docs and propose patches through this MCP server.
+The purpose of `docu-guard-mcp` is to provide safe, versioned, auditable documentation management for AI-assisted software projects. AI agents must not directly overwrite important project documentation. Instead, they should read docs and propose patches through this MCP server.
 
 The MVP should use:
 
@@ -11,13 +11,13 @@ The MVP should use:
 - simple-git or Git CLI for Git operations
 - better-sqlite3 for event logging
 - yaml for `.docs-policy.yml`
-- a package CLI named `docs-mcp`
+- a package CLI named `docu-guard`
 
 Core requirements:
 
 1. Create a TypeScript package with this structure:
 
-   docs-mcp/
+   docu-guard-mcp/
      package.json
      tsconfig.json
      README.md
@@ -39,19 +39,19 @@ Core requirements:
 
 2. Implement a CLI with these commands:
 
-   - docs-mcp init --project-root . --project-id my-project
-   - docs-mcp server --project-root .
-   - docs-mcp list
-   - docs-mcp history <path>
-   - docs-mcp export --branch main
+   - docu-guard init --project-root . --project-id my-project
+   - docu-guard server --project-root .
+   - docu-guard list
+   - docu-guard history <path>
+   - docu-guard export --branch main
 
 3. Implement project initialization.
 
-   `docs-mcp init` should:
+   `docu-guard init` should:
 
-   - create `.docs-mcp/`
-   - create `.docs-mcp/repo.git`
-   - create `.docs-mcp/events.sqlite`
+   - create `.docu-guard/`
+   - create `.docu-guard/repo.git`
+   - create `.docu-guard/events.sqlite`
    - create `.docs-policy.yml` if missing
    - create `docs/README.md` if missing
    - create `docs/spec/README.md` if missing
