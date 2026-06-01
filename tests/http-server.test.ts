@@ -80,7 +80,7 @@ async function options(address: string): Promise<{ status: number; headers: Reco
 }
 
 let server: http.Server;
-let transport: { close: () => Promise<void> };
+// let transport: { close: () => Promise<void> };
 const tmpDir = path.join(os.tmpdir(), `docu-guard-http-test-${Date.now()}`);
 
 function createMockTransport() {
@@ -109,9 +109,9 @@ describe('HTTP server', () => {
       return Project.load({ projectRoot: entry.projectRoot, projectId: entry.projectId });
     }, { version: '0.2.0' });
 
-    transport = createMockTransport() as unknown as { close: () => Promise<void> };
+    // transport = createMockTransport() as unknown as { close: () => Promise<void> };
 
-    const result = await startHttpServer(mcpServer, { host: '127.0.0.1', port: PORT });
+    const result = await startHttpServer(() => mcpServer, { host: '127.0.0.1', port: PORT });
     server = result.server;
   });
 
@@ -158,31 +158,29 @@ describe('HTTP server', () => {
     // As long as it's dispatched to the transport layer, we consider it a success for routing purposes
   });
 
-  it('POST /mcp with disallowed Origin returns 403', async () => {
-    const r = await await new Promise<{ status: number; data: unknown }>((resolve) => {
-      const req = http.request(
-        {
-          hostname: '127.0.0.1',
-          port: PORT,
-          path: '/mcp',
-          method: 'POST',
-          headers: {
-            Origin: 'https://evil.example.com',
-            'Content-Type': 'application/json',
-            'Content-Length': '17',
+    it('POST /mcp with disallowed Origin returns 403', async () => {
+      const r = await new Promise<{ status: number; data: unknown }>((resolve) => {
+        const req = http.request(
+          {
+            hostname: '127.0.0.1',
+            port: PORT,
+            path: '/mcp',
+            method: 'POST',
+            headers: {
+              Origin: 'https://evil.example.com',
+            },
           },
-        },
-        (res) => {
-          const chunks = []; res.on('data', c => chunks.push(c)); res.on('end', () => {
-            try { resolve({ status: res.statusCode ?? 0, data: JSON.parse(chunks.join('').toString()) }); } catch { resolve({ status: res.statusCode ?? 0, data: chunks.join('').toString() }); }
-          });
-        },
-      );
-      req.on('error', () => resolve({ status: 0, data: null }));
-      req.end();
+          (res) => {
+            const chunks = []; res.on('data', c => chunks.push(c)); res.on('end', () => {
+              try { resolve({ status: res.statusCode ?? 0, data: JSON.parse(chunks.join('').toString()) }); } catch { resolve({ status: res.statusCode ?? 0, data: chunks.join('').toString() }); }
+            });
+          },
+        );
+        req.on('error', () => resolve({ status: 0, data: null }));
+        req.end();
+      });
+      expect(r.status).toBe(403);
     });
-    expect(r.status).toBe(403);
-  });
 
   it('GET to unknown path returns non-200', async () => {
     const r = await await new Promise<{ status: number; data: unknown }>((resolve) => {
