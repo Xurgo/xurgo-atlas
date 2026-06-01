@@ -29,14 +29,20 @@ COMMANDS:
   init       Initialize a docu-guard project
     --project-root <path>   Path to the project root (default: .)
     --project-id <id>       Unique identifier for the project
+    --config-dir <path>     Config directory (default: ~/.config/docu-guard)
+    --data-dir <path>       Data directory (default: ~/.local/share/docu-guard)
 
   server     Start the MCP server
     --project-root <path>   Path to the project root (default: .)
     --project-id <id>       Project identifier (optional, defaults to dir name)
+    --config-dir <path>     Config directory (default: ~/.config/docu-guard)
+    --data-dir <path>       Data directory (default: ~/.local/share/docu-guard)
 
   daemon     Start the daemon (HTTP MCP server)
     --host <host>           Host to bind to (default: 127.0.0.1)
     --port <port>           Port to listen on (default: 3737)
+    --config-dir <path>     Config directory (default: ~/.config/docu-guard)
+    --data-dir <path>       Data directory (default: ~/.local/share/docu-guard)
     --project-id <id>       Optional: register a project on startup
     --project-root <path>   Optional: project root (used with --project-id)
 
@@ -74,9 +80,6 @@ EXAMPLES:
 function parseArgv(): Record<string, string> {
   const args: Record<string, string> = {};
   let i = 2; // skip "node" and "script"
-  // If running via the CLI binary, args start at index 2 as well
-  // but if it's "node dist/index.js", process.argv[1] is the script path
-  // We handle both cases
 
   while (i < process.argv.length) {
     const arg = process.argv[i];
@@ -99,11 +102,15 @@ function parseArgv(): Record<string, string> {
     } else if (arg === '--port' && i + 1 < process.argv.length) {
       args['port'] = process.argv[i + 1];
       i += 2;
+    } else if (arg === '--config-dir' && i + 1 < process.argv.length) {
+      args['config-dir'] = process.argv[i + 1];
+      i += 2;
+    } else if (arg === '--data-dir' && i + 1 < process.argv.length) {
+      args['data-dir'] = process.argv[i + 1];
+      i += 2;
     } else if (arg.startsWith('--')) {
-      // Unknown flag, skip
       i++;
     } else {
-      // Non-flag argument
       args['_default'] = arg;
       i++;
     }
@@ -126,6 +133,8 @@ async function main(): Promise<void> {
   const projectId = args['project-id'] || '';
   const branch = args['branch'] || 'main';
   const targetDir = args['target-dir'];
+  const configDir = args['config-dir'];
+  const dataDir = args['data-dir'];
 
   switch (command) {
     case 'init': {
@@ -133,7 +142,7 @@ async function main(): Promise<void> {
         console.error('Error: --project-id is required for init');
         process.exit(1);
       }
-      await initCommand({ projectRoot, projectId });
+      await initCommand({ projectRoot, projectId, configDir, dataDir });
       break;
     }
 
@@ -141,6 +150,8 @@ async function main(): Promise<void> {
       await serverCommand({
         projectRoot,
         projectId: projectId || requireProjectId(projectRoot),
+        configDir,
+        dataDir,
       });
       break;
     }
@@ -149,6 +160,8 @@ async function main(): Promise<void> {
       await daemonCommand({
         host: args['host'] || '127.0.0.1',
         port: parseInt(args['port'] || '3737', 10),
+        configDir,
+        dataDir,
         projectId: args['project-id'],
         projectRoot: args['project-root'],
       });
@@ -171,7 +184,7 @@ async function main(): Promise<void> {
             console.error('Error: --project-id and --project-root are required for project add');
             process.exit(1);
           }
-          await projectAddCommand(pid, proot);
+          await projectAddCommand(pid, proot, kwargs['config-dir'] || configDir);
           break;
         }
         case 'remove': {
@@ -180,11 +193,11 @@ async function main(): Promise<void> {
             console.error('Error: --project-id is required for project remove');
             process.exit(1);
           }
-          await projectRemoveCommand(pid);
+          await projectRemoveCommand(pid, configDir);
           break;
         }
         case 'list': {
-          await projectListCommand();
+          await projectListCommand(configDir);
           break;
         }
         case 'show': {
@@ -193,7 +206,7 @@ async function main(): Promise<void> {
             console.error('Error: --project-id is required for project show');
             process.exit(1);
           }
-          await projectShowCommand(pid);
+          await projectShowCommand(pid, configDir);
           break;
         }
         case 'default': {
@@ -202,7 +215,7 @@ async function main(): Promise<void> {
             console.error('Error: --project-id is required for project default');
             process.exit(1);
           }
-          await projectDefaultCommand(pid);
+          await projectDefaultCommand(pid, configDir);
           break;
         }
         default: {
@@ -215,7 +228,7 @@ async function main(): Promise<void> {
     }
 
     case 'list': {
-      await listCommand(projectRoot);
+      await listCommand(projectRoot, configDir, dataDir);
       break;
     }
 
@@ -226,12 +239,12 @@ async function main(): Promise<void> {
         console.log('Usage: docu-guard history <path>');
         process.exit(1);
       }
-      await historyCommand(projectRoot, filePath);
+      await historyCommand(projectRoot, filePath, configDir, dataDir);
       break;
     }
 
     case 'export': {
-      await exportCommand(projectRoot, branch, targetDir);
+      await exportCommand(projectRoot, branch, configDir, dataDir, targetDir);
       break;
     }
 
@@ -244,7 +257,6 @@ async function main(): Promise<void> {
 }
 
 function requireProjectId(projectRoot: string): string {
-  // Try to read the project name from the current directory
   const parts = projectRoot.replace(/\\/g, '/').split('/');
   return parts[parts.length - 1] || 'unnamed-project';
 }

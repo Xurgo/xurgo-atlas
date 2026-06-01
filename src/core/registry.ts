@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { expandTilde, getDefaultConfigDir, getDefaultDataDir } from './storage.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -13,6 +13,8 @@ export interface ProjectEntry {
 
 export interface RegistryData {
   version: number;
+  configDir: string;
+  dataDir: string;
   defaultProjectId: string | null;
   projects: Record<string, ProjectEntry>;
 }
@@ -33,31 +35,39 @@ export class RegistryError extends Error {
   }
 }
 
-// ── Default paths ──────────────────────────────────────────────────────
-
-function defaultConfigDir(): string {
-  const xdg = process.env.XDG_CONFIG_HOME;
-  if (xdg) {
-    return path.join(xdg, 'docu-guard');
-  }
-  return path.join(os.homedir(), '.config', 'docu-guard');
-}
-
 // ── Registry class ─────────────────────────────────────────────────────
 
 export class Registry {
   private data: RegistryData;
-  private configDir: string;
+  private _configDir: string;
+  private _dataDir: string;
   private configPath: string;
 
-  constructor(configDir?: string) {
-    this.configDir = configDir ?? defaultConfigDir();
-    this.configPath = path.join(this.configDir, 'projects.json');
+  constructor(configDir?: string, dataDir?: string) {
+    this._configDir = configDir != null
+      ? path.resolve(expandTilde(configDir))
+      : getDefaultConfigDir();
+    this._dataDir = dataDir != null
+      ? path.resolve(expandTilde(dataDir))
+      : getDefaultDataDir();
+    this.configPath = path.join(this._configDir, 'projects.json');
     this.data = {
-      version: 1,
+      version: 2,
+      configDir: this._configDir,
+      dataDir: this._dataDir,
       defaultProjectId: null,
       projects: {},
     };
+  }
+
+  /** The config directory used by this registry instance. */
+  get configDir(): string {
+    return this._configDir;
+  }
+
+  /** The data directory used by this registry instance. */
+  get dataDir(): string {
+    return this._dataDir;
   }
 
   // ── Load / Save ────────────────────────────────────────────────────
@@ -65,17 +75,39 @@ export class Registry {
   /**
    * Load the registry from disk, or create a default one if the file
    * does not exist yet.
+   *
+   * Backward-compatible with v1 schema: v1 files are upgraded to v2
+   * in memory and saved as v2 on the next write.
    */
-  static async load(configDir?: string): Promise<Registry> {
-    const registry = new Registry(configDir);
+  static async load(configDir?: string, dataDir?: string): Promise<Registry> {
+    const registry = new Registry(configDir, dataDir);
     try {
       const raw = await fs.promises.readFile(registry.configPath, 'utf-8');
-      const parsed = JSON.parse(raw) as RegistryData;
-      // Basic validation
-      if (parsed.version !== 1 || typeof parsed.projects !== 'object') {
-        throw new Error('Invalid registry file format');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+
+      if (parsed.version === 2) {
+        // v2 schema — use directly
+        registry.data = parsed as unknown as RegistryData;
+        // Use the stored paths for this session
+        registry._configDir = registry.data.configDir;
+        registry._dataDir = registry.data.dataDir;
+      } else if (parsed.version === 1 || !parsed.version) {
+        // v1 schema — upgrade in memory to v2
+        const v1data = parsed as {
+          version?: number;
+          defaultProjectId?: string | null;
+          projects?: Record<string, ProjectEntry>;
+        };
+        registry.data = {
+          version: 2,
+          configDir: registry._configDir,
+          dataDir: registry._dataDir,
+          defaultProjectId: v1data.defaultProjectId ?? null,
+          projects: v1data.projects ?? {},
+        };
+      } else {
+        throw new Error(`Unsupported registry schema version: ${parsed.version}`);
       }
-      registry.data = parsed;
     } catch (err: unknown) {
       if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
         // File doesn't exist yet — start with default data
@@ -91,7 +123,7 @@ export class Registry {
    * Persist the registry to disk atomically (write to temp file, then rename).
    */
   private async save(): Promise<void> {
-    await fs.promises.mkdir(this.configDir, { recursive: true });
+    await fs.promises.mkdir(this._configDir, { recursive: true });
     const tmpPath = this.configPath + '.tmp';
     const raw = JSON.stringify(this.data, null, 2) + '\n';
     await fs.promises.writeFile(tmpPath, raw, 'utf-8');
@@ -183,7 +215,7 @@ export class Registry {
    * failure mode:
    *   - NOT_FOUND       — projectId is not in the registry
    *   - ROOT_MISSING    — the registered project root does not exist on disk
-   *   - NOT_INITIALIZED — the project root exists but has no .docu-guard/
+   *   - NOT_INITIALIZED — the project's managed data store has not been created
    */
   async resolve(projectId: string): Promise<{ projectId: string; projectRoot: string }> {
     const entry = this.data.projects[projectId];
@@ -205,8 +237,8 @@ export class Registry {
       );
     }
 
-    // Validate the project has been initialized
-    const initialized = await this.validateProjectInitialized(entry.projectRoot);
+    // Validate the project has been initialized (managed data store exists)
+    const initialized = await this.validateProjectInitialized(projectId);
     if (!initialized) {
       throw new RegistryError(
         'NOT_INITIALIZED',
@@ -258,12 +290,16 @@ export class Registry {
   }
 
   /**
-   * Check that a project root has been initialized with .docu-guard/.
+   * Check that a project has been initialized by verifying the managed
+   * data directory exists (v0.3+).
+   *
+   * For pre-v0.3 projects that only have a .docu-guard/ directory,
+   * this check fails — the user must migrate.
    */
-  private async validateProjectInitialized(projectRoot: string): Promise<boolean> {
-    const docsDir = path.join(projectRoot, '.docu-guard');
+  private async validateProjectInitialized(projectId: string): Promise<boolean> {
+    const dataDir = path.join(this._dataDir, 'projects', projectId);
     try {
-      const stat = await fs.promises.stat(docsDir);
+      const stat = await fs.promises.stat(dataDir);
       return stat.isDirectory();
     } catch {
       return false;
