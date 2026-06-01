@@ -256,7 +256,7 @@
 
 ## v0.3 — Storage Model Audit & Implementation
 
-> **Status:** Configurable managed storage implemented (commit `2979ee2`)
+> **Status:** Configurable managed storage implemented (commit `2979ee2`); external dogfooding complete
 > **Spec:** [`docs/spec/docu-guard-mcp-v0.3-storage-model.md`](./spec/docu-guard-mcp-v0.3-storage-model.md)
 
 | Item | Status | Notes |
@@ -269,7 +269,16 @@
 | Project-local `.docu-guard/` removal | ✅ Complete | `init` no longer creates `.docu-guard/`; no auto-detection or fallback |
 | Existing `.docu-guard/` migration helper | ⏳ Pending | One-time copy from `.docu-guard/` to `<dataDir>/projects/<id>/` |
 | Registry backward compatibility | ✅ Complete | v1 loaded and upgraded silently; saved as v2 |
+| External dogfooding (disposable project) | ✅ Complete | Init + registry + daemon + full MCP patch workflow + export verified; no `.docu-guard/` created |
 | Daemon path validation | ⏳ Pending | Validate configDir/dataDir existence at startup (currently prints paths but does not validate) |
 | Desktop/VPS/Docker path defaults | ⏳ Pending | Defaults use XDG conventions; `/etc`/`/var/lib` defaults not auto-detected |
-| Dogfooding with managed store | ⏳ Pending | Run daemon with `--config-dir`/`--data-dir` on docu-guard-mcp itself |
+| Self-dogfood on docu-guard-mcp itself | ⏳ Pending | Run daemon with `--config-dir`/`--data-dir` pointed at this repo |
 | Tests for new storage model | ✅ Complete | 22 registry tests (v2 schema, v1 compat, CRUD, resolution), 4 daemon tests, 9 HTTP server tests, tilde expansion, CLI init registration |
+
+### Known Follow-Up Items
+
+| Issue | Priority | Notes |
+|-------|----------|-------|
+| GitStore `withWorkDir` should reset/clean workdir before each operation | Medium | Dogfood found that a failed or manual patch attempt can leave dirty state in the temporary workdir, causing subsequent operations on the same branch to apply on top of stale local changes |
+| Initial long-patch failure with `git apply` "corrupt patch" | Low | A patch with a `Date:` field line was rejected as corrupt by git; shorter simpler patch applied cleanly. Pre-existing patch-format fragility, not storage-model specific |
+| Self-dogfood on docu-guard-mcp itself | Medium | Complete the loop by initializing this repo, registering it, and managing its own docs through the daemon |
