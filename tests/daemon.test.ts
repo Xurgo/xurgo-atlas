@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { Project } from '../src/core/project.js';
 import { Registry } from '../src/core/registry.js';
+import { StoragePaths } from '../src/core/storage.js';
 
 const PORT = 37375;
 
@@ -41,24 +42,30 @@ function requestRaw(body: unknown): Promise<{ status: number; body: unknown }> {
 
 let server: http.Server;
 let registry: Registry;
-const rootA = path.join(os.tmpdir(), `docu-guard-da-a-${Date.now()}`);
-const rootB = path.join(os.tmpdir(), `docu-guard-da-b-${Date.now()}`);
+
+// Use dedicated config/data dirs for the test
+const testRoot = path.join(os.tmpdir(), `docu-guard-da-test-${Date.now()}`);
+const configDir = path.join(testRoot, 'config');
+const dataDir = path.join(testRoot, 'data');
+const rootA = path.join(testRoot, 'project-a');
+const rootB = path.join(testRoot, 'project-b');
 
 describe('Daemon integration', () => {
   beforeAll(async () => {
+    // Create project roots and project-facing files
     await fs.promises.mkdir(rootA, { recursive: true });
-    await fs.promises.mkdir(path.join(rootA, '.docu-guard'), { recursive: true });
     await fs.promises.mkdir(path.join(rootA, 'docs'), { recursive: true });
     await fs.promises.writeFile(path.join(rootA, 'docs', 'README.md'), '# Project A');
-    await Project.init({ projectRoot: rootA, projectId: 'project-a' });
+    // Initialize with managed storage (no .docu-guard/)
+    await Project.init({ projectRoot: rootA, projectId: 'project-a', configDir, dataDir });
 
     await fs.promises.mkdir(rootB, { recursive: true });
-    await fs.promises.mkdir(path.join(rootB, '.docu-guard'), { recursive: true });
     await fs.promises.mkdir(path.join(rootB, 'docs'), { recursive: true });
     await fs.promises.writeFile(path.join(rootB, 'docs', 'README.md'), '# Project B');
-    await Project.init({ projectRoot: rootB, projectId: 'project-b' });
+    await Project.init({ projectRoot: rootB, projectId: 'project-b', configDir, dataDir });
 
-    registry = await Registry.load();
+    // Register in the registry
+    registry = await Registry.load(configDir, dataDir);
     await registry.addProject('project-a', rootA);
     await registry.addProject('project-b', rootB);
     await registry.setDefault('project-a');
@@ -120,7 +127,7 @@ describe('Daemon integration', () => {
               res.end(JSON.stringify({ jsonrpc: '2.0', id: (message as Record<string, unknown>).id, error: { code: -32000, message: `Project '${resolvedId}' not found in registry` } }));
               return;
             }
-            const project = await Project.load({ projectRoot: entry.projectRoot, projectId: entry.projectId });
+            const project = await Project.load({ projectRoot: entry.projectRoot, projectId: entry.projectId, configDir, dataDir });
             const relPath = args?.path as string;
             const result = await project.readFile('main', relPath);
             const fileContent = result.content ?? '';
@@ -143,7 +150,7 @@ describe('Daemon integration', () => {
               res.end(JSON.stringify({ jsonrpc: '2.0', id: (message as Record<string, unknown>).id, error: { code: -32000, message: `Project '${resolvedId}' not found in registry` } }));
               return;
             }
-            const project = await Project.load({ projectRoot: entry.projectRoot, projectId: entry.projectId });
+            const project = await Project.load({ projectRoot: entry.projectRoot, projectId: entry.projectId, configDir, dataDir });
             const files = await project.getTrackedFiles();
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ jsonrpc: '2.0', id: (message as Record<string, unknown>).id, result: { content: [{ type: 'text', text: JSON.stringify({ projectId: resolvedId, branch: 'main', files }) }] } }));
@@ -167,8 +174,7 @@ describe('Daemon integration', () => {
     if (server) {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
-    await fs.promises.rm(rootA, { recursive: true, force: true }).catch(() => {});
-    await fs.promises.rm(rootB, { recursive: true, force: true }).catch(() => {});
+    await fs.promises.rm(testRoot, { recursive: true, force: true }).catch(() => {});
   });
 
   it('resolves explicit projectId and reads docs via mock daemon', async () => {

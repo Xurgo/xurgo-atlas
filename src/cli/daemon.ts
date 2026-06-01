@@ -1,12 +1,16 @@
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 import { Project } from '../core/project.js';
 import { Registry } from '../core/registry.js';
+import { StoragePaths } from '../core/storage.js';
 import { createMcpServer } from '../mcp/create-server.js';
 import { startHttpServer, closeHttpServer } from '../mcp/http.js';
 
 export interface DaemonOptions {
   host: string;
   port: number;
+  configDir?: string;
+  dataDir?: string;
   projectId?: string;
   projectRoot?: string;
 }
@@ -19,6 +23,21 @@ export interface DaemonOptions {
  * the lifetime of the daemon process.
  */
 export async function daemonCommand(options: DaemonOptions): Promise<void> {
+  // ── Resolve storage paths ─────────────────────────────────────────
+  const storage = new StoragePaths({
+    configDir: options.configDir,
+    dataDir: options.dataDir,
+  });
+
+  // Ensure config and data directories exist
+  await fs.promises.mkdir(storage.configDir, { recursive: true });
+  await fs.promises.mkdir(storage.dataDir, { recursive: true });
+
+  // ── Print binding info ────────────────────────────────────────────
+  console.error(
+    `docu-guard daemon — config: ${storage.configDir}, data: ${storage.dataDir}`,
+  );
+
   // ── Print warning for non-localhost binding ───────────────────────
   if (options.host !== '127.0.0.1' && options.host !== 'localhost') {
     console.error(
@@ -30,7 +49,7 @@ export async function daemonCommand(options: DaemonOptions): Promise<void> {
   // ── Optionally register a project on startup ──────────────────────
   if (options.projectId && options.projectRoot) {
     const resolvedRoot = path.resolve(options.projectRoot);
-    const registry = await Registry.load();
+    const registry = await Registry.load(storage.configDir, storage.dataDir);
     await registry.addProject(options.projectId, resolvedRoot);
     console.error(
       `Registered project "${options.projectId}" at ${resolvedRoot}`,
@@ -46,7 +65,7 @@ export async function daemonCommand(options: DaemonOptions): Promise<void> {
   // Lazy-load the registry when the first resolution is needed
   async function getRegistry(): Promise<Registry> {
     if (!registry) {
-      registry = await Registry.load();
+      registry = await Registry.load(storage.configDir, storage.dataDir);
     }
     return registry;
   }
@@ -66,6 +85,8 @@ export async function daemonCommand(options: DaemonOptions): Promise<void> {
     const project = await Project.load({
       projectRoot,
       projectId: resolvedId,
+      configDir: storage.configDir,
+      dataDir: storage.dataDir,
     });
     projectCache.set(resolvedId, project);
     return project;

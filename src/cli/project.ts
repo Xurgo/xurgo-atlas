@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import { Registry } from '../core/registry.js';
+import { getDefaultConfigDir } from '../core/storage.js';
 
 /**
  * Parse command-line args for `docu-guard project <subcommand> [options]`.
@@ -18,6 +19,8 @@ export function parseProjectArgs(argv: string[]): {
       kwargs['project-id'] = argv[++i];
     } else if (arg === '--project-root' && i + 1 < argv.length) {
       kwargs['project-root'] = argv[++i];
+    } else if (arg === '--config-dir' && i + 1 < argv.length) {
+      kwargs['config-dir'] = argv[++i];
     } else if (arg.startsWith('--')) {
       // Skip unknown flags
     }
@@ -40,6 +43,7 @@ SUBCOMMANDS:
   add       Register a new project
     --project-id <id>     Unique identifier for the project
     --project-root <path> Path to the project root
+    --config-dir <path>   Config directory (default: ~/.config/docu-guard)
 
   remove    Remove a project from the registry
     --project-id <id>     Project identifier
@@ -63,16 +67,16 @@ EXAMPLES:
 
 // ── Subcommand handlers ────────────────────────────────────────────────
 
-export async function projectAddCommand(projectId: string, projectRoot: string): Promise<void> {
+export async function projectAddCommand(projectId: string, projectRoot: string, configDir?: string): Promise<void> {
   const resolvedRoot = path.resolve(projectRoot);
-  const registry = await Registry.load();
+  const registry = await Registry.load(configDir);
   const entry = await registry.addProject(projectId, resolvedRoot);
   console.log(`✅ Project "${projectId}" registered at ${resolvedRoot}`);
   console.log(`   Created: ${entry.createdAt}`);
 }
 
-export async function projectRemoveCommand(projectId: string): Promise<void> {
-  const registry = await Registry.load();
+export async function projectRemoveCommand(projectId: string, configDir?: string): Promise<void> {
+  const registry = await Registry.load(configDir);
   const removed = await registry.removeProject(projectId);
   if (removed) {
     console.log(`✅ Project "${projectId}" removed from registry.`);
@@ -82,8 +86,8 @@ export async function projectRemoveCommand(projectId: string): Promise<void> {
   }
 }
 
-export async function projectListCommand(): Promise<void> {
-  const registry = await Registry.load();
+export async function projectListCommand(configDir?: string): Promise<void> {
+  const registry = await Registry.load(configDir);
   const projects = registry.listProjects();
   const defaultEntry = registry.getDefault();
 
@@ -100,8 +104,8 @@ export async function projectListCommand(): Promise<void> {
   }
 }
 
-export async function projectShowCommand(projectId: string): Promise<void> {
-  const registry = await Registry.load();
+export async function projectShowCommand(projectId: string, configDir?: string): Promise<void> {
+  const registry = await Registry.load(configDir);
   const entry = registry.getProject(projectId);
   if (!entry) {
     console.error(`❌ Project "${projectId}" not found in registry.`);
@@ -110,8 +114,8 @@ export async function projectShowCommand(projectId: string): Promise<void> {
   console.log(JSON.stringify(entry, null, 2));
 }
 
-export async function projectDefaultCommand(projectId: string): Promise<void> {
-  const registry = await Registry.load();
+export async function projectDefaultCommand(projectId: string, configDir?: string): Promise<void> {
+  const registry = await Registry.load(configDir);
   try {
     await registry.setDefault(projectId);
     console.log(`✅ Default project set to "${projectId}".`);

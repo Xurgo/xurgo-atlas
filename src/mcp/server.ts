@@ -5,6 +5,8 @@ import { createMcpServer } from './create-server.js';
 export interface ServerOptions {
   projectRoot: string;
   projectId: string;
+  configDir?: string;
+  dataDir?: string;
 }
 
 /**
@@ -18,6 +20,8 @@ export async function startMcpServer(options: ServerOptions): Promise<void> {
   const project = await Project.load({
     projectRoot: options.projectRoot,
     projectId: options.projectId,
+    configDir: options.configDir,
+    dataDir: options.dataDir,
   });
 
   const server = createMcpServer(project);

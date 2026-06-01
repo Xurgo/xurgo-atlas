@@ -1,12 +1,16 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Project } from '../core/project.js';
+import { Registry } from '../core/registry.js';
+import { StoragePaths } from '../core/storage.js';
 import { startMcpServer } from '../mcp/server.js';
 import { mergeHistory, type GitHistoryEntry, type EventHistoryEntry } from '../mcp/tools.js';
 
 export interface InitOptions {
   projectRoot: string;
   projectId: string;
+  configDir?: string;
+  dataDir?: string;
 }
 
 /**
@@ -27,23 +31,51 @@ export async function initCommand(options: InitOptions): Promise<void> {
     process.exit(1);
   }
 
+  // Check for pre-v0.3 .docu-guard/ directory (warn, don't block)
+  const legacyDir = path.join(resolvedRoot, '.docu-guard');
+  try {
+    const legacyStat = await fs.promises.stat(legacyDir);
+    if (legacyStat.isDirectory()) {
+      console.error(
+        `Warning: Found pre-v0.3 .docu-guard/ directory at ${legacyDir}. ` +
+          'This is a development artifact from an earlier version. ' +
+          'To migrate, copy its contents to the managed store then remove it. ' +
+          'The managed store will be created at the configured data directory.',
+      );
+    }
+  } catch {
+    // .docu-guard/ does not exist — fine
+  }
+
+  // Resolve storage paths for display
+  const storage = new StoragePaths({
+    configDir: options.configDir,
+    dataDir: options.dataDir,
+  });
+
   console.log(`Initializing docu-guard in ${resolvedRoot}...`);
 
   const project = await Project.init({
     projectRoot: resolvedRoot,
     projectId: options.projectId,
+    configDir: options.configDir,
+    dataDir: options.dataDir,
   });
 
-  console.log(`✓ Created .docu-guard/ directory`);
-  console.log(`✓ Initialized Git-backed docs store at .docu-guard/repo.git`);
-  console.log(`✓ Created event log at .docu-guard/events.sqlite`);
+  // Register the project in the global registry
+  const registry = await Registry.load(options.configDir, options.dataDir);
+  await registry.addProject(options.projectId, resolvedRoot);
+
+  console.log(`✓ Initialized Git-backed docs store at ${storage.projectRepoPath(options.projectId)}`);
+  console.log(`✓ Created event log at ${storage.projectEventsPath(options.projectId)}`);
   console.log(`✓ Created .docs-policy.yml`);
   console.log(`✓ Created docs/ directory structure`);
   console.log(`✓ Created/updated AGENTS.md with documentation safety rules`);
   console.log(`✓ Snapshotted initial documentation`);
+  console.log(`✓ Registered project in ${storage.registryPath()}`);
   console.log(`\n✅ docu-guard project "${options.projectId}" initialized successfully.\n`);
 
-    console.log(`  1. Start the server:  docu-guard server --project-root .`);
+  console.log(`  1. Start the server:  docu-guard server --project-root .`);
   console.log(`  2. Configure your MCP client to connect to the server`);
   console.log(`  3. Use docs.list, docs.read, and docs.propose_patch tools`);
 }
@@ -51,24 +83,21 @@ export async function initCommand(options: InitOptions): Promise<void> {
 /**
  * Run the `docu-guard server` command.
  */
-export async function serverCommand(options: InitOptions): Promise<void> {
+export async function serverCommand(options: InitOptions & { configDir?: string; dataDir?: string }): Promise<void> {
   const resolvedRoot = path.resolve(options.projectRoot);
 
-  // Verify initialization
-  const docsMcpDir = path.join(resolvedRoot, '.docu-guard');
-  try {
-    await fs.promises.access(docsMcpDir);
-  } catch {
+  // Verify initialization by checking project files exist
+  const hasPolicy = await fileExists(path.join(resolvedRoot, '.docs-policy.yml'));
+  const hasDocs = await dirExists(path.join(resolvedRoot, 'docs'));
+  if (!hasPolicy && !hasDocs) {
     console.error(
       `Error: "${resolvedRoot}" has not been initialized. Run "docu-guard init" first.`,
     );
     process.exit(1);
   }
 
-  // Load project config from .docu-guard
   let projectId = options.projectId;
   if (!projectId) {
-    // Try to read project ID from a config file or just use dirname
     projectId = path.basename(resolvedRoot);
   }
 
@@ -78,19 +107,27 @@ export async function serverCommand(options: InitOptions): Promise<void> {
   await startMcpServer({
     projectRoot: resolvedRoot,
     projectId,
+    configDir: options.configDir,
+    dataDir: options.dataDir,
   });
 }
 
 /**
  * Run the `docu-guard list` command.
  */
-export async function listCommand(projectRoot: string): Promise<void> {
+export async function listCommand(
+  projectRoot: string,
+  configDir?: string,
+  dataDir?: string,
+): Promise<void> {
   const resolvedRoot = path.resolve(projectRoot);
   await requireInit(resolvedRoot);
 
   const project = await Project.load({
     projectRoot: resolvedRoot,
     projectId: path.basename(resolvedRoot),
+    configDir,
+    dataDir,
   });
 
   const filePaths = await project.getTrackedFiles();
@@ -114,6 +151,8 @@ export async function listCommand(projectRoot: string): Promise<void> {
 export async function historyCommand(
   projectRoot: string,
   filePath: string,
+  configDir?: string,
+  dataDir?: string,
 ): Promise<void> {
   const resolvedRoot = path.resolve(projectRoot);
   await requireInit(resolvedRoot);
@@ -121,6 +160,8 @@ export async function historyCommand(
   const project = await Project.load({
     projectRoot: resolvedRoot,
     projectId: path.basename(resolvedRoot),
+    configDir,
+    dataDir,
   });
 
   const gitHistory = await project.gitStore.getHistory(filePath);
@@ -141,6 +182,8 @@ export async function historyCommand(
 export async function exportCommand(
   projectRoot: string,
   branch: string,
+  configDir?: string,
+  dataDir?: string,
   targetDir?: string,
 ): Promise<void> {
   const resolvedRoot = path.resolve(projectRoot);
@@ -149,6 +192,8 @@ export async function exportCommand(
   const project = await Project.load({
     projectRoot: resolvedRoot,
     projectId: path.basename(resolvedRoot),
+    configDir,
+    dataDir,
   });
 
   const exportTarget = targetDir
@@ -168,17 +213,37 @@ export async function exportCommand(
   }
 }
 
+// ── Helpers ─────────────────────────────────────────────────────────────
+
 /**
  * Require that a project has been initialized. Exits with a clear message if not.
+ * Checks for project files (docs/, .docs-policy.yml) rather than .docu-guard/.
  */
 async function requireInit(projectRoot: string): Promise<void> {
-  const docsMcpDir = path.join(projectRoot, '.docu-guard');
-  try {
-    await fs.promises.access(docsMcpDir);
-  } catch {
+  const hasPolicy = await fileExists(path.join(projectRoot, '.docs-policy.yml'));
+  const hasDocs = await dirExists(path.join(projectRoot, 'docs'));
+  if (!hasPolicy && !hasDocs) {
     console.error(
       `Error: "${projectRoot}" has not been initialized. Run "docu-guard init" first.`,
     );
     process.exit(1);
+  }
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    const stat = await fs.promises.stat(filePath);
+    return stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function dirExists(dirPath: string): Promise<boolean> {
+  try {
+    const stat = await fs.promises.stat(dirPath);
+    return stat.isDirectory();
+  } catch {
+    return false;
   }
 }

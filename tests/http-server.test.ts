@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import { Project } from '../src/core/project.js';
 import { Registry } from '../src/core/registry.js';
 import { createMcpServer } from '../src/mcp/create-server.js';
-import { startHttpServer, closeHttpServer } from '../src/mcp/http.js';
+import { startHttpServer } from '../src/mcp/http.js';
 
 const PORT = 37376;
 
@@ -80,36 +80,41 @@ async function options(address: string): Promise<{ status: number; headers: Reco
 }
 
 let server: http.Server;
-// let transport: { close: () => Promise<void> };
-const tmpDir = path.join(os.tmpdir(), `docu-guard-http-test-${Date.now()}`);
 
-function createMockTransport() {
-  return {
-    async handleRequest(): Promise<void> {},
-    async close(): Promise<void> {},
-    onclose() {},
-    onerror() {},
-  };
-}
+// Isolated temp directories for v0.3 managed storage
+const testRoot = path.join(os.tmpdir(), `docu-guard-http-test-${Date.now()}`);
+const configDir = path.join(testRoot, 'config');
+const dataDir = path.join(testRoot, 'data');
+const projectRoot = path.join(testRoot, 'project');
 
 describe('HTTP server', () => {
   beforeAll(async () => {
-    await fs.promises.mkdir(tmpDir, { recursive: true });
-    await fs.promises.mkdir(path.join(tmpDir, '.docu-guard'), { recursive: true });
-    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
-    await fs.promises.writeFile(path.join(tmpDir, 'docs', 'README.md'), '# README');
-    await Project.init({ projectRoot: tmpDir, projectId: 'http-test' });
+    await fs.promises.mkdir(projectRoot, { recursive: true });
+    await fs.promises.mkdir(path.join(projectRoot, 'docs'), { recursive: true });
+    await fs.promises.writeFile(path.join(projectRoot, 'docs', 'README.md'), '# README');
 
-    const registry = await Registry.load();
-    await registry.addProject('http-test', tmpDir);
+    // Initialize with v0.3 managed storage — no .docu-guard/
+    await Project.init({
+      projectRoot,
+      projectId: 'http-test',
+      configDir,
+      dataDir,
+    });
+
+    // Register in the registry
+    const registry = await Registry.load(configDir, dataDir);
+    await registry.addProject('http-test', projectRoot);
 
     const mcpServer = createMcpServer(async (projectId: string) => {
       const entry = registry.listProjects().find((p) => p.projectId === projectId);
       if (!entry) throw new Error(`Project not found: ${projectId}`);
-      return Project.load({ projectRoot: entry.projectRoot, projectId: entry.projectId });
+      return Project.load({
+        projectRoot: entry.projectRoot,
+        projectId: entry.projectId,
+        configDir,
+        dataDir,
+      });
     }, { version: '0.2.0' });
-
-    // transport = createMockTransport() as unknown as { close: () => Promise<void> };
 
     const result = await startHttpServer(() => mcpServer, { host: '127.0.0.1', port: PORT });
     server = result.server;
@@ -119,6 +124,7 @@ describe('HTTP server', () => {
     if (server) {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+    await fs.promises.rm(testRoot, { recursive: true, force: true }).catch(() => {});
   });
 
   it('GET /health returns 200 OK', async () => {
@@ -150,37 +156,33 @@ describe('HTTP server', () => {
 
   it('POST /mcp with Content-Type is dispatched', async () => {
     const res = await post('/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
-    // 406 means Not Acceptable - the transport might require specific Accept headers or initialization
-    // For now, we accept that the request was dispatched (not 404) and not rejected for origin (not 403)
     expect(res.status).not.toBe(404);
     expect(res.status).not.toBe(403);
-    // The actual status might be 200 (success), 400 (bad request), 401 (unauthorized), 406 (not acceptable), etc.
-    // As long as it's dispatched to the transport layer, we consider it a success for routing purposes
   });
 
-    it('POST /mcp with disallowed Origin returns 403', async () => {
-      const r = await new Promise<{ status: number; data: unknown }>((resolve) => {
-        const req = http.request(
-          {
-            hostname: '127.0.0.1',
-            port: PORT,
-            path: '/mcp',
-            method: 'POST',
-            headers: {
-              Origin: 'https://evil.example.com',
-            },
+  it('POST /mcp with disallowed Origin returns 403', async () => {
+    const r = await new Promise<{ status: number; data: unknown }>((resolve) => {
+      const req = http.request(
+        {
+          hostname: '127.0.0.1',
+          port: PORT,
+          path: '/mcp',
+          method: 'POST',
+          headers: {
+            Origin: 'https://evil.example.com',
           },
-          (res) => {
-            const chunks = []; res.on('data', c => chunks.push(c)); res.on('end', () => {
-              try { resolve({ status: res.statusCode ?? 0, data: JSON.parse(chunks.join('').toString()) }); } catch { resolve({ status: res.statusCode ?? 0, data: chunks.join('').toString() }); }
-            });
-          },
-        );
-        req.on('error', () => resolve({ status: 0, data: null }));
-        req.end();
-      });
-      expect(r.status).toBe(403);
+        },
+        (res) => {
+          const chunks = []; res.on('data', c => chunks.push(c)); res.on('end', () => {
+            try { resolve({ status: res.statusCode ?? 0, data: JSON.parse(chunks.join('').toString()) }); } catch { resolve({ status: res.statusCode ?? 0, data: chunks.join('').toString() }); }
+          });
+        },
+      );
+      req.on('error', () => resolve({ status: 0, data: null }));
+      req.end();
     });
+    expect(r.status).toBe(403);
+  });
 
   it('GET to unknown path returns non-200', async () => {
     const r = await await new Promise<{ status: number; data: unknown }>((resolve) => {
@@ -191,5 +193,25 @@ describe('HTTP server', () => {
       }).on('error', () => resolve({ status: 0, data: null }));
     });
     expect(r.status).not.toBe(200);
+  });
+
+  it('should not create .docu-guard/ in project root', async () => {
+    await expect(fs.promises.stat(path.join(projectRoot, '.docu-guard'))).rejects.toThrow();
+  });
+
+  it('should have managed state under dataDir', async () => {
+    const managedDir = path.join(dataDir, 'projects', 'http-test');
+    const managedStat = await fs.promises.stat(managedDir);
+    expect(managedStat.isDirectory()).toBe(true);
+
+    const repoPath = path.join(managedDir, 'repo.git');
+    const repoStat = await fs.promises.stat(repoPath);
+    expect(repoStat.isDirectory()).toBe(true);
+  });
+
+  it('should have registry at configDir/projects.json', async () => {
+    const registryPath = path.join(configDir, 'projects.json');
+    const regStat = await fs.promises.stat(registryPath);
+    expect(regStat.isFile()).toBe(true);
   });
 });

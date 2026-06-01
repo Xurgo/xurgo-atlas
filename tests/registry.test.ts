@@ -6,14 +6,21 @@ import { Registry, RegistryError } from '../src/core/registry.js';
 
 let tmpDir: string;
 let configDir: string;
+let dataDir: string;
 
 function projDir(id: string): string {
   return path.join(tmpDir, id);
 }
 
+/** Create the managed data directory for a project (as init would). */
+async function ensureManagedData(pid: string): Promise<void> {
+  await fs.promises.mkdir(path.join(dataDir, 'projects', pid), { recursive: true });
+}
+
 beforeEach(async () => {
   tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'docu-guard-reg-test-'));
   configDir = path.join(tmpDir, '.config', 'docu-guard');
+  dataDir = path.join(tmpDir, '.local', 'share', 'docu-guard');
 });
 
 afterEach(async () => {
@@ -22,13 +29,13 @@ afterEach(async () => {
 
 describe('Registry CRUD', () => {
   it('should create registry with empty projects list', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     expect(registry.listProjects()).toEqual([]);
     expect(registry.getDefault()).toBeNull();
   });
 
   it('should add a project and list contains it', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     const entry = await registry.addProject('test-project', projDir('test'));
     expect(entry.projectId).toBe('test-project');
     expect(entry.projectRoot).toBe(projDir('test'));
@@ -41,7 +48,7 @@ describe('Registry CRUD', () => {
   });
 
   it('should add multiple projects and list them sorted', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     await registry.addProject('z-project', projDir('z'));
     await registry.addProject('a-project', projDir('a'));
     await registry.addProject('m-project', projDir('m'));
@@ -54,7 +61,7 @@ describe('Registry CRUD', () => {
   });
 
   it('should add a project, remove it, and list is empty', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     await registry.addProject('test-project', projDir('test'));
 
     const removed = await registry.removeProject('test-project');
@@ -64,13 +71,13 @@ describe('Registry CRUD', () => {
   });
 
   it('should return false when removing non-existent project', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     const removed = await registry.removeProject('nonexistent');
     expect(removed).toBe(false);
   });
 
   it('should show a project by id', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     await registry.addProject('test-project', projDir('test'));
 
     const entry = registry.getProject('test-project');
@@ -82,7 +89,7 @@ describe('Registry CRUD', () => {
   });
 
   it('should update a project and preserve creation timestamp', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     const entry1 = await registry.addProject('test-project', projDir('original'));
 
     await new Promise((r) => setTimeout(r, 10));
@@ -96,7 +103,7 @@ describe('Registry CRUD', () => {
 
 describe('Registry Default', () => {
   it('should set and get default project', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     await registry.addProject('project-a', projDir('a'));
     await registry.addProject('project-b', projDir('b'));
 
@@ -107,7 +114,7 @@ describe('Registry Default', () => {
   });
 
   it('should clear default when default project is removed', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     await registry.addProject('project-a', projDir('a'));
     await registry.setDefault('project-a');
     await registry.removeProject('project-a');
@@ -116,23 +123,24 @@ describe('Registry Default', () => {
   });
 
   it('should throw when setting default for non-existent project', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     await expect(registry.setDefault('nonexistent')).rejects.toThrow(RegistryError);
   });
 
   it('should return null for getDefault when none set', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     expect(registry.getDefault()).toBeNull();
   });
 });
 
 describe('Registry Resolution', () => {
   it('should resolve a valid projectId', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     await registry.addProject('test-project', projDir('test'));
 
     await fs.promises.mkdir(projDir('test'), { recursive: true });
-    await fs.promises.mkdir(path.join(projDir('test'), '.docu-guard'), { recursive: true });
+    // Create the managed data directory (v0.3+)
+    await ensureManagedData('test-project');
 
     const result = await registry.resolve('test-project');
     expect(result.projectId).toBe('test-project');
@@ -140,7 +148,7 @@ describe('Registry Resolution', () => {
   });
 
   it('should throw NOT_FOUND for unknown projectId', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     try {
       await registry.resolve('nonexistent');
       expect.unreachable('Should have thrown');
@@ -152,7 +160,7 @@ describe('Registry Resolution', () => {
   });
 
   it('should throw ROOT_MISSING when project root does not exist', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     await registry.addProject('test-project', projDir('nonexistent-path'));
 
     try {
@@ -165,11 +173,11 @@ describe('Registry Resolution', () => {
     }
   });
 
-  it('should throw NOT_INITIALIZED when .docu-guard is missing', async () => {
-    const registry = await Registry.load(configDir);
+  it('should throw NOT_INITIALIZED when managed data dir is missing', async () => {
+    const registry = await Registry.load(configDir, dataDir);
     await registry.addProject('test-project', projDir('test'));
     await fs.promises.mkdir(projDir('test'), { recursive: true });
-    // Don't create .docu-guard
+    // Don't create the managed data directory
 
     try {
       await registry.resolve('test-project');
@@ -182,30 +190,30 @@ describe('Registry Resolution', () => {
   });
 
   it('should resolve via fallback with default project', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     await registry.addProject('test-project', projDir('test'));
     await registry.setDefault('test-project');
 
     await fs.promises.mkdir(projDir('test'), { recursive: true });
-    await fs.promises.mkdir(path.join(projDir('test'), '.docu-guard'), { recursive: true });
+    await ensureManagedData('test-project');
 
     const result = await registry.resolveOrFallback();
     expect(result.projectId).toBe('test-project');
   });
 
   it('should resolve via fallback with explicit projectId', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
     await registry.addProject('test-project', projDir('test'));
 
     await fs.promises.mkdir(projDir('test'), { recursive: true });
-    await fs.promises.mkdir(path.join(projDir('test'), '.docu-guard'), { recursive: true });
+    await ensureManagedData('test-project');
 
     const result = await registry.resolveOrFallback('test-project');
     expect(result.projectId).toBe('test-project');
   });
 
   it('should throw NO_DEFAULT when no projectId and no default set', async () => {
-    const registry = await Registry.load(configDir);
+    const registry = await Registry.load(configDir, dataDir);
 
     try {
       await registry.resolveOrFallback();
@@ -219,19 +227,19 @@ describe('Registry Resolution', () => {
 });
 
 describe('Registry Persistence', () => {
-  it('should persist to disk and reload', async () => {
-    const registry1 = await Registry.load(configDir);
+  it('should persist to disk and reload (v2 schema)', async () => {
+    const registry1 = await Registry.load(configDir, dataDir);
     await registry1.addProject('test-project', projDir('test'));
     await registry1.setDefault('test-project');
 
-    const registry2 = await Registry.load(configDir);
+    const registry2 = await Registry.load(configDir, dataDir);
     expect(registry2.listProjects().length).toBe(1);
     expect(registry2.listProjects()[0].projectId).toBe('test-project');
     expect(registry2.getDefault()!.projectId).toBe('test-project');
   });
 
-  it('should produce valid JSON after every write', async () => {
-    const registry = await Registry.load(configDir);
+  it('should produce valid JSON with v2 schema after write', async () => {
+    const registry = await Registry.load(configDir, dataDir);
     await registry.addProject('project-a', projDir('a'));
     await registry.addProject('project-b', projDir('b'));
     await registry.setDefault('project-a');
@@ -242,8 +250,60 @@ describe('Registry Persistence', () => {
     );
     expect(() => JSON.parse(raw)).not.toThrow();
     const data = JSON.parse(raw);
-    expect(data.version).toBe(1);
+    expect(data.version).toBe(2);
+    expect(data.configDir).toBe(configDir);
+    expect(data.dataDir).toBe(dataDir);
     expect(data.defaultProjectId).toBe('project-a');
     expect(Object.keys(data.projects)).toEqual(['project-a', 'project-b']);
+  });
+
+  it('should store configDir and dataDir in v2 registry', async () => {
+    const registry = await Registry.load(configDir, dataDir);
+    expect(registry.configDir).toBe(configDir);
+    expect(registry.dataDir).toBe(dataDir);
+  });
+});
+
+describe('Registry v1 backward compatibility', () => {
+  it('should load a v1 registry and upgrade to v2 on write', async () => {
+    // Write a v1-style registry file manually
+    const v1data = {
+      version: 1,
+      defaultProjectId: 'legacy-project',
+      projects: {
+        'legacy-project': {
+          projectId: 'legacy-project',
+          projectRoot: projDir('legacy'),
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      },
+    };
+    await fs.promises.mkdir(configDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(configDir, 'projects.json'),
+      JSON.stringify(v1data, null, 2),
+    );
+
+    // Load it — should succeed (upgrade in memory)
+    const registry = await Registry.load(configDir, dataDir);
+    expect(registry.listProjects().length).toBe(1);
+    expect(registry.listProjects()[0].projectId).toBe('legacy-project');
+    expect(registry.getDefault()!.projectId).toBe('legacy-project');
+    expect(registry.configDir).toBe(configDir);
+    expect(registry.dataDir).toBe(dataDir);
+
+    // Trigger a write (e.g. by adding a project) and verify v2 format
+    await registry.addProject('new-project', projDir('new'));
+    const raw = await fs.promises.readFile(
+      path.join(configDir, 'projects.json'),
+      'utf-8',
+    );
+    const saved = JSON.parse(raw);
+    expect(saved.version).toBe(2);
+    expect(saved.configDir).toBe(configDir);
+    expect(saved.dataDir).toBe(dataDir);
+    expect(saved.defaultProjectId).toBe('legacy-project');
+    expect(Object.keys(saved.projects)).toEqual(['legacy-project', 'new-project']);
   });
 });

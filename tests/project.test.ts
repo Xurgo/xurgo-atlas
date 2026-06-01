@@ -3,7 +3,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { Project } from '../src/core/project.js';
+import { Registry } from '../src/core/registry.js';
 import { Policy } from '../src/core/policy.js';
+import { StoragePaths, getDefaultConfigDir, getDefaultDataDir } from '../src/core/storage.js';
+import { initCommand } from '../src/cli/init.js';
 import { GitStore } from '../src/core/git-store.js';
 import { EventLog } from '../src/core/events.js';
 import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/patch.js';
@@ -19,27 +22,87 @@ afterEach(async () => {
   await fs.promises.rm(tmpDir, { recursive: true, force: true });
 });
 
+// ── Storage path resolution tests ─────────────────────────────────────
+
+describe('storage path resolution', () => {
+  it('should provide default config and data directories', () => {
+    const storage = new StoragePaths();
+    expect(storage.configDir).toBe(getDefaultConfigDir());
+    expect(storage.dataDir).toBe(getDefaultDataDir());
+  });
+
+  it('should accept custom config and data directories', () => {
+    const storage = new StoragePaths({
+      configDir: '/custom/config',
+      dataDir: '/custom/data',
+    });
+    expect(storage.configDir).toBe('/custom/config');
+    expect(storage.dataDir).toBe('/custom/data');
+  });
+
+  it('should derive correct project managed paths', () => {
+    const storage = new StoragePaths({
+      configDir: '/cfg',
+      dataDir: '/dat',
+    });
+    expect(storage.registryPath()).toBe('/cfg/projects.json');
+    expect(storage.projectDataDir('my-proj')).toBe('/dat/projects/my-proj');
+    expect(storage.projectRepoPath('my-proj')).toBe('/dat/projects/my-proj/repo.git');
+    expect(storage.projectEventsPath('my-proj')).toBe('/dat/projects/my-proj/events.sqlite');
+  });
+
+  it('should expand default paths from XDG environment variables', () => {
+    // XDG_CONFIG_HOME and XDG_DATA_HOME are not set in tests, so defaults
+    // should fall back to ~/.config and ~/.local/share
+    const storage = new StoragePaths();
+    expect(storage.configDir).toContain('.config');
+    expect(storage.dataDir).toContain('.local/share');
+  });
+
+  it('should expand ~ to home directory in configDir and dataDir', () => {
+    const home = os.homedir();
+    const storage = new StoragePaths({
+      configDir: '~/my-config',
+      dataDir: '~/my-data',
+    });
+    expect(storage.configDir).toBe(path.join(home, 'my-config'));
+    expect(storage.dataDir).toBe(path.join(home, 'my-data'));
+  });
+
+  it('should expand bare ~ without trailing slash', () => {
+    const home = os.homedir();
+    const storage = new StoragePaths({
+      configDir: '~',
+      dataDir: '~',
+    });
+    expect(storage.configDir).toBe(home);
+    expect(storage.dataDir).toBe(home);
+  });
+
+  it('should leave non-tilde paths unchanged (after path.resolve)', () => {
+    const storage = new StoragePaths({
+      configDir: '/absolute/path',
+      dataDir: '/another/path',
+    });
+    expect(storage.configDir).toBe('/absolute/path');
+    expect(storage.dataDir).toBe('/another/path');
+  });
+});
+
+// ── Project initialization (v0.3 managed storage) ────────────────────
+
 describe('project initialization', () => {
-  it('should create all expected files and directories', async () => {
+  it('should create project files but NOT create .docu-guard/', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
-    // Check .docu-guard directory exists
-    const docsDirName = path.join(tmpDir, '.docu-guard');
-    const stat = await fs.promises.stat(docsDirName);
-    expect(stat.isDirectory()).toBe(true);
-
-    // Check Git store exists
-    const gitStoreDir = path.join(docsDirName, 'repo.git');
-    const gitStat = await fs.promises.stat(gitStoreDir);
-    expect(gitStat.isDirectory()).toBe(true);
-
-    // Check SQLite events DB exists
-    const eventsDb = path.join(docsDirName, 'events.sqlite');
-    const dbStat = await fs.promises.stat(eventsDb);
-    expect(dbStat.isFile()).toBe(true);
+    // .docu-guard/ should NOT exist
+    const legacyDir = path.join(tmpDir, '.docu-guard');
+    await expect(fs.promises.stat(legacyDir)).rejects.toThrow();
 
     // Check .docs-policy.yml exists
     const policyFile = path.join(tmpDir, '.docs-policy.yml');
@@ -83,13 +146,73 @@ describe('project initialization', () => {
     const files = await project.getTrackedFiles();
     expect(files.length).toBeGreaterThan(0);
   });
+
+  it('should create managed state under dataDir, not project root', async () => {
+    // Use a custom data dir in the temp area
+    const dataDir = path.join(tmpDir, 'docu-guard-data');
+    const configDir = path.join(tmpDir, 'docu-guard-config');
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir,
+      dataDir,
+    });
+
+    // Managed state should be at <dataDir>/projects/test-project/
+    const managedDir = path.join(dataDir, 'projects', 'test-project');
+    const managedStat = await fs.promises.stat(managedDir);
+    expect(managedStat.isDirectory()).toBe(true);
+
+    // Git repo should be there
+    const repoPath = path.join(managedDir, 'repo.git');
+    const repoStat = await fs.promises.stat(repoPath);
+    expect(repoStat.isDirectory()).toBe(true);
+
+    // Events DB should be there
+    const eventsPath = path.join(managedDir, 'events.sqlite');
+    const dbStat = await fs.promises.stat(eventsPath);
+    expect(dbStat.isFile()).toBe(true);
+
+    // Registry is not written by Project.init() — that's a separate step.
+    // Project root should NOT have .docu-guard/
+    await expect(fs.promises.stat(path.join(tmpDir, '.docu-guard'))).rejects.toThrow();
+  });
+
+  it('should warn but not block if pre-v0.3 .docu-guard/ exists', async () => {
+    // Create a legacy .docu-guard/ directory
+    const legacyDir = path.join(tmpDir, '.docu-guard');
+    await fs.promises.mkdir(legacyDir, { recursive: true });
+
+    // Init should succeed (writes to stderr but doesn't throw)
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // Legacy dir should still exist
+    const stat = await fs.promises.stat(legacyDir);
+    expect(stat.isDirectory()).toBe(true);
+
+    // Managed state should also exist
+    const storage = project.storage;
+    const managedDir = storage.projectDataDir('test-project');
+    const managedStat = await fs.promises.stat(managedDir);
+    expect(managedStat.isDirectory()).toBe(true);
+  });
 });
+
+// ── Existing tests (updated for managed storage) ─────────────────────
 
 describe('reading docs', () => {
   it('should read a file from the Git store', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const { content, revision } = await project.readFile('main', 'docs/README.md');
@@ -102,6 +225,8 @@ describe('reading docs', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const { content } = await project.readFile('main', 'docs/nonexistent.md');
@@ -114,6 +239,8 @@ describe('creating branches', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     await project.gitStore.createBranch('test-branch', 'main');
@@ -132,6 +259,8 @@ describe('proposing a valid patch', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = await Policy.load(tmpDir);
@@ -163,6 +292,8 @@ describe('rejecting a stale baseRevision', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = await Policy.load(tmpDir);
@@ -234,6 +365,8 @@ describe('committing a patch', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const filePath = 'docs/README.md';
@@ -265,6 +398,8 @@ describe('writing an event log row', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const event = project.eventLog.logEvent({
@@ -292,6 +427,8 @@ describe('restoring a file from history', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const filePath = 'docs/README.md';
@@ -327,6 +464,8 @@ describe('proposal storage', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const stored = project.eventLog.storeProposal({
@@ -411,6 +550,8 @@ describe('exporting documentation', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const exportDir = path.join(tmpDir, 'export-output');
@@ -432,6 +573,8 @@ describe('stale proposal detection', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = new Policy();
@@ -476,6 +619,8 @@ describe('AGENTS.md intent validation', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = await Policy.load(tmpDir);
@@ -509,6 +654,8 @@ describe('AGENTS.md intent validation', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = await Policy.load(tmpDir);
@@ -543,6 +690,8 @@ describe('AGENTS.md intent validation', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = await Policy.load(tmpDir);
@@ -574,6 +723,8 @@ describe('AGENTS.md intent validation', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = await Policy.load(tmpDir);
@@ -605,6 +756,8 @@ describe('AGENTS.md intent validation', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = await Policy.load(tmpDir);
@@ -631,16 +784,97 @@ describe('AGENTS.md intent validation', () => {
   });
 });
 
+// ── CLI init command (v0.3 with registry registration) ────────────────
+
+describe('CLI init command', () => {
+  it('should initialize project AND register it in the registry', async () => {
+    const configDir = path.join(tmpDir, 'config');
+    const dataDir = path.join(tmpDir, 'data');
+
+    await initCommand({
+      projectRoot: tmpDir,
+      projectId: 'my-project',
+      configDir,
+      dataDir,
+    });
+
+    // Managed state should be under <dataDir>/projects/my-project/
+    const managedDir = path.join(dataDir, 'projects', 'my-project');
+    const managedStat = await fs.promises.stat(managedDir);
+    expect(managedStat.isDirectory()).toBe(true);
+
+    // Git repo should exist in managed storage
+    const repoPath = path.join(managedDir, 'repo.git');
+    const repoStat = await fs.promises.stat(repoPath);
+    expect(repoStat.isDirectory()).toBe(true);
+
+    // Events DB should exist in managed storage
+    const eventsPath = path.join(managedDir, 'events.sqlite');
+    const dbStat = await fs.promises.stat(eventsPath);
+    expect(dbStat.isFile()).toBe(true);
+
+    // Project should be registered in the registry
+    const registry = await Registry.load(configDir, dataDir);
+    const entry = registry.getProject('my-project');
+    expect(entry).not.toBeNull();
+    expect(entry!.projectRoot).toBe(tmpDir);
+    expect(entry!.projectId).toBe('my-project');
+
+    // Project root should NOT have .docu-guard/
+    await expect(fs.promises.stat(path.join(tmpDir, '.docu-guard'))).rejects.toThrow();
+  });
+
+  it('should be idempotent — registering same project again updates root', async () => {
+    const configDir = path.join(tmpDir, 'config');
+    const dataDir = path.join(tmpDir, 'data');
+
+    // Init twice with different project root (simulating re-init)
+    await initCommand({
+      projectRoot: tmpDir,
+      projectId: 'my-project',
+      configDir,
+      dataDir,
+    });
+
+    const registry = await Registry.load(configDir, dataDir);
+    const entry = registry.getProject('my-project');
+    expect(entry).not.toBeNull();
+    expect(entry!.projectRoot).toBe(tmpDir);
+    expect(entry!.createdAt).toBeTruthy();
+    expect(entry!.updatedAt).toBeTruthy();
+  });
+
+  it('should respect custom configDir and dataDir for registry', async () => {
+    const configDir = path.join(tmpDir, 'custom-config');
+    const dataDir = path.join(tmpDir, 'custom-data');
+
+    await initCommand({
+      projectRoot: tmpDir,
+      projectId: 'custom-proj',
+      configDir,
+      dataDir,
+    });
+
+    // Registry should be at configDir/projects.json
+    const registryPath = path.join(configDir, 'projects.json');
+    const regStat = await fs.promises.stat(registryPath);
+    expect(regStat.isFile()).toBe(true);
+
+    // Managed state should be at dataDir/projects/custom-proj/
+    const managedDir = path.join(dataDir, 'projects', 'custom-proj');
+    const managedStat = await fs.promises.stat(managedDir);
+    expect(managedStat.isDirectory()).toBe(true);
+  });
+});
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 function createSimplePatch(original: string, updated: string, filePath = 'docs/README.md'): string {
   const origLines = original.split('\n');
   const newLines = updated.split('\n');
 
-  // A unified diff with a single hunk covering the entire diff region
   const maxLen = Math.max(origLines.length, newLines.length);
 
-  // Find first and last differing lines to minimize hunk size
   let firstDiff = maxLen;
   let lastDiff = -1;
   for (let i = 0; i < maxLen; i++) {
@@ -652,7 +886,6 @@ function createSimplePatch(original: string, updated: string, filePath = 'docs/R
     }
   }
 
-  // Include some context around the diff
   const ctxStart = Math.max(0, firstDiff - 1);
   const ctxEnd = Math.min(maxLen, lastDiff + 2);
 

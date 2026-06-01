@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { GitStore, FileEntry } from './git-store.js';
 import { Policy } from './policy.js';
 import { EventLog } from './events.js';
+import { StoragePaths } from './storage.js';
 
 const AGENTS_MD_SAFETY_RULES = `# Agent Instructions for docu-guard-mcp
 
@@ -56,25 +57,39 @@ The following files and directories are managed through docu-guard-mcp and must 
 export interface ProjectConfig {
   projectRoot: string;
   projectId: string;
+  configDir?: string;
+  dataDir?: string;
 }
 
 export class Project {
   public readonly root: string;
   public readonly projectId: string;
-  public readonly docsMcpDir: string;
   public readonly gitStore: GitStore;
   private _eventLog: EventLog | null = null;
   public policy: Policy;
-  private _ensureDir: Promise<unknown>;
+  private _ensureDataDir: Promise<unknown>;
+  private _storage: StoragePaths;
 
   constructor(config: ProjectConfig) {
     this.root = config.projectRoot;
     this.projectId = config.projectId;
-    this.docsMcpDir = path.join(this.root, '.docu-guard');
-    this.gitStore = new GitStore(path.join(this.docsMcpDir, 'repo.git'));
+    this._storage = new StoragePaths({
+      configDir: config.configDir,
+      dataDir: config.dataDir,
+    });
+    const repoPath = this._storage.projectRepoPath(this.projectId);
+    this.gitStore = new GitStore(repoPath);
     this.policy = new Policy();
-    // Ensure the .docu-guard directory exists before EventLog is created
-    this._ensureDir = fs.promises.mkdir(this.docsMcpDir, { recursive: true });
+    // Ensure the managed data directory exists
+    this._ensureDataDir = fs.promises.mkdir(
+      this._storage.projectDataDir(this.projectId),
+      { recursive: true },
+    );
+  }
+
+  /** Convenient access to the storage paths used by this project. */
+  get storage(): StoragePaths {
+    return this._storage;
   }
 
   get eventLog(): EventLog {
@@ -88,8 +103,10 @@ export class Project {
 
   async ensureEventLog(): Promise<EventLog> {
     if (!this._eventLog) {
-      await this._ensureDir;
-      this._eventLog = new EventLog(path.join(this.docsMcpDir, 'events.sqlite'));
+      await this._ensureDataDir;
+      this._eventLog = new EventLog(
+        this._storage.projectEventsPath(this.projectId),
+      );
     }
     return this._eventLog;
   }
@@ -104,7 +121,23 @@ export class Project {
   static async init(config: ProjectConfig): Promise<Project> {
     const project = new Project(config);
 
-    // .docu-guard directory is being created in constructor via _ensureDir
+    // Warn if pre-v0.3 .docu-guard/ directory exists
+    const legacyDir = path.join(project.root, '.docu-guard');
+    try {
+      const legacyStat = await fs.promises.stat(legacyDir);
+      if (legacyStat.isDirectory()) {
+        console.error(
+          `Warning: Found pre-v0.3 .docu-guard/ directory at ${legacyDir}. ` +
+            'This is a development artifact from an earlier version. ' +
+            'Run migration or remove it manually. ' +
+            'The managed store will be created at the configured data directory instead.',
+        );
+      }
+    } catch {
+      // .docu-guard/ does not exist — good
+    }
+
+    // Managed data directory is created in the constructor via _ensureDataDir
 
     // Initialize the Git-backed docs store
     await project.gitStore.init();
