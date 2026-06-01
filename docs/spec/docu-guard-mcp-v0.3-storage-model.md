@@ -1,8 +1,8 @@
 # docu-guard-mcp v0.3 Storage Model Proposal
 
-> **Implementation status:** Configurable managed storage foundation implemented in commit `2979ee2` (branch `v0.2-daemon`). All path derivation, CLI flags, registry v2 schema, backward-compatible loading, and project-local `.docu-guard/` removal are complete. See [`docs/implementation-checklist.md`](../implementation-checklist.md) for full status.
+> **Implementation status:** Configurable managed storage foundation implemented in commit `2979ee2` (branch `v0.2-daemon`). External dogfooding with disposable project, explicit `--config-dir`/`--data-dir`, and full MCP workflow (init, registry, daemon, patch workflow, export) verified. All path derivation, CLI flags, registry v2 schema, backward-compatible loading, and project-local `.docu-guard/` removal are complete. See [`docs/implementation-checklist.md`](../implementation-checklist.md) for full status.
 >
-> **Still pending:** Migration helper for existing `.docu-guard/` directories, dogfooding, daemon path validation at startup, and deployment-specific default detection (VPS/Docker).
+> **Still pending:** Self-dogfood on docu-guard-mcp itself, migration helper for existing `.docu-guard/` directories, daemon path validation at startup, and deployment-specific default detection (VPS/Docker).
 
 ## Current Behavior
 
