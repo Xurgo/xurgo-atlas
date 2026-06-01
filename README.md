@@ -19,17 +19,23 @@ docu-guard-mcp provides two interfaces for managing documentation:
 - **stdio mode** (`docu-guard server`): The MCP server runs on standard input/output, suitable for local development and direct integration with MCP clients.
 - **daemon mode** (`docu-guard daemon`): The MCP server runs as an HTTP server using Streamable HTTP transport, allowing multiple agents to connect over HTTP. This mode supports multi-project setups via a global project registry.
 
-### Per-project .docu-guard/ managed store
+### Configurable managed storage
 
-Each initialized project contains a `.docu-guard/` directory with:
-- Git bare repository (`.docu-guard/repo.git`) storing the documentation history.
-- SQLite event log (`.docu-guard/events.sqlite`) tracking proposals, commits, and events.
-- Documentation policy (`.docs-policy.yml`) defining protected paths, required metadata, and risk rules.
-- Initialized documentation structure (e.g., `docs/`, `AGENTS.md`).
+Managed state (Git repositories, event logs) lives outside the project tree in configurable directories:
+
+| Path | Default | Content |
+|------|---------|---------|
+| `<configDir>/projects.json` | `~/.config/docu-guard/projects.json` | Global project registry |
+| `<dataDir>/projects/<id>/repo.git` | `~/.local/share/docu-guard/projects/<id>/repo.git` | Git bare repository (docs history) |
+| `<dataDir>/projects/<id>/events.sqlite` | `~/.local/share/docu-guard/projects/<id>/events.sqlite` | Event/proposal database |
+
+The project working tree contains only user-facing committed files: `docs/`, `AGENTS.md`, `.docs-policy.yml`. No `.docu-guard/` directory is created in the project. Existing `.docu-guard/` folders are pre-v0.3 development artifacts and are warned about, not used as active storage.
+
+The config and data directory locations can be set with `--config-dir` and `--data-dir` flags on `init`, `server`, and `daemon` commands. The defaults follow XDG Base Directory conventions (`XDG_CONFIG_HOME` / `XDG_DATA_HOME`).
 
 ### Global project registry
 
-The daemon mode uses a global project registry located at `~/.config/docu-guard/projects.json` to map project IDs to project roots. This allows the daemon to serve multiple projects without needing to know their paths in advance.
+The daemon mode uses a global project registry (located at `<configDir>/projects.json`, default `~/.config/docu-guard/projects.json`) to map project IDs to project roots. The location is configurable with `--config-dir`. This allows the daemon to serve multiple projects without needing to know their paths in advance.
 
 ### Git-backed docs history
 

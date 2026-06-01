@@ -1,7 +1,7 @@
 # docu-guard-mcp — Implementation Checklist
 
-> Last updated: 2026-06-01 (v0.3 storage model planning complete)
-> Status: **v0.2-daemon released; v0.3 storage model planned**
+> Last updated: 2026-06-01 (v0.3 configurable managed storage implemented)
+> Status: **v0.2-daemon released; v0.3 configurable managed storage implemented**
 
 ---
 
@@ -131,7 +131,14 @@
 | Stale proposal detection | ✅ Complete | 1 test |
 | AGENTS.md intent validation | ✅ Complete | 5 tests (vague intent rejected, valid intent passes ×3, non-AGENTS.md not affected) |
 | AGENTS.md safety-rule content in init | ✅ Complete | 5 content assertions in init test |
-| **Total** | | **25 tests** |
+| Storage paths (expandTilde, derivation) | ✅ Complete | 4 tests |
+| Registry CRUD + resolution + schema v2 | ✅ Complete | 5 tests (add, remove, list, show, default) |
+| Registry v1 backward compat | ✅ Complete | 2 tests (load v1, upgrade on write) |
+| Registry managed-dir validation | ✅ Complete | 2 tests (resolve using dataDir, missing) |
+| CLI init command registration | ✅ Complete | 3 tests (registers, idempotent, custom dirs) |
+| HTTP server with managed storage | ✅ Complete | 9 tests (isolated temp paths, no `.docu-guard/`) |
+| Daemon with managed storage | ✅ Complete | 4 tests (isolated temp paths) |
+| **Total** | | **72 tests** |
 
 ---
 
@@ -220,10 +227,10 @@
 
 | Test Area | Status | Count |
 |-----------|--------|-------|
-| Registry unit tests | ✅ Complete | 20 tests |
-| HTTP server tests | ✅ Complete | 6 tests |
+| Registry unit tests | ✅ Complete | 22 tests |
+| HTTP server tests | ✅ Complete | 9 tests |
 | Daemon integration tests | ✅ Complete | 4 tests |
-| v0.1 regression | ✅ Required | All 25 tests must pass unchanged |
+| v0.1 regression | ✅ Required | All pre-v0.3 tests must pass unchanged |
 
 ### README Documentation
 
@@ -247,22 +254,22 @@
 
 ---
 
-## v0.3 — Storage Model Audit & Planning
+## v0.3 — Storage Model Audit & Implementation
 
-> **Status:** Planning complete (implementation pending)
+> **Status:** Configurable managed storage implemented (commit `2979ee2`)
 > **Spec:** [`docs/spec/docu-guard-mcp-v0.3-storage-model.md`](./spec/docu-guard-mcp-v0.3-storage-model.md)
 
 | Item | Status | Notes |
 |------|--------|-------|
 | Storage model audit completed | ✅ Complete | Evaluated project-local, global-only, and managed-with-configurable-dirs models |
 | Recommended model chosen | ✅ Complete | Managed storage with configurable `--config-dir` and `--data-dir`; project-local mode removed |
-| Registry schema v2 designed | ⏳ Pending | Add `configDir` and `dataDir` at top level; no `storeType` field |
-| `--config-dir` / `--data-dir` flags for daemon | ⏳ Pending | Replace `--store` flag; separate config from data |
-| Path resolution using configurable dirs | ⏳ Pending | `<dataDir>/projects/<projectId>/` for managed state |
-| Project-local `.docu-guard/` removal | ⏳ Pending | Remove creation, detection, and auto-fallback logic |
+| Registry schema v2 designed | ✅ Complete | `configDir` and `dataDir` at top level; no `storeType` field |
+| `--config-dir` / `--data-dir` flags for daemon | ✅ Complete | Replaces `--store` flag; separates config from data |
+| Path resolution using configurable dirs | ✅ Complete | `<dataDir>/projects/<projectId>/` for managed state |
+| Project-local `.docu-guard/` removal | ✅ Complete | `init` no longer creates `.docu-guard/`; no auto-detection or fallback |
 | Existing `.docu-guard/` migration helper | ⏳ Pending | One-time copy from `.docu-guard/` to `<dataDir>/projects/<id>/` |
-| Registry backward compatibility | ⏳ Pending | Load v1 schema gracefully, save as v2 |
-| Daemon path validation | ⏳ Pending | Validate configDir/dataDir existence at startup |
-| Desktop/VPS/Docker path defaults | ⏳ Pending | `~/.config`/`~/.local/share` for desktop; `/etc`/`/var/lib` for server |
+| Registry backward compatibility | ✅ Complete | v1 loaded and upgraded silently; saved as v2 |
+| Daemon path validation | ⏳ Pending | Validate configDir/dataDir existence at startup (currently prints paths but does not validate) |
+| Desktop/VPS/Docker path defaults | ⏳ Pending | Defaults use XDG conventions; `/etc`/`/var/lib` defaults not auto-detected |
 | Dogfooding with managed store | ⏳ Pending | Run daemon with `--config-dir`/`--data-dir` on docu-guard-mcp itself |
-| Tests for new storage model | ⏳ Pending | Configurable dirs, init, path resolution, schema v2, daemon with custom paths |
+| Tests for new storage model | ✅ Complete | 22 registry tests (v2 schema, v1 compat, CRUD, resolution), 4 daemon tests, 9 HTTP server tests, tilde expansion, CLI init registration |
