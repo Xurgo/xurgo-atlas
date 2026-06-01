@@ -1,7 +1,7 @@
 # docu-guard-mcp — Implementation Checklist
 
-> Last updated: 2026-05-30 (dogfooding verified)
-> Status: **v0.1.0 Release Ready**
+> Last updated: 2026-06-01 (v0.3 storage model planning complete)
+> Status: **v0.2-daemon released; v0.3 storage model planned**
 
 ---
 
@@ -254,14 +254,15 @@
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Storage model audit completed | ✅ Complete | Three options analyzed (project-local, global, hybrid) |
-| Recommended model chosen | ✅ Complete | Hybrid model: global by default, project-local opt-in |
-| Registry schema v2 designed | ⏳ Pending | Add `storeType` and `storePath` fields |
-| `--store` flag for `init` | ⏳ Pending | `--store global` (default) or `--store project` |
-| Global store path resolution | ⏳ Pending | `~/.local/share/docu-guard/projects/<id>/` |
-| Project-local auto-detect | ⏳ Pending | Fall back if `.docu-guard/` exists |
-| `docu-guard migrate` command | ⏳ Pending | Optional migration from project-local to global |
+| Storage model audit completed | ✅ Complete | Evaluated project-local, global-only, and managed-with-configurable-dirs models |
+| Recommended model chosen | ✅ Complete | Managed storage with configurable `--config-dir` and `--data-dir`; project-local mode removed |
+| Registry schema v2 designed | ⏳ Pending | Add `configDir` and `dataDir` at top level; no `storeType` field |
+| `--config-dir` / `--data-dir` flags for daemon | ⏳ Pending | Replace `--store` flag; separate config from data |
+| Path resolution using configurable dirs | ⏳ Pending | `<dataDir>/projects/<projectId>/` for managed state |
+| Project-local `.docu-guard/` removal | ⏳ Pending | Remove creation, detection, and auto-fallback logic |
+| Existing `.docu-guard/` migration helper | ⏳ Pending | One-time copy from `.docu-guard/` to `<dataDir>/projects/<id>/` |
 | Registry backward compatibility | ⏳ Pending | Load v1 schema gracefully, save as v2 |
-| Global store validation in resolver | ⏳ Pending | Check global store path for `storeType: "global"` |
-| Dogfooding with global store | ⏳ Pending | Run `--store global` on docu-guard-mcp itself |
-| Tests for hybrid storage | ⏳ Pending | Store type detection, init, migration, mixed daemon |
+| Daemon path validation | ⏳ Pending | Validate configDir/dataDir existence at startup |
+| Desktop/VPS/Docker path defaults | ⏳ Pending | `~/.config`/`~/.local/share` for desktop; `/etc`/`/var/lib` for server |
+| Dogfooding with managed store | ⏳ Pending | Run daemon with `--config-dir`/`--data-dir` on docu-guard-mcp itself |
+| Tests for new storage model | ⏳ Pending | Configurable dirs, init, path resolution, schema v2, daemon with custom paths |
