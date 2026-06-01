@@ -244,3 +244,24 @@
 | Phase 4 | Add Streamable HTTP daemon | ✅ Complete |
 | Phase 5 | Add multi-project resolution in tools | ✅ Complete |
 | Phase 6 | Add docs, tests, dogfooding | ✅ Complete |
+
+---
+
+## v0.3 — Storage Model Audit & Planning
+
+> **Status:** Planning complete (implementation pending)
+> **Spec:** [`docs/spec/docu-guard-mcp-v0.3-storage-model.md`](./spec/docu-guard-mcp-v0.3-storage-model.md)
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Storage model audit completed | ✅ Complete | Three options analyzed (project-local, global, hybrid) |
+| Recommended model chosen | ✅ Complete | Hybrid model: global by default, project-local opt-in |
+| Registry schema v2 designed | ⏳ Pending | Add `storeType` and `storePath` fields |
+| `--store` flag for `init` | ⏳ Pending | `--store global` (default) or `--store project` |
+| Global store path resolution | ⏳ Pending | `~/.local/share/docu-guard/projects/<id>/` |
+| Project-local auto-detect | ⏳ Pending | Fall back if `.docu-guard/` exists |
+| `docu-guard migrate` command | ⏳ Pending | Optional migration from project-local to global |
+| Registry backward compatibility | ⏳ Pending | Load v1 schema gracefully, save as v2 |
+| Global store validation in resolver | ⏳ Pending | Check global store path for `storeType: "global"` |
+| Dogfooding with global store | ⏳ Pending | Run `--store global` on docu-guard-mcp itself |
+| Tests for hybrid storage | ⏳ Pending | Store type detection, init, migration, mixed daemon |
