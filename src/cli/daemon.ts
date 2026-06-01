@@ -71,26 +71,26 @@ export async function daemonCommand(options: DaemonOptions): Promise<void> {
     return project;
   }
 
-  // ── Create the MCP server with the project resolver ───────────────
-  const mcpServer = createMcpServer(resolveProject, { version: '0.2.0' });
+   // ── Create the MCP server factory with the project resolver ───────────────
+   const createMcpServerForRequest = () => createMcpServer(resolveProject, { version: '0.2.0' });
 
-  // ── Start the HTTP server ─────────────────────────────────────────
-  const { server, transport } = await startHttpServer(mcpServer, {
-    host: options.host,
-    port: options.port,
-  });
+   // ── Start the HTTP server ─────────────────────────────────────────
+   const { server } = await startHttpServer(createMcpServerForRequest, {
+     host: options.host,
+     port: options.port,
+   });
 
   console.error(
     `docu-guard daemon listening on http://${options.host}:${options.port}/mcp`,
   );
   console.error('Press Ctrl+C to stop.');
 
-  // ── Graceful shutdown ─────────────────────────────────────────────
-  const shutdown = async () => {
-    console.error('\nShutting down...');
-    await closeHttpServer(server, transport);
-    process.exit(0);
-  };
+   // ── Graceful shutdown ─────────────────────────────────────────────
+   const shutdown = async () => {
+     console.error('\nShutting down...');
+     await closeHttpServer(server);
+     process.exit(0);
+   };
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
