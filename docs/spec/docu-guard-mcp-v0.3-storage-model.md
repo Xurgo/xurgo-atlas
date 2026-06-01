@@ -1,5 +1,9 @@
 # docu-guard-mcp v0.3 Storage Model Proposal
 
+> **Implementation status:** Configurable managed storage foundation implemented in commit `2979ee2` (branch `v0.2-daemon`). All path derivation, CLI flags, registry v2 schema, backward-compatible loading, and project-local `.docu-guard/` removal are complete. See [`docs/implementation-checklist.md`](../implementation-checklist.md) for full status.
+>
+> **Still pending:** Migration helper for existing `.docu-guard/` directories, dogfooding, daemon path validation at startup, and deployment-specific default detection (VPS/Docker).
+
 ## Current Behavior
 
 As of v0.2, `docu-guard init` creates the following inside every target project:
