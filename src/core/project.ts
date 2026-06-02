@@ -5,6 +5,76 @@ import { Policy } from './policy.js';
 import { EventLog } from './events.js';
 import { StoragePaths } from './storage.js';
 
+const STATUS_MD_TEMPLATE = `---
+docuGuard.type: status
+statusVersion: 1
+priority: high
+currentFocus:
+nextActions:
+blockers:
+doNotDo:
+relatedDocs:
+lastUpdated: "2026-06-01"
+---
+
+# Project Status
+
+## Current Focus
+<!-- What is the team working on right now? -->
+
+## Next Actions
+<!-- What should be done next? -->
+
+## Blockers
+<!-- What is blocking progress? -->
+
+## Do Not Do
+<!-- What should agents avoid doing? -->
+`;
+
+const MANIFEST_YML_TEMPLATE = `# Xurgo Atlas manifest — machine-readable project document index
+version: 1
+entrypoints:
+  - path: STATUS.md
+    role: front-page
+    priority: highest
+
+documents:
+  - path: STATUS.md
+    role: front-page
+    priority: highest
+    summary: Project front page with current focus, next actions, and blockers
+
+  - path: AGENTS.md
+    role: agent-contract
+    priority: highest
+    summary: Agent safety rules and operating guidelines
+    related:
+      - .docs-policy.yml
+
+  - path: .docs-policy.yml
+    role: safety-policy
+    priority: highest
+    summary: Configurable risk detection and protected path rules
+    related:
+      - AGENTS.md
+
+  - path: docs/manifest.yml
+    role: project-map
+    priority: highest
+    summary: Machine-readable project document index
+
+  - path: docs/README.md
+    role: reference
+    priority: high
+    summary: Project documentation overview
+
+  - path: docs/implementation-checklist.md
+    role: roadmap
+    priority: high
+    summary: Implementation status for all features and milestones
+`;
+
 const AGENTS_MD_SAFETY_RULES = `# Agent Instructions for docu-guard-mcp
 
 ## Documentation Safety Rules
@@ -35,6 +105,7 @@ This project uses **docu-guard-mcp** for safe, versioned, auditable documentatio
 
 The following files and directories are managed through docu-guard-mcp and must not be edited directly:
 
+- \`STATUS.md\`
 - \`AGENTS.md\`
 - \`docs/**\`
 - \`.docs-policy.yml\`
@@ -162,6 +233,9 @@ export class Project {
     // Create default docs structure
     await ensureDocsStructure(project.root);
 
+    // Create STATUS.md (project front page)
+    await ensureStatusMd(project.root);
+
     // Create or update AGENTS.md
     await ensureAgentsMd(project.root);
 
@@ -204,6 +278,7 @@ async function ensureDocsStructure(projectRoot: string): Promise<void> {
   const docsFiles: [string, string][] = [
     ['README.md', '# Documentation\n\nThis directory contains project documentation managed by docu-guard-mcp.\n'],
     ['spec/README.md', '# Specification\n\nThis directory contains project specifications.\n'],
+    ['manifest.yml', MANIFEST_YML_TEMPLATE],
   ];
 
   for (const [filePath, content] of docsFiles) {
@@ -237,6 +312,16 @@ async function ensureDocsStructure(projectRoot: string): Promise<void> {
   }
 }
 
+async function ensureStatusMd(projectRoot: string): Promise<void> {
+  const statusPath = path.join(projectRoot, 'STATUS.md');
+  try {
+    await fs.promises.access(statusPath);
+    // File exists — do not overwrite
+  } catch {
+    await fs.promises.writeFile(statusPath, STATUS_MD_TEMPLATE, 'utf-8');
+  }
+}
+
 async function ensureAgentsMd(projectRoot: string): Promise<void> {
   const agentsPath = path.join(projectRoot, 'AGENTS.md');
   try {
@@ -258,13 +343,20 @@ async function ensureAgentsMd(projectRoot: string): Promise<void> {
 async function collectTrackedFiles(projectRoot: string): Promise<FileEntry[]> {
   const files: FileEntry[] = [];
   const patterns = [
+    'STATUS.md',
     'AGENTS.md',
     'docs/**',
     '.docs-policy.yml',
   ];
 
   for (const pattern of patterns) {
-    if (pattern === 'AGENTS.md') {
+    if (pattern === 'STATUS.md') {
+      const fullPath = path.join(projectRoot, 'STATUS.md');
+      try {
+        const content = await fs.promises.readFile(fullPath, 'utf-8');
+        files.push({ path: 'STATUS.md', content });
+      } catch { /* skip */ }
+    } else if (pattern === 'AGENTS.md') {
       const fullPath = path.join(projectRoot, 'AGENTS.md');
       try {
         const content = await fs.promises.readFile(fullPath, 'utf-8');

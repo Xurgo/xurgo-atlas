@@ -136,9 +136,10 @@
 | Registry v1 backward compat | ✅ Complete | 2 tests (load v1, upgrade on write) |
 | Registry managed-dir validation | ✅ Complete | 2 tests (resolve using dataDir, missing) |
 | CLI init command registration | ✅ Complete | 3 tests (registers, idempotent, custom dirs) |
+| v0.4 project context files (STATUS.md, manifest) | ✅ Complete | 5 tests (create, idempotent ×2, no .docu-guard/, policy protection) |
 | HTTP server with managed storage | ✅ Complete | 9 tests (isolated temp paths, no `.docu-guard/`) |
 | Daemon with managed storage | ✅ Complete | 4 tests (isolated temp paths) |
-| **Total** | | **72 tests** |
+| **Total** | | **78 tests** |
 
 ---
 
@@ -301,10 +302,10 @@
 | Plan STATUS.md, manifest, token-efficient access | ✅ Complete | Spec doc created and updated for Xurgo Atlas naming |
 | Define Xurgo Atlas ↔ Xurgo integration boundary | ✅ Complete | Integration alignment doc created in `docs/vision/xurgo-integration.md` |
 | Xurgo Atlas naming / transition status documented | ✅ Complete | Naming transition captured in vision doc, spec, and checklist |
-| STATUS.md template and front matter schema | ⏳ Planned | YAML front matter + Markdown body; short by design |
-| docs/manifest.yml schema and validation | ⏳ Planned | Machine-readable project map with roles, priorities, summaries |
-| Update `init` to create STATUS.md and manifest | ⏳ Planned | New standard files for all new projects |
-| Add STATUS.md and manifest to default protected paths | ⏳ Planned | High-priority protection like AGENTS.md |
+| STATUS.md template and front matter schema | ✅ Complete | YAML front matter + Markdown body; created by `init`; short by design |
+| docs/manifest.yml schema and validation | ✅ Complete | Machine-readable project map with roles, priorities, summaries; created by `init` |
+| Update `init` to create STATUS.md and manifest | ✅ Complete | Both files created during `init`; existing files not overwritten |
+| Add STATUS.md and manifest to default protected paths | ✅ Complete | `STATUS.md` added to `DEFAULT_POLICY.protected_paths`; `docs/manifest.yml` already covered by `docs/**` |
 | Implement `docs.status` tool | ⏳ Planned | Returns STATUS.md front matter + body |
 | Implement `docs.manifest` tool | ⏳ Planned | Returns parsed manifest YAML as JSON |
 | Implement `docs.read_section` tool | ⏳ Planned | Read one section by heading |
@@ -312,7 +313,8 @@
 | Add `compact` and `role` options to `docs.list` | ⏳ Planned | Compact metadata responses |
 | Implement `docs.context_pack` tool | ⏳ Planned | Curated document set within token budget |
 | Update `.docs-policy.yml` default template | ⏳ Planned | Include STATUS.md and manifest in protected paths |
-| Tests for all new features | ⏳ Planned | New tools, options, validation, backward compat |
+| Tests for v0.4 foundation (init) | ✅ Complete | 5 tests for STATUS.md + manifest creation, idempotency, .docu-guard/ absence, policy protection |
+| Tests for new MCP tools (status, manifest, read_section, etc.) | ⏳ Planned | New tools, options, validation, backward compat |
 | Xurgo ↔ Xurgo Atlas MCP integration fixture | ⏳ Planned | Shared test fixtures for integration testing |
 | Self-dogfood / integration dogfood | ⏳ Pending | Apply v0.4 patterns and verify Xurgo Atlas integration |
 | Future web UI: STATUS.md as default landing page | ⏳ Future | UI should open to STATUS.md, use manifest for navigation |
