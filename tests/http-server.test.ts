@@ -41,6 +41,10 @@ async function post(address: string, body: unknown): Promise<{ status: number; d
   });
 }
 
+async function postRaw(address: string, body: unknown): Promise<{ status: number; data: unknown }> {
+  return post(address, body);
+}
+
 async function get(address: string): Promise<{ status: number; data: unknown }> {
   return await new Promise((resolve, reject) => {
     http.get(`http://127.0.0.1:${PORT}${address}`, (res) => {
@@ -92,6 +96,25 @@ describe('HTTP server', () => {
     await fs.promises.mkdir(projectRoot, { recursive: true });
     await fs.promises.mkdir(path.join(projectRoot, 'docs'), { recursive: true });
     await fs.promises.writeFile(path.join(projectRoot, 'docs', 'README.md'), '# README');
+    await fs.promises.writeFile(
+      path.join(projectRoot, 'docs', 'guide.md'),
+      `# Guide
+
+Intro.
+
+## Target
+
+Target body.
+
+### Child
+
+Child body.
+
+## Next
+
+Next body.
+`,
+    );
 
     // Initialize with v0.3 managed storage — no .docu-guard/
     await Project.init({
@@ -105,7 +128,7 @@ describe('HTTP server', () => {
     const registry = await Registry.load(configDir, dataDir);
     await registry.addProject('http-test', projectRoot);
 
-    const mcpServer = createMcpServer(async (projectId: string) => {
+    const resolveProject = async (projectId: string) => {
       const entry = registry.listProjects().find((p) => p.projectId === projectId);
       if (!entry) throw new Error(`Project not found: ${projectId}`);
       return Project.load({
@@ -114,9 +137,24 @@ describe('HTTP server', () => {
         configDir,
         dataDir,
       });
-    }, { version: '0.2.0' });
+    };
 
-    const result = await startHttpServer(() => mcpServer, { host: '127.0.0.1', port: PORT });
+    const result = await startHttpServer(
+      () => createMcpServer(resolveProject, { version: '0.2.0' }),
+      {
+        host: '127.0.0.1',
+        port: PORT,
+        rest: {
+          resolveProject,
+          listProjects: () => registry.listProjects().map((project) => ({
+            projectId: project.projectId,
+            createdAt: project.createdAt,
+            updatedAt: project.updatedAt,
+            default: false,
+          })),
+        },
+      },
+    );
     server = result.server;
   });
 
@@ -131,6 +169,122 @@ describe('HTTP server', () => {
     const res = await get('/health');
     expect(res.status).toBe(200);
     expect(res.data).toEqual({ status: 'ok' });
+  });
+
+  it('GET /projects lists registered projects without write actions', async () => {
+    const res = await get('/projects');
+    expect(res.status).toBe(200);
+    const data = res.data as { projects: Array<Record<string, unknown>> };
+    expect(data.projects).toHaveLength(1);
+    expect(data.projects[0].projectId).toBe('http-test');
+    expect(JSON.stringify(data)).not.toContain('propose');
+    expect(JSON.stringify(data)).not.toContain('commit');
+    expect(JSON.stringify(data)).not.toContain('restore');
+  });
+
+  it('GET /projects/:projectId/status returns STATUS.md data', async () => {
+    const res = await get('/projects/http-test/status?maxChars=100');
+    expect(res.status).toBe(200);
+    const data = res.data as Record<string, unknown>;
+    expect(data.projectId).toBe('http-test');
+    expect(data.path).toBe('STATUS.md');
+    expect(data.frontMatter).toBeTruthy();
+    expect(data.body).toContain('# Project Status');
+  });
+
+  it('GET /projects/:projectId/manifest returns manifest data with query options', async () => {
+    const res = await get('/projects/http-test/manifest?maxDocuments=1&validatePaths=false&includeRaw=true');
+    expect(res.status).toBe(200);
+    const data = res.data as {
+      projectId: string;
+      documents: unknown[];
+      documentCount: number;
+      truncated: boolean;
+      raw?: string;
+      validation?: unknown;
+    };
+    expect(data.projectId).toBe('http-test');
+    expect(data.documentCount).toBe(1);
+    expect(data.documents).toHaveLength(1);
+    expect(data.truncated).toBe(true);
+    expect(data.raw).toContain('documents:');
+    expect(data.validation).toBeUndefined();
+  });
+
+  it('GET /projects/:projectId/docs/* performs bounded document reads', async () => {
+    const res = await get('/projects/http-test/docs/docs/guide.md?maxChars=12&offset=9');
+    expect(res.status).toBe(200);
+    const data = res.data as Record<string, unknown>;
+    expect(data.projectId).toBe('http-test');
+    expect(data.path).toBe('docs/guide.md');
+    expect(data.content).toBe('Intro.\n\n## T');
+    expect(data.returnedChars).toBe(12);
+    expect(data.truncated).toBe(true);
+  });
+
+  it('GET /projects/:projectId/sections returns matching sections', async () => {
+    const res = await get('/projects/http-test/sections?path=docs%2Fguide.md&heading=Target');
+    expect(res.status).toBe(200);
+    const data = res.data as Record<string, unknown>;
+    expect(data.path).toBe('docs/guide.md');
+    expect(data.heading).toBe('Target');
+    expect(data.matchedHeading).toBe('Target');
+    expect(data.content).toContain('### Child');
+    expect(data.content).not.toContain('## Next');
+  });
+
+  it('POST /projects/:projectId/context-pack returns ordered read-only context items', async () => {
+    const res = await postRaw('/projects/http-test/context-pack', {
+      maxChars: 4000,
+      paths: ['docs/guide.md'],
+    });
+    expect(res.status).toBe(200);
+    const data = res.data as {
+      projectId: string;
+      items: Array<{ kind: string; path: string }>;
+    };
+    expect(data.projectId).toBe('http-test');
+    expect(data.items.map((item) => [item.kind, item.path])).toEqual([
+      ['status', 'STATUS.md'],
+      ['agents', 'AGENTS.md'],
+      ['manifest', 'docs/manifest.yml'],
+      ['document', 'docs/guide.md'],
+    ]);
+  });
+
+  it('REST read endpoints reject unsafe paths with structured errors', async () => {
+    const res = await get('/projects/http-test/docs/%2E%2E%2Fsecrets.md');
+    expect(res.status).toBe(400);
+    const data = res.data as { error: { code: string; message: string } };
+    expect(data.error.code).toBe('unsafe_path');
+    expect(data.error.message).toContain('Path traversal');
+
+    const untracked = await get('/projects/http-test/docs/notes/random.md');
+    expect(untracked.status).toBe(403);
+    expect((untracked.data as { error: { code: string } }).error.code).toBe('untracked_path');
+  });
+
+  it('REST read endpoints return structured errors for missing documents and sections', async () => {
+    const missingDoc = await get('/projects/http-test/docs/docs/missing.md');
+    expect(missingDoc.status).toBe(404);
+    expect((missingDoc.data as { error: { code: string } }).error.code).toBe('not_found');
+
+    const missingSection = await get('/projects/http-test/sections?path=docs%2Fguide.md&heading=Missing');
+    expect(missingSection.status).toBe(404);
+    const sectionData = missingSection.data as { error: { code: string; details: { availableHeadings: unknown[] } } };
+    expect(sectionData.error.code).toBe('not_found');
+    expect(sectionData.error.details.availableHeadings.length).toBeGreaterThan(0);
+  });
+
+  it('REST does not expose write actions', async () => {
+    const propose = await postRaw('/projects/http-test/propose_patch', {});
+    expect(propose.status).toBe(404);
+
+    const commit = await postRaw('/projects/http-test/commit_patch', {});
+    expect(commit.status).toBe(404);
+
+    const restore = await postRaw('/projects/http-test/restore_file', {});
+    expect(restore.status).toBe(404);
   });
 
   it('OPTIONS /mcp returns CORS headers', async () => {

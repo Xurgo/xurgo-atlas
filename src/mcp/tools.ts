@@ -1318,7 +1318,7 @@ async function handleExport(
 
 // ── docs.status handler ────────────────────────────────────────────────
 
-async function handleStatus(project: Project, rawArgs: Record<string, unknown>) {
+export async function handleStatus(project: Project, rawArgs: Record<string, unknown>) {
   const args = StatusSchema.parse(rawArgs);
 
   // Read STATUS.md

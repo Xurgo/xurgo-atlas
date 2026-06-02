@@ -2,7 +2,7 @@
 
 > **Product name:** Xurgo Atlas
 > **Current implementation:** docu-guard-mcp (transitional package/CLI)
-> **Status:** Spec — partially implemented (docs.status ✅, docs.manifest ✅, docs.read_section ✅, docs.context_pack ✅)
+> **Status:** Spec — partially implemented (docs.status ✅, docs.manifest ✅, docs.read_section ✅, docs.context_pack ✅, read-only REST context API ✅)
 > **Vision:** [`../vision/project-context-mcp.md`](../vision/project-context-mcp.md)
 > **Branch:** v0.2-daemon
 
@@ -338,27 +338,27 @@ A future read-only web UI should:
 
 The UI is a consumer of the project context, not a separate source of truth. Everything the UI shows should be derivable from the documentation files and the MCP tool responses.
 
-### 8.1 Minimal Read-Only REST API Plan (Future)
+### 8.1 Minimal Read-Only REST API (Implemented)
 
-The first REST API should be a read-only facade over the working MCP context handlers, not a second documentation engine. It exists so a future local web UI can load orientation data with ordinary browser requests while MCP remains the authoritative tool surface for writes and agent workflows.
+The minimal REST API is implemented as a read-only facade over the working MCP context handlers, not a second documentation engine. It exists so a future local web UI can load orientation data with ordinary browser requests while MCP remains the authoritative tool surface for writes and agent workflows.
 
 | Endpoint | Purpose | MCP equivalent | Notes |
 |----------|---------|----------------|-------|
 | `GET /health` | Daemon liveness | Existing health check | Already implemented as `{ "status": "ok" }` |
-| `GET /projects` | List registered projects available to the daemon | Registry lookup / project resolver | Return compact project records: `projectId`, root display path if safe, and default branch/revision if cheap |
+| `GET /projects` | List registered projects available to the daemon | Registry lookup / project resolver | Returns compact project records: `projectId`, timestamps, and default flag; no write actions |
 | `GET /projects/:projectId/status` | Read the project front page | `docs.status` | Query: `branch`, `maxChars`; response mirrors status JSON |
 | `GET /projects/:projectId/manifest` | Read the navigation map | `docs.manifest` | Query: `branch`, `maxDocuments`, `includeRaw`, `validatePaths`; response mirrors manifest JSON |
 | `GET /projects/:projectId/docs/:path` | Read one managed document | bounded `docs.read` | `:path` must support nested docs paths via encoded or wildcard routing; query: `branch`, `maxChars`, `offset` |
 | `GET /projects/:projectId/sections` | Read one Markdown section | `docs.read_section` | Query: `path`, `heading`, `branch`, `revision`, `level`, `occurrence`, `includeHeading`, `maxChars`, `offset` |
 | `POST /projects/:projectId/context-pack` | Build a bounded orientation pack from structured read-only input | `docs.context_pack` | POST is acceptable here because the request can include arrays of paths/sections; it must not mutate state |
 
-Request and response shapes should preserve the MCP field names where possible: `projectId`, `branch`, `revision`, `path`, `content`, `truncated`, `maxChars`, `offset`, `returnedChars`, and `totalChars`. REST handlers should call shared read helpers or the existing MCP handler internals so branch defaults, revision reads, section extraction, manifest parsing, and context-pack ordering stay consistent.
+Request and response shapes should preserve the MCP field names where possible: `projectId`, `branch`, `revision`, `path`, `content`, `truncated`, `maxChars`, `offset`, `returnedChars`, and `totalChars`. REST handlers call the existing MCP handler internals so branch defaults, revision reads, section extraction, manifest parsing, and context-pack ordering stay consistent.
 
 Errors should use ordinary HTTP status codes plus a JSON body shaped like `{ "error": { "code": "not_found", "message": "...", "details": { ... } } }`. Suggested mappings: invalid input -> 400, unknown project -> 404, missing file/section -> 404, unsafe path -> 400, untracked or policy-disallowed read -> 403, and unexpected server failure -> 500.
 
 Path safety must reuse the existing traversal checks and policy/tracked-path logic used by `docs.read`, `docs.read_section`, and `docs.context_pack`. The REST layer should not read from the filesystem directly, scan arbitrary paths, or bypass the managed Git store.
 
-The REST API must exclude write actions: no proposals, commits, preview-diff mutation paths, restore, export, branch merge, approval override, publishing, or release operations. For now those remain MCP-only, where the guarded proposal workflow and audit trail already exist.
+The implemented REST API excludes write actions: no proposals, commits, preview-diff mutation paths, restore, export, branch merge, approval override, publishing, or release operations. Those remain MCP-only, where the guarded proposal workflow and audit trail already exist.
 
 The first web UI should open to `STATUS.md` because it is the canonical front page for both humans and agents. It should use `docs/manifest.yml` for navigation rather than scanning the repository, then use document and section endpoints for progressive disclosure.
 
