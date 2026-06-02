@@ -14,7 +14,7 @@ export interface InitOptions {
 }
 
 /**
- * Run the `docu-guard init` command.
+ * Run the `xurgo-atlas init` command.
  */
 export async function initCommand(options: InitOptions): Promise<void> {
   const resolvedRoot = path.resolve(options.projectRoot);
@@ -53,7 +53,7 @@ export async function initCommand(options: InitOptions): Promise<void> {
     dataDir: options.dataDir,
   });
 
-  console.log(`Initializing docu-guard in ${resolvedRoot}...`);
+  console.log(`Initializing Xurgo Atlas in ${resolvedRoot}...`);
 
   const project = await Project.init({
     projectRoot: resolvedRoot,
@@ -74,15 +74,15 @@ export async function initCommand(options: InitOptions): Promise<void> {
   console.log(`✓ Created/updated AGENTS.md with documentation safety rules`);
   console.log(`✓ Snapshotted initial documentation`);
   console.log(`✓ Registered project in ${storage.registryPath()}`);
-  console.log(`\n✅ docu-guard project "${options.projectId}" initialized successfully.\n`);
+  console.log(`\n✅ Xurgo Atlas project "${options.projectId}" initialized successfully.\n`);
 
-  console.log(`  1. Start the server:  docu-guard server --project-root .`);
+  console.log(`  1. Start the server:  xurgo-atlas server --project-root .`);
   console.log(`  2. Configure your MCP client to connect to the server`);
   console.log(`  3. Use docs.list, docs.read, and docs.propose_patch tools`);
 }
 
 /**
- * Run the `docu-guard server` command.
+ * Run the `xurgo-atlas server` command.
  */
 export async function serverCommand(options: InitOptions & { configDir?: string; dataDir?: string }): Promise<void> {
   const resolvedRoot = path.resolve(options.projectRoot);
@@ -92,7 +92,7 @@ export async function serverCommand(options: InitOptions & { configDir?: string;
   const hasDocs = await dirExists(path.join(resolvedRoot, 'docs'));
   if (!hasPolicy && !hasDocs) {
     console.error(
-      `Error: "${resolvedRoot}" has not been initialized. Run "docu-guard init" first.`,
+      `Error: "${resolvedRoot}" has not been initialized. Run "xurgo-atlas init" first.`,
     );
     process.exit(1);
   }
@@ -102,7 +102,7 @@ export async function serverCommand(options: InitOptions & { configDir?: string;
     projectId = path.basename(resolvedRoot);
   }
 
-  console.error(`Starting docu-guard server for project "${projectId}"...`);
+  console.error(`Starting Xurgo Atlas server for project "${projectId}"...`);
   console.error(`Project root: ${resolvedRoot}`);
 
   await startMcpServer({
@@ -114,7 +114,7 @@ export async function serverCommand(options: InitOptions & { configDir?: string;
 }
 
 /**
- * Run the `docu-guard list` command.
+ * Run the `xurgo-atlas list` command.
  */
 export async function listCommand(
   projectRoot: string,
@@ -147,7 +147,7 @@ export async function listCommand(
 }
 
 /**
- * Run the `docu-guard history <path>` command.
+ * Run the `xurgo-atlas history <path>` command.
  */
 export async function historyCommand(
   projectRoot: string,
@@ -178,7 +178,7 @@ export async function historyCommand(
 }
 
 /**
- * Run the `docu-guard export` command.
+ * Run the `xurgo-atlas export` command.
  */
 export async function exportCommand(
   projectRoot: string,
@@ -225,7 +225,7 @@ async function requireInit(projectRoot: string): Promise<void> {
   const hasDocs = await dirExists(path.join(projectRoot, 'docs'));
   if (!hasPolicy && !hasDocs) {
     console.error(
-      `Error: "${projectRoot}" has not been initialized. Run "docu-guard init" first.`,
+      `Error: "${projectRoot}" has not been initialized. Run "xurgo-atlas init" first.`,
     );
     process.exit(1);
   }

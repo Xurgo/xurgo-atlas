@@ -133,6 +133,9 @@ describe('project initialization', () => {
     const docsReadme = path.join(tmpDir, 'docs', 'README.md');
     const docsReadmeStat = await fs.promises.stat(docsReadme);
     expect(docsReadmeStat.isFile()).toBe(true);
+    const docsReadmeContent = await fs.promises.readFile(docsReadme, 'utf-8');
+    expect(docsReadmeContent).toContain('Xurgo Atlas');
+    expect(docsReadmeContent).toContain('docu-guard');
 
     // Check docs/spec/README.md exists
     const specReadme = path.join(tmpDir, 'docs', 'spec', 'README.md');
@@ -152,6 +155,7 @@ describe('project initialization', () => {
     // Verify AGENTS.md contains the documentation safety rules
     const agentsContent = await fs.promises.readFile(agentsMd, 'utf-8');
     expect(agentsContent).toContain('Documentation Safety Rules');
+    expect(agentsContent).toContain('Xurgo Atlas');
     expect(agentsContent).toContain('docu-guard-mcp');
     expect(agentsContent).toContain('Never directly overwrite');
     expect(agentsContent).toContain('docs.propose_patch');

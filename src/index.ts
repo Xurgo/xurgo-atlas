@@ -20,13 +20,14 @@ import { daemonCommand } from './cli/daemon.js';
 
 function printUsage(): void {
   console.log(`
-docu-guard — Safe, versioned, auditable documentation management for AI-assisted projects
+xurgo-atlas — Xurgo Atlas, safe, versioned, auditable documentation management for AI-assisted projects
+Legacy alias: docu-guard (temporary)
 
 USAGE:
-  docu-guard <command> [options]
+  xurgo-atlas <command> [options]
 
 COMMANDS:
-  init       Initialize a docu-guard project
+  init       Initialize a Xurgo Atlas project
     --project-root <path>   Path to the project root (default: .)
     --project-id <id>       Unique identifier for the project
     --config-dir <path>     Config directory (default: ~/.config/docu-guard)
@@ -66,14 +67,16 @@ COMMANDS:
     --project-root <path>   Path to the project root (default: .)
 
 EXAMPLES:
-  docu-guard init --project-root . --project-id my-project
-  docu-guard server --project-root .
-  docu-guard daemon
-  docu-guard project add --project-id my-app --project-root /path/to/my-app
-  docu-guard project list
-  docu-guard list
-  docu-guard history docs/README.md
-  docu-guard export --branch main
+  xurgo-atlas init --project-root . --project-id my-project
+  xurgo-atlas server --project-root .
+  xurgo-atlas daemon
+  xurgo-atlas project add --project-id my-app --project-root /path/to/my-app
+  xurgo-atlas project list
+  xurgo-atlas list
+  xurgo-atlas history docs/README.md
+  xurgo-atlas export --branch main
+
+Legacy compatibility alias remains: docu-guard
 `);
 }
 
@@ -236,7 +239,7 @@ async function main(): Promise<void> {
       const filePath = args['_default'];
       if (!filePath) {
         console.error('Error: path argument is required for history');
-        console.log('Usage: docu-guard history <path>');
+        console.log('Usage: xurgo-atlas history <path>');
         process.exit(1);
       }
       await historyCommand(projectRoot, filePath, configDir, dataDir);
