@@ -196,6 +196,21 @@ Next body.
     expect(res.data).not.toContain('restore_file');
   });
 
+  it('GET /ui/app.js escapes rendered Markdown and falls back for clipboard copies', async () => {
+    const res = await get('/ui/app.js');
+    expect(res.status).toBe(200);
+    const source = String(res.data);
+
+    expect(source).toContain('function escapeHtml(value)');
+    expect(source).toContain("replaceAll('<', '&lt;')");
+    expect(source).toContain('els.viewer.innerHTML = renderMarkdown(state.currentContent)');
+    expect(source).not.toContain('els.viewer.innerHTML = state.currentContent');
+    expect(source).toContain('button.append(path, summary)');
+    expect(source).toContain('new URLSearchParams');
+    expect(source).toContain('navigator.clipboard && typeof navigator.clipboard.writeText');
+    expect(source).toContain("document.execCommand('copy')");
+  });
+
   it('GET /ui/styles.css serves the static UI stylesheet', async () => {
     const res = await get('/ui/styles.css');
     expect(res.status).toBe(200);
@@ -294,6 +309,16 @@ Next body.
     const untracked = await get('/projects/http-test/docs/notes/random.md');
     expect(untracked.status).toBe(403);
     expect((untracked.data as { error: { code: string } }).error.code).toBe('untracked_path');
+
+    const unsafeSection = await get('/projects/http-test/sections?path=..%2Fsecrets.md&heading=Target');
+    expect(unsafeSection.status).toBe(400);
+    expect((unsafeSection.data as { error: { code: string } }).error.code).toBe('unsafe_path');
+
+    const unsafeContextPack = await postRaw('/projects/http-test/context-pack', {
+      paths: ['../secrets.md'],
+    });
+    expect(unsafeContextPack.status).toBe(400);
+    expect((unsafeContextPack.data as { error: { code: string } }).error.code).toBe('unsafe_path');
   });
 
   it('REST read endpoints return structured errors for missing documents and sections', async () => {
@@ -309,14 +334,23 @@ Next body.
   });
 
   it('REST does not expose write actions', async () => {
-    const propose = await postRaw('/projects/http-test/propose_patch', {});
-    expect(propose.status).toBe(404);
+    const writeRoutes = [
+      'create_branch',
+      'propose_patch',
+      'preview_diff',
+      'commit_patch',
+      'restore_file',
+      'export',
+      'merge_branch',
+      'approve',
+      'publish',
+      'release',
+    ];
 
-    const commit = await postRaw('/projects/http-test/commit_patch', {});
-    expect(commit.status).toBe(404);
-
-    const restore = await postRaw('/projects/http-test/restore_file', {});
-    expect(restore.status).toBe(404);
+    for (const route of writeRoutes) {
+      const res = await postRaw(`/projects/http-test/${route}`, {});
+      expect(res.status, route).toBe(404);
+    }
   });
 
   it('OPTIONS /mcp returns CORS headers', async () => {

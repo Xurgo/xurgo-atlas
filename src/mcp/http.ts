@@ -413,22 +413,26 @@ function renderNav() {
     ? state.manifest.documents
     : [];
   els.manifestMeta.textContent = documents.length + ' docs';
-  els.docNav.innerHTML = '';
+  els.docNav.replaceChildren();
   documents.forEach((doc) => {
     if (!doc || !doc.path) return;
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'docButton' + (doc.path === state.currentPath ? ' active' : '');
-    button.innerHTML =
-      '<span class="docPath">' + escapeHtml(doc.path) + '</span>' +
-      '<span class="docSummary">' + escapeHtml(doc.summary || doc.role || '') + '</span>';
+    const path = document.createElement('span');
+    path.className = 'docPath';
+    path.textContent = doc.path;
+    const summary = document.createElement('span');
+    summary.className = 'docSummary';
+    summary.textContent = doc.summary || doc.role || '';
+    button.append(path, summary);
     button.addEventListener('click', () => loadDocument(doc.path));
     els.docNav.appendChild(button);
   });
 }
 
 function renderSections() {
-  els.sectionSelect.innerHTML = '';
+  els.sectionSelect.replaceChildren();
   const all = document.createElement('option');
   all.value = '';
   all.textContent = 'Whole document';
@@ -444,7 +448,7 @@ function renderSections() {
 async function loadProjects() {
   const data = await api('/projects');
   const projects = data.projects || [];
-  els.projectSelect.innerHTML = '';
+  els.projectSelect.replaceChildren();
   projects.forEach((project) => {
     const option = document.createElement('option');
     option.value = project.projectId;
@@ -480,7 +484,26 @@ async function loadDocument(path) {
 }
 
 async function copyText(text) {
-  await navigator.clipboard.writeText(text);
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  textarea.style.top = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  try {
+    if (!document.execCommand || !document.execCommand('copy')) {
+      throw new Error('Clipboard API is unavailable');
+    }
+  } finally {
+    textarea.remove();
+  }
 }
 
 async function copySelectedSection() {
