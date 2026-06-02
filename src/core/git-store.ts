@@ -140,6 +140,16 @@ export class GitStore {
       }
     }
 
+    // Ensure clean working directory before each operation.
+    // This prevents stale files from a previous failed or interrupted
+    // operation from leaking into the current one.
+    try {
+      await git.raw(['reset', '--hard', 'HEAD']);
+      await git.raw(['clean', '-fd']);
+    } catch {
+      // No commits yet — nothing to reset or clean
+    }
+
     const result = await fn(git, this.workDir);
 
     // Push changes back to bare repo

@@ -568,6 +568,48 @@ describe('exporting documentation', () => {
   });
 });
 
+describe('GitStore workdir cleanup', () => {
+  it('should reset dirty files from workdir before each withWorkDir operation', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const repoDir = project.gitStore.repoDir;
+    const workDir = path.join(repoDir, 'workdir');
+
+    // Ensure workdir exists with a known branch checked out
+    await project.gitStore.createBranch('test-branch', 'main');
+
+    // Manually write an untracked (dirty) file into the workdir
+    const dirtyFilePath = path.join(workDir, 'docs', 'dirty-file.md');
+    await fs.promises.mkdir(path.dirname(dirtyFilePath), { recursive: true });
+    await fs.promises.writeFile(dirtyFilePath, '# Dirty content');
+
+    // Manually modify a tracked file in the workdir
+    const readmePath = path.join(workDir, 'docs', 'README.md');
+    const existingContent = await fs.promises.readFile(readmePath, 'utf-8');
+    await fs.promises.writeFile(readmePath, existingContent + '\nDirty modification\n');
+
+    // Call exportBranch — this goes through withWorkDir and should trigger cleanup
+    const exportDir = path.join(tmpDir, 'export-output');
+    await project.gitStore.exportBranch('test-branch', exportDir);
+
+    // After the operation, the untracked dirty file should be gone from workdir
+    await expect(fs.promises.stat(dirtyFilePath)).rejects.toThrow();
+
+    // After the operation, the tracked file should be reset to its clean state
+    const cleanedReadme = await fs.promises.readFile(readmePath, 'utf-8');
+    expect(cleanedReadme).not.toContain('Dirty modification');
+
+    // Verify the exported files do not contain the dirty file
+    const exportDocs = await fs.promises.readdir(path.join(exportDir, 'docs'));
+    expect(exportDocs).not.toContain('dirty-file.md');
+  });
+});
+
 describe('stale proposal detection', () => {
   it('should reject a proposal whose base revision is stale after another commit', async () => {
     const project = await Project.init({
