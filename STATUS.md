@@ -2,9 +2,8 @@
 docuGuard.type: status
 statusVersion: 1
 priority: high
-currentFocus: "Implementing bounded docs.read with maxChars/offset (v0.4 Phase 8 complete)"
+currentFocus: "STATUS.md guarded updates fixed"
 nextActions:
-  - "Implement docs.read_section tool (Phase 7)"
   - "Add compact and role options to docs.list (Phase 9)"
   - "Implement docs.context_pack tool (Phase 10)"
 blockers:
@@ -21,10 +20,9 @@ lastUpdated: "2026-06-02"
 # Project Status
 
 ## Current Focus
-Bounded `docs.read` implemented — v0.4 Phase 8 complete. The tool now supports `maxChars` and `offset` parameters for token-efficient reads, returning `truncated`, `returnedChars`, and `totalChars` metadata.
+`STATUS.md` guarded updates are fixed. Loaded policies now preserve canonical guarded root paths, so `docs.propose_patch` and `docs.commit_patch` can update STATUS.md while keeping it protected and approval-controlled.
 
 ## Next Actions
-- Implement `docs.read_section` tool for heading-level reads
 - Add `compact` and `role` options to `docs.list`
 - Implement `docs.context_pack` tool
 

@@ -732,7 +732,7 @@ async function handleCreateBranch(
   };
 }
 
-async function handleProposePatch(
+export async function handleProposePatch(
   project: Project,
   rawArgs: Record<string, unknown>,
 ) {
@@ -891,7 +891,7 @@ async function handlePreviewDiff(
   };
 }
 
-async function handleCommitPatch(
+export async function handleCommitPatch(
   project: Project,
   rawArgs: Record<string, unknown>,
 ) {
