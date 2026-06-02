@@ -497,3 +497,133 @@ Xurgo Atlas v0.4 proposes an evolution from safe doc editing to **documentation-
 The existing safety, versioning, and audit guarantees are preserved and extended to cover the new files. All existing tools and workflows remain backward-compatible.
 
 The full vision is described in [`../vision/project-context-mcp.md`](../vision/project-context-mcp.md).
+
+---
+
+## 14. Xurgo Atlas Naming Migration Plan (Post-v0.4)
+
+This section plans the mechanical rename and internal migration from legacy `docu-guard` naming toward Xurgo Atlas naming. It records intended phases only. No package, CLI, config, storage, MCP namespace, source-module, repository metadata, or runtime behavior changes are part of v0.4 stabilization.
+
+### 14.1 Current Inventory
+
+The current repo and checkout are named `xurgo-atlas`, and v0.4 is stable enough to treat as a private milestone at commit `cace1b1`. The implementation still intentionally contains transitional names:
+
+| Surface | Current state | Planning note |
+|---------|---------------|---------------|
+| Product/app name | Xurgo Atlas | Use as the user-facing name in new docs |
+| npm package | `docu-guard-mcp` in `package.json` and lockfile | Candidate future package name needs npm identity decision |
+| CLI binary | `docu-guard` | Keep as compatibility alias for at least one transition period |
+| MCP server identity | `docu-guard-mcp` default in `src/mcp/create-server.ts` | Can be renamed independently from tool namespace |
+| MCP tools | `docs.*` | Keep initially; namespace rename is deferred unless strongly justified |
+| Config/data defaults | `~/.config/docu-guard` and `~/.local/share/docu-guard` | Must not strand existing registries or managed stores |
+| Generated project templates | AGENTS.md, STATUS.md, docs README, event paths | Update only when compatibility behavior is planned |
+| Tests | project, registry, daemon, HTTP tests assert legacy names and paths | Update alongside implementation, not during planning |
+
+### 14.2 Phase 1: Branding and Documentation Alignment
+
+- Make Xurgo Atlas the user-facing product name in newly authored docs, status text, web UI copy, and future release material.
+- Keep legacy `docu-guard-mcp`, `docu-guard`, and `docs.*` references where they describe currently true package, CLI, server, storage, or tool behavior.
+- Treat older kickoff/PRD/spec documents as historical unless a current-status note is necessary for clarity.
+- Do not rewrite every historical reference mechanically; update current-facing docs first, then implementation surfaces in later phases.
+
+### 14.3 Phase 2: Internal Code and Package Naming
+
+Evaluate whether the package should become `xurgo-atlas` or remain temporarily `docu-guard-mcp`. The decision should account for npm package availability, whether this remains private, and whether downstream MCP client configurations already reference the package name.
+
+Likely implementation targets when this phase is approved:
+
+- `package.json` and `package-lock.json` package name and `bin` metadata.
+- `src/index.ts` CLI usage text and command examples.
+- `src/mcp/create-server.ts` server metadata.
+- `src/core/project.ts` generated AGENTS.md, docs README, STATUS.md template, initialization summary, and event path labels.
+- `src/cli/*.ts` command descriptions, errors, daemon startup text, and project-management usage.
+- Tests that assert package metadata, generated content, CLI output, server names, and legacy temp-path prefixes.
+
+Risks:
+
+- npm package identity changes can break installs, lockfiles, package exports, and binary resolution.
+- Import names and local package references may need coordinated updates even if source file names do not change.
+- Lockfile churn is expected and should be reviewed separately from behavioral code.
+- Historical docs may still include legacy names by design; implementation tests should not require historical specs to be rewritten.
+
+### 14.4 Phase 3: CLI and Server Compatibility
+
+Plan a new CLI alias, likely `xurgo-atlas`, only after the package-name decision is made. Keep `docu-guard` as a compatibility alias for at least one transition period.
+
+Compatibility requirements:
+
+- Existing commands such as `docu-guard init`, `docu-guard server`, `docu-guard daemon`, `docu-guard project ...`, `docu-guard list`, `docu-guard history`, and `docu-guard export` must continue to work unless explicitly deprecated later.
+- Help output can present `xurgo-atlas` as primary while documenting `docu-guard` as a legacy alias.
+- MCP server metadata may move from `docu-guard-mcp` to Xurgo Atlas, but client-visible tool names should remain stable.
+- Deprecation messaging should be informational and non-blocking during the compatibility period.
+
+### 14.5 Phase 4: Config and Storage Compatibility
+
+Do not destructively move config or data directories. Existing managed projects currently use legacy defaults such as `~/.config/docu-guard/projects.json` and `~/.local/share/docu-guard/projects/<id>/`. A future migration must preserve those stores.
+
+Potential strategy:
+
+1. Continue accepting explicit `--config-dir` and `--data-dir` paths exactly as today.
+2. Add new Xurgo Atlas defaults only behind a planned migration step, for example `~/.config/xurgo-atlas` and `~/.local/share/xurgo-atlas`.
+3. On startup, detect legacy registry/data locations if the new defaults are empty.
+4. Prefer alias/read-through behavior first: use the discovered legacy location without moving files.
+5. Offer an explicit migration command or documented manual copy before any physical move.
+6. If a move is implemented, copy before switching, verify registry and project store integrity, preserve the legacy directory, and record a rollback path.
+
+Rollback considerations:
+
+- The legacy store should remain untouched until a user explicitly removes it.
+- Registry records should include enough path information to reopen projects from either old or new locations.
+- Failed migrations should leave the old registry/data usable with the `docu-guard` alias.
+- Tests should cover legacy-only, new-only, both-present, explicit-dir, failed-copy, and rollback scenarios.
+
+### 14.6 Phase 5: MCP Namespace Compatibility
+
+Keep `docs.*` initially. The namespace is generic, already stable, and central to existing agent instructions. There is no compelling near-term reason to rename it as part of the product branding migration.
+
+If a future namespace such as `atlas.*` is considered, it must be a separate compatibility project with:
+
+- Aliases for all existing `docs.*` tools.
+- Clear deprecation windows and client migration docs.
+- Tool-list behavior that does not surprise existing MCP clients.
+- Tests proving both namespaces resolve to the same handlers and preserve proposal/audit semantics.
+
+### 14.7 Phase 6: Tests and Validation
+
+When implementation begins, update or add tests for:
+
+- Package metadata and binary aliases in `package.json` and `package-lock.json`.
+- CLI help, command dispatch, error hints, and compatibility alias behavior.
+- MCP server metadata and tool-list stability.
+- Generated AGENTS.md, STATUS.md, docs README, policy, manifest, and event-log text.
+- Config/data default path selection, legacy discovery, explicit path overrides, and non-destructive migration/rollback.
+- Existing managed project compatibility using a fixture or temp legacy store.
+- Pack/build/runtime smoke checks: `npm test`, `npm run build`, `npm pack --dry-run`, CLI help for both aliases, stdio MCP tool listing, daemon health, and read-only REST/UI smoke where relevant.
+
+### 14.8 Phase 7: Private Release Strategy
+
+This repo is private. Until explicit approval is given, do not push, tag, merge, publish, release, or make public artifacts.
+
+Allowed private work now:
+
+- Keep this plan and checklist updates in the private branch.
+- Prepare implementation branches locally.
+- Run validation, dry-run package checks, and local compatibility smoke tests.
+- Review diffs for accidental runtime behavior changes before any rename implementation.
+
+Requires explicit release approval:
+
+- Publishing an npm package under any name.
+- Removing or deprecating `docu-guard` workflows publicly.
+- Moving default storage paths for real users.
+- Pushing tags, merging milestone branches, creating releases, or making the repo/artifacts public.
+
+### 14.9 Implementation Gate
+
+Before any rename implementation starts, confirm:
+
+- The package name decision and CLI alias policy.
+- Whether storage defaults remain legacy for one more milestone or add Xurgo Atlas aliases.
+- That `docs.*` remains the only MCP namespace for the initial migration.
+- The exact test matrix and smoke commands.
+- That no proposal UI, `docs.merge_branch`, write REST endpoints, publishing, tagging, pushing, or release work is included in the rename implementation.
