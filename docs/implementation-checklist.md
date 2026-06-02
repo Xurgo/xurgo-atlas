@@ -1,7 +1,7 @@
 # docu-guard-mcp — Implementation Checklist
 
-> Last updated: 2026-06-02 (Xurgo Atlas naming migration planning complete)
-> Status: **v0.4 private milestone stabilized; Xurgo Atlas naming migration planned, not implemented**
+> Last updated: 2026-06-02 (Xurgo Atlas naming migration readiness audit complete)
+> Status: **v0.4 private milestone stabilized; naming migration implementation inventory complete, migration not implemented**
 
 ---
 
@@ -346,4 +346,21 @@
 | Plan config/storage compatibility | ✅ Complete | Prefer non-destructive legacy discovery/aliasing before any explicit copy/move; rollback required |
 | Plan MCP namespace compatibility | ✅ Complete | Keep `docs.*` initially; any future namespace requires aliases and deprecation docs |
 | Plan test/validation scope | ✅ Complete | Future implementation must cover package metadata, CLI aliases, server metadata, storage migration, namespace stability, build/test/pack/runtime smoke checks |
-| Implement rename changes | ⏳ Deferred | No runtime, package, CLI, config, storage, source-module, or MCP namespace rename is included in this planning task |
+| Implement rename changes | ⏳ Deferred | No runtime, package, CLI, config, storage, source-module, or MCP namespace rename is included in planning or readiness-audit tasks |
+
+---
+
+## Xurgo Atlas Naming Migration Readiness Audit
+
+> **Status:** Implementation inventory complete; migration not started.
+> **Inventory:** [Migration Implementation Readiness Inventory](./spec/docu-guard-mcp-v0.4-status-manifest-context.md#15-migration-implementation-readiness-inventory-phase-b-audit)
+
+| Area | Status | Implementation candidates | First-slice guidance |
+|------|--------|---------------------------|----------------------|
+| Package metadata | ✅ Inventoried | `package.json` name/bin/description/keywords; `package-lock.json` root metadata | Additive bin alias is safe; package rename waits |
+| CLI compatibility | ✅ Inventoried | `src/index.ts`, `src/cli/init.ts`, `src/cli/project.ts`, `src/cli/daemon.ts` | Keep `docu-guard` working; add `xurgo-atlas` only as an alias in first slice |
+| Runtime/server naming | ✅ Inventoried | `src/mcp/create-server.ts`, daemon logs, startup text, help text, error hints | Display metadata can change separately from tool names |
+| Config/storage compatibility | ✅ Inventoried | `src/core/storage.ts`, `src/core/registry.ts`, `src/core/project.ts`, storage tests | Exclude from first slice; requires legacy discovery/rollback plan |
+| MCP namespace | ✅ Decision confirmed | `src/mcp/tools.ts`, resources, generated AGENTS.md, docs, tests, client prompts | Keep `docs.*` unchanged unless separately approved |
+| Documentation references | ✅ Classified | Current-facing docs vs historical specs/changelog/compat notes | Brand current-facing docs carefully; preserve true legacy references |
+| Recommended Phase B slice | ✅ Defined | Add `xurgo-atlas` bin alias while retaining `docu-guard`; focused tests and pack/build smoke | Do not include package rename, storage migration, namespace migration, or runtime feature work |
