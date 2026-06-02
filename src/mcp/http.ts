@@ -44,6 +44,518 @@ const DEFAULT_ALLOWED_ORIGINS: ReadonlyArray<string | RegExp> = [
   /^https?:\/\/localhost(?::\d+)?$/,
 ];
 
+// ── Minimal read-only UI assets ───────────────────────────────────────
+
+const UI_HTML = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Xurgo Atlas</title>
+  <link rel="stylesheet" href="/ui/styles.css">
+  <script defer src="/ui/app.js"></script>
+</head>
+<body>
+  <div id="app" class="shell">
+    <header class="topbar">
+      <div>
+        <h1>Xurgo Atlas</h1>
+        <p id="projectMeta" class="muted">Loading project context...</p>
+      </div>
+      <div class="actions">
+        <select id="projectSelect" aria-label="Project"></select>
+        <button id="copyContext" type="button">Copy Context</button>
+      </div>
+    </header>
+    <main class="layout">
+      <aside class="sidebar">
+        <div class="sidebarHeader">
+          <h2>Manifest</h2>
+          <span id="manifestMeta" class="muted"></span>
+        </div>
+        <nav id="docNav" class="docNav" aria-label="Documents"></nav>
+      </aside>
+      <section class="viewerPane">
+        <div class="viewerToolbar">
+          <div>
+            <h2 id="viewTitle">STATUS.md</h2>
+            <p id="viewMeta" class="muted"></p>
+          </div>
+          <div class="actions">
+            <select id="sectionSelect" aria-label="Section"></select>
+            <button id="copySection" type="button">Copy Section</button>
+            <button id="copyDocument" type="button">Copy Document</button>
+          </div>
+        </div>
+        <article id="viewer" class="viewer" aria-live="polite"></article>
+      </section>
+    </main>
+  </div>
+</body>
+</html>`;
+
+const UI_CSS = `
+:root {
+  color-scheme: light;
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --text: #17202a;
+  --muted: #657384;
+  --line: #d9dee7;
+  --accent: #1f6feb;
+  --accent-soft: #e8f0fe;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+button, select {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+button {
+  padding: 0 12px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+select { padding: 0 28px 0 10px; }
+.shell { min-height: 100vh; }
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+h1, h2, p { margin: 0; }
+h1 { font-size: 18px; }
+h2 { font-size: 15px; }
+.muted { color: var(--muted); font-size: 12px; }
+.actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  min-height: calc(100vh - 65px);
+}
+.sidebar {
+  border-right: 1px solid var(--line);
+  background: #fbfcfd;
+  overflow: auto;
+}
+.sidebarHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.docNav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+}
+.docButton {
+  width: 100%;
+  min-height: 58px;
+  padding: 8px 10px;
+  text-align: left;
+  border-radius: 6px;
+}
+.docButton.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.docPath {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.docSummary {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.viewerPane {
+  min-width: 0;
+  background: var(--panel);
+}
+.viewerToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.viewer {
+  max-width: 980px;
+  padding: 22px 28px 48px;
+  line-height: 1.58;
+}
+.viewer h1 { font-size: 26px; margin: 0 0 14px; }
+.viewer h2 { font-size: 20px; margin: 24px 0 10px; }
+.viewer h3 { font-size: 17px; margin: 20px 0 8px; }
+.viewer p, .viewer ul, .viewer ol, .viewer pre { margin: 0 0 14px; }
+.viewer code, .viewer pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.viewer pre {
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f8fafc;
+}
+.viewer blockquote {
+  margin: 0 0 14px;
+  padding-left: 12px;
+  border-left: 3px solid var(--line);
+  color: var(--muted);
+}
+.error {
+  color: #9a3412;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+@media (max-width: 760px) {
+  .topbar, .viewerToolbar { align-items: flex-start; flex-direction: column; }
+  .layout { grid-template-columns: 1fr; }
+  .sidebar { max-height: 38vh; border-right: 0; border-bottom: 1px solid var(--line); }
+  .viewer { padding: 18px; }
+}
+`;
+
+const UI_JS = `
+const state = {
+  projectId: null,
+  branch: 'main',
+  manifest: null,
+  currentPath: 'STATUS.md',
+  currentContent: '',
+  currentRevision: null,
+  headings: [],
+};
+
+const els = {
+  projectMeta: document.getElementById('projectMeta'),
+  projectSelect: document.getElementById('projectSelect'),
+  manifestMeta: document.getElementById('manifestMeta'),
+  docNav: document.getElementById('docNav'),
+  viewTitle: document.getElementById('viewTitle'),
+  viewMeta: document.getElementById('viewMeta'),
+  viewer: document.getElementById('viewer'),
+  sectionSelect: document.getElementById('sectionSelect'),
+  copyDocument: document.getElementById('copyDocument'),
+  copySection: document.getElementById('copySection'),
+  copyContext: document.getElementById('copyContext'),
+};
+
+async function api(path, options = {}) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open(options.method || 'GET', path, true);
+    request.setRequestHeader('Content-Type', 'application/json');
+    request.onload = () => {
+      let data = {};
+      try {
+        data = request.responseText ? JSON.parse(request.responseText) : {};
+      } catch (err) {
+        reject(new Error('Invalid JSON response'));
+        return;
+      }
+      if (request.status < 200 || request.status >= 300) {
+        const message = data && data.error ? data.error.message : 'Request failed';
+        reject(new Error(message));
+        return;
+      }
+      resolve(data);
+    };
+    request.onerror = () => reject(new Error('Network request failed'));
+    request.send(options.body || null);
+  });
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function renderMarkdown(markdown) {
+  const lines = markdown.split('\\n');
+  const html = [];
+  let inCode = false;
+  let listOpen = false;
+  let paragraph = [];
+
+  function flushParagraph() {
+    if (paragraph.length > 0) {
+      html.push('<p>' + paragraph.map(escapeHtml).join(' ') + '</p>');
+      paragraph = [];
+    }
+  }
+  function closeList() {
+    if (listOpen) {
+      html.push('</ul>');
+      listOpen = false;
+    }
+  }
+
+  for (const line of lines) {
+    if (/^ {0,3}\x60{3}/.test(line)) {
+      flushParagraph();
+      closeList();
+      html.push(inCode ? '</code></pre>' : '<pre><code>');
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) {
+      html.push(escapeHtml(line) + '\\n');
+      continue;
+    }
+    const heading = line.match(/^(#{1,6})\\s+(.*)$/);
+    if (heading) {
+      flushParagraph();
+      closeList();
+      const level = Math.min(3, heading[1].length);
+      html.push('<h' + level + '>' + escapeHtml(heading[2]) + '</h' + level + '>');
+      continue;
+    }
+    const bullet = line.match(/^[-*]\\s+(.*)$/);
+    if (bullet) {
+      flushParagraph();
+      if (!listOpen) {
+        html.push('<ul>');
+        listOpen = true;
+      }
+      html.push('<li>' + escapeHtml(bullet[1]) + '</li>');
+      continue;
+    }
+    if (/^>\\s?/.test(line)) {
+      flushParagraph();
+      closeList();
+      html.push('<blockquote>' + escapeHtml(line.replace(/^>\\s?/, '')) + '</blockquote>');
+      continue;
+    }
+    if (line.trim() === '') {
+      flushParagraph();
+      closeList();
+      continue;
+    }
+    paragraph.push(line.trim());
+  }
+  flushParagraph();
+  closeList();
+  if (inCode) {
+    html.push('</code></pre>');
+  }
+  return html.join('\\n');
+}
+
+function collectHeadings(markdown) {
+  const counts = new Map();
+  const headings = [];
+  let inCode = false;
+  markdown.split('\\n').forEach((line, index) => {
+    if (/^ {0,3}\x60{3}/.test(line)) {
+      inCode = !inCode;
+      return;
+    }
+    if (inCode) return;
+    const match = line.match(/^(#{1,6})\\s+(.*)$/);
+    if (!match) return;
+    const text = match[2].replace(/\\s+#+\\s*$/, '').trim();
+    const key = match[1].length + ':' + text.toLowerCase();
+    const occurrence = (counts.get(key) || 0) + 1;
+    counts.set(key, occurrence);
+    headings.push({
+      heading: text,
+      level: match[1].length,
+      occurrence,
+      line: index + 1,
+    });
+  });
+  return headings;
+}
+
+function setMeta(data) {
+  state.currentRevision = data.revision || null;
+  els.projectMeta.textContent = 'Project ' + state.projectId + ' | branch ' + (data.branch || state.branch);
+  els.viewMeta.textContent = [
+    'projectId=' + state.projectId,
+    'branch=' + (data.branch || state.branch),
+    data.revision ? 'revision=' + data.revision.slice(0, 12) : null,
+    data.path ? 'path=' + data.path : null,
+  ].filter(Boolean).join(' | ');
+}
+
+function renderNav() {
+  const documents = state.manifest && Array.isArray(state.manifest.documents)
+    ? state.manifest.documents
+    : [];
+  els.manifestMeta.textContent = documents.length + ' docs';
+  els.docNav.innerHTML = '';
+  documents.forEach((doc) => {
+    if (!doc || !doc.path) return;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'docButton' + (doc.path === state.currentPath ? ' active' : '');
+    button.innerHTML =
+      '<span class="docPath">' + escapeHtml(doc.path) + '</span>' +
+      '<span class="docSummary">' + escapeHtml(doc.summary || doc.role || '') + '</span>';
+    button.addEventListener('click', () => loadDocument(doc.path));
+    els.docNav.appendChild(button);
+  });
+}
+
+function renderSections() {
+  els.sectionSelect.innerHTML = '';
+  const all = document.createElement('option');
+  all.value = '';
+  all.textContent = 'Whole document';
+  els.sectionSelect.appendChild(all);
+  state.headings.forEach((heading, index) => {
+    const option = document.createElement('option');
+    option.value = String(index);
+    option.textContent = '#'.repeat(heading.level) + ' ' + heading.heading;
+    els.sectionSelect.appendChild(option);
+  });
+}
+
+async function loadProjects() {
+  const data = await api('/projects');
+  const projects = data.projects || [];
+  els.projectSelect.innerHTML = '';
+  projects.forEach((project) => {
+    const option = document.createElement('option');
+    option.value = project.projectId;
+    option.textContent = project.projectId;
+    option.selected = Boolean(project.default);
+    els.projectSelect.appendChild(option);
+  });
+  const selected = projects.find((project) => project.default) || projects[0];
+  if (!selected) {
+    throw new Error('No registered projects');
+  }
+  state.projectId = selected.projectId;
+  els.projectSelect.value = state.projectId;
+}
+
+async function loadManifest() {
+  state.manifest = await api('/projects/' + encodeURIComponent(state.projectId) + '/manifest?branch=' + encodeURIComponent(state.branch));
+  renderNav();
+}
+
+async function loadDocument(path) {
+  state.currentPath = path;
+  els.viewTitle.textContent = path;
+  els.viewer.innerHTML = '<p class="muted">Loading...</p>';
+  renderNav();
+  const data = await api('/projects/' + encodeURIComponent(state.projectId) + '/docs/' + encodeURIComponent(path) + '?branch=' + encodeURIComponent(state.branch) + '&maxChars=80000');
+  state.currentContent = data.content || '';
+  state.headings = collectHeadings(state.currentContent);
+  setMeta(data);
+  renderSections();
+  els.viewer.innerHTML = renderMarkdown(state.currentContent);
+  renderNav();
+}
+
+async function copyText(text) {
+  await navigator.clipboard.writeText(text);
+}
+
+async function copySelectedSection() {
+  const index = Number(els.sectionSelect.value);
+  if (!Number.isInteger(index) || !state.headings[index]) {
+    await copyText(state.currentContent);
+    return;
+  }
+  const heading = state.headings[index];
+  const params = new URLSearchParams({
+    path: state.currentPath,
+    heading: heading.heading,
+    level: String(heading.level),
+    occurrence: String(heading.occurrence),
+    includeHeading: 'true',
+    maxChars: '80000',
+    branch: state.branch,
+  });
+  const data = await api('/projects/' + encodeURIComponent(state.projectId) + '/sections?' + params.toString());
+  await copyText(data.content || '');
+}
+
+async function copyContextPack() {
+  const data = await api('/projects/' + encodeURIComponent(state.projectId) + '/context-pack', {
+    method: 'POST',
+    body: JSON.stringify({
+      branch: state.branch,
+      maxChars: 8000,
+      paths: state.currentPath === 'STATUS.md' ? [] : [state.currentPath],
+    }),
+  });
+  const parts = [
+    'projectId: ' + data.projectId,
+    'branch: ' + data.branch,
+    'revision: ' + data.revision,
+    '',
+  ];
+  (data.items || []).forEach((item) => {
+    parts.push('## ' + item.kind + ': ' + item.path);
+    if (item.heading) parts.push('heading: ' + item.heading);
+    if (item.truncated) parts.push('[truncated]');
+    parts.push(item.content || '');
+    parts.push('');
+  });
+  await copyText(parts.join('\\n'));
+}
+
+function showError(err) {
+  els.viewer.innerHTML = '<div class="error">' + escapeHtml(err.message || String(err)) + '</div>';
+}
+
+els.projectSelect.addEventListener('change', async () => {
+  try {
+    state.projectId = els.projectSelect.value;
+    await loadManifest();
+    await loadDocument('STATUS.md');
+  } catch (err) {
+    showError(err);
+  }
+});
+els.copyDocument.addEventListener('click', () => copyText(state.currentContent).catch(showError));
+els.copySection.addEventListener('click', () => copySelectedSection().catch(showError));
+els.copyContext.addEventListener('click', () => copyContextPack().catch(showError));
+
+(async function init() {
+  try {
+    await loadProjects();
+    await loadManifest();
+    await loadDocument('STATUS.md');
+  } catch (err) {
+    showError(err);
+  }
+})();
+`;
+
 // ── CORS helpers ───────────────────────────────────────────────────────
 
 function setCorsHeaders(
@@ -417,6 +929,18 @@ export async function startHttpServer(
   // Health check endpoint
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
+  });
+
+  app.get(['/', '/ui'], (_req, res) => {
+    res.type('html').send(UI_HTML);
+  });
+
+  app.get('/ui/app.js', (_req, res) => {
+    res.type('application/javascript').send(UI_JS);
+  });
+
+  app.get('/ui/styles.css', (_req, res) => {
+    res.type('text/css').send(UI_CSS);
   });
 
   if (options.rest) {

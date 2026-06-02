@@ -2,7 +2,7 @@
 
 > **Product name:** Xurgo Atlas
 > **Current implementation:** docu-guard-mcp (transitional package/CLI)
-> **Status:** Spec — partially implemented (docs.status ✅, docs.manifest ✅, docs.read_section ✅, docs.context_pack ✅, read-only REST context API ✅)
+> **Status:** Spec — partially implemented (docs.status ✅, docs.manifest ✅, docs.read_section ✅, docs.context_pack ✅, read-only REST context API ✅, read-only web UI ✅)
 > **Vision:** [`../vision/project-context-mcp.md`](../vision/project-context-mcp.md)
 > **Branch:** v0.2-daemon
 
@@ -330,8 +330,8 @@ All existing tools continue to work exactly as before:
 
 A future read-only web UI should:
 
-- **Open to STATUS.md as the default landing page.** The first thing a human sees should be the same front page an agent sees.
-- **Use docs/manifest.yml as the project navigation map.** The sidebar or navigation tree should be generated from the manifest, not from a filesystem scan.
+- **Open to STATUS.md as the default landing page.** The first thing a human sees is the same front page an agent sees.
+- **Use docs/manifest.yml as the project navigation map.** The sidebar navigation is generated from the manifest, not from a filesystem scan.
 - **Show compact status at the top.** Current focus, next actions, and blockers should be visible without scrolling.
 - **Provide section-level navigation.** For long documents, the UI should support jumping to sections.
 - **Respect protection rules.** Protected documents should be clearly marked. Editing should go through the MCP tool (propose + commit).
@@ -360,7 +360,13 @@ Path safety must reuse the existing traversal checks and policy/tracked-path log
 
 The implemented REST API excludes write actions: no proposals, commits, preview-diff mutation paths, restore, export, branch merge, approval override, publishing, or release operations. Those remain MCP-only, where the guarded proposal workflow and audit trail already exist.
 
-The first web UI should open to `STATUS.md` because it is the canonical front page for both humans and agents. It should use `docs/manifest.yml` for navigation rather than scanning the repository, then use document and section endpoints for progressive disclosure.
+The first web UI opens to `STATUS.md` because it is the canonical front page for both humans and agents. It uses `docs/manifest.yml` for navigation rather than scanning the repository, then uses document and section endpoints for progressive disclosure.
+
+### 8.2 Minimal Read-Only Web UI (Implemented)
+
+The daemon now serves a minimal local read-only web UI at `/` and `/ui`, with static assets at `/ui/app.js` and `/ui/styles.css`. The UI opens to `STATUS.md`, loads `docs/manifest.yml` through the REST manifest endpoint for navigation, and reads selected documents through the bounded document REST endpoint.
+
+The UI shows project, branch, revision, and path metadata for the current view. It includes copy actions for the current document, the selected Markdown section, and a context-pack style orientation bundle loaded through `POST /projects/:projectId/context-pack`. It does not expose editing, proposals, approvals, restore, export, merge, publishing, or other write workflows.
 
 ---
 

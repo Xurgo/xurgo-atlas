@@ -171,6 +171,38 @@ Next body.
     expect(res.data).toEqual({ status: 'ok' });
   });
 
+  it('GET / and /ui serve the read-only web UI shell', async () => {
+    const root = await get('/');
+    expect(root.status).toBe(200);
+    expect(root.data).toContain('<div id="app"');
+    expect(root.data).toContain('/ui/app.js');
+    expect(root.data).toContain('/ui/styles.css');
+
+    const ui = await get('/ui');
+    expect(ui.status).toBe(200);
+    expect(ui.data).toContain('Xurgo Atlas');
+  });
+
+  it('GET /ui/app.js bootstraps from read-only REST endpoints', async () => {
+    const res = await get('/ui/app.js');
+    expect(res.status).toBe(200);
+    expect(res.data).toContain("api('/projects')");
+    expect(res.data).toContain('/manifest?branch=');
+    expect(res.data).toContain('/docs/');
+    expect(res.data).toContain('/sections?');
+    expect(res.data).toContain('/context-pack');
+    expect(res.data).not.toContain('propose_patch');
+    expect(res.data).not.toContain('commit_patch');
+    expect(res.data).not.toContain('restore_file');
+  });
+
+  it('GET /ui/styles.css serves the static UI stylesheet', async () => {
+    const res = await get('/ui/styles.css');
+    expect(res.status).toBe(200);
+    expect(res.data).toContain('.layout');
+    expect(res.data).toContain('.viewer');
+  });
+
   it('GET /projects lists registered projects without write actions', async () => {
     const res = await get('/projects');
     expect(res.status).toBe(200);
