@@ -11,7 +11,7 @@ import { GitStore } from '../src/core/git-store.js';
 import { EventLog } from '../src/core/events.js';
 import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/patch.js';
 import { assessPatchRisk } from '../src/core/risk.js';
-import { parseFrontMatter, handleManifest } from '../src/mcp/tools.js';
+import { parseFrontMatter, handleManifest, handleRead } from '../src/mcp/tools.js';
 import YAML from 'yaml';
 
 let tmpDir: string;
@@ -713,6 +713,223 @@ describe('reading docs', () => {
 
     const { content } = await project.readFile('main', 'docs/nonexistent.md');
     expect(content).toBeNull();
+  });
+});
+
+describe('bounded docs.read via handler', () => {
+  it('should be backward-compatible without maxChars', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.projectId).toBe('test-project');
+    expect(data.path).toBe('docs/README.md');
+    expect(data.branch).toBe('main');
+    expect(data.revision).toBeTruthy();
+    expect(data.content).toContain('Documentation');
+    expect(data.truncated).toBe(false);
+    expect(data.maxChars).toBeNull();
+    expect(data.offset).toBe(0);
+    expect(data.returnedChars).toBe(data.totalChars);
+  });
+
+  it('should truncate content with maxChars and set truncated true', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+      maxChars: 10,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe('# Document');
+    expect(data.content.length).toBe(10);
+    expect(data.truncated).toBe(true);
+    expect(data.maxChars).toBe(10);
+    expect(data.returnedChars).toBe(10);
+    expect(data.totalChars).toBeGreaterThan(10);
+  });
+
+  it('should set truncated false when maxChars is larger than content', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+      maxChars: 999999,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toContain('Documentation');
+    expect(data.truncated).toBe(false);
+    expect(data.maxChars).toBe(999999);
+    expect(data.returnedChars).toBe(data.totalChars);
+  });
+
+  it('should return a later slice with offset', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // First read full content to know total length
+    const fullResult = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+    });
+    const fullData = JSON.parse(fullResult.content[0].text);
+    const fullContent: string = fullData.content;
+    const laterPortion = fullContent.slice(50);
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+      offset: 50,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe(laterPortion);
+    expect(data.offset).toBe(50);
+    expect(data.returnedChars).toBe(laterPortion.length);
+    expect(data.totalChars).toBe(fullContent.length);
+  });
+
+  it('should combine offset and maxChars correctly', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+      offset: 10,
+      maxChars: 20,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content.length).toBe(20);
+    expect(data.offset).toBe(10);
+    expect(data.maxChars).toBe(20);
+    expect(data.returnedChars).toBe(20);
+    expect(data.totalChars).toBeGreaterThan(30);
+  });
+
+  it('should include revision as before', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+      maxChars: 5,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.revision).toBeTruthy();
+    expect(typeof data.revision).toBe('string');
+    expect(data.revision.length).toBeGreaterThan(0);
+  });
+
+  it('should report missing files clearly', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'nonexistent-file.md',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('not found');
+  });
+
+  it('should handle offset beyond content length gracefully', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+      offset: 999999,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe('');
+    expect(data.truncated).toBe(false);
+    expect(data.returnedChars).toBe(0);
+  });
+
+  it('should handle path traversal detection in bounded read', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: '../etc/passwd',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Path traversal');
   });
 });
 

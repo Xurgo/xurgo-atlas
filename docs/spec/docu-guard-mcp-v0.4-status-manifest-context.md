@@ -302,8 +302,8 @@ These are targets for the implementation, not hard limits. The principle is that
 
 | Tool | New Option | Description |
 |------|-----------|-------------|
-| `docs.read` | `maxChars` | Return only the first N characters |
-| `docs.read` | `maxBytes` | Return only the first N bytes |
+| `docs.read` | `maxChars` | Return only the first N characters from the selected offset |
+| `docs.read` | `offset` | Start reading from this character position (default 0) |
 | `docs.list` | `compact` | Return minimal metadata (path + role) instead of full details |
 | `docs.list` | `role` | Filter documents by role |
 | `docs.find` | *(if needed later)* | Search document summaries or headings for a term |
@@ -312,7 +312,7 @@ These are targets for the implementation, not hard limits. The principle is that
 
 All existing tools continue to work exactly as before:
 
-- `docs.read` without `maxChars`/`maxBytes` returns the full document as today.
+- `docs.read` without `maxChars` or `offset` returns the full document as today (with additional metadata fields `truncated: false`, `maxChars: null`, `offset: 0`, `returnedChars`, `totalChars`).
 - `docs.list` without `compact` returns the current enriched output.
 - All v0.1–v0.3 tools and workflows remain unchanged.
 
@@ -396,7 +396,7 @@ The following criteria define when v0.4 can be considered implemented. They are 
 | 11 | `parseFrontMatter` extracts YAML front matter between `---` delimiters; returns `{frontMatter, rawFrontMatter, body}` | ✅ Complete |
 | 12 | Missing STATUS.md returns clear error with hint to run `docu-guard init` | ✅ Complete |
 | 13 | `docs.manifest` returns parsed manifest YAML as JSON | ✅ Complete |
-| 14 | `docs.read` accepts `maxChars` and `maxBytes` options | ⏳ Planned |
+| 14 | `docs.read` accepts `maxChars` and `offset` options | ✅ Complete | Also returns `truncated`, `returnedChars`, `totalChars`; backward-compatible |
 | 15 | `docs.read_section` returns one section by heading | ⏳ Planned |
 | 16 | `docs.context_pack` returns bounded document set for a topic | ⏳ Planned |
 | 17 | `docs.list` accepts `compact` and `role` options | ⏳ Planned |
@@ -410,7 +410,7 @@ The following criteria define when v0.4 can be considered implemented. They are 
 | 17 | `docs.status` response is under 500 tokens for typical projects | ✅ Complete (template STATUS.md is ~150 tokens) |
 | 18 | `docs.status` truncation respects `maxChars` exactly | ✅ Complete |
 | 19 | `docs.manifest` response is under 1K tokens for small projects | ✅ Complete |
-| 21 | Bounded reads respect `maxChars`/`maxBytes` exactly | ⏳ Planned |
+| 21 | Bounded reads respect `maxChars` exactly | ✅ Complete | `maxChars` + `offset` slice content precisely; `truncated` flag signals clipping |
 
 ### 10.5 Validation
 
@@ -436,7 +436,7 @@ This is a suggested order for the implementation phase. It is subject to change.
 | 5 | Implement `docs.status` tool | Phase 1 | ✅ Complete |
 | 6 | Implement `docs.manifest` tool | Phase 2 | ✅ Complete |
 | 7 | Implement `docs.read_section` tool | None (utility) | ⏳ Planned |
-| 8 | Add `maxChars`/`maxBytes` to `docs.read` | None | ⏳ Planned |
+| 8 | Add `maxChars`/`maxBytes` to `docs.read` | None | ✅ Complete | `maxChars` and `offset` implemented; also returns `truncated`, `returnedChars`, `totalChars` |
 | 9 | Add `compact` and `role` options to `docs.list` | Phase 2 | ⏳ Planned |
 | 10 | Implement `docs.context_pack` tool | Phase 1, 2 | ⏳ Planned |
 | 11 | Update .docs-policy.yml default template | Phase 3 | ⏳ Planned |
