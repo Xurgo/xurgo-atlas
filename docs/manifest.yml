@@ -44,3 +44,17 @@ documents:
     role: spec
     priority: high
     summary: Spec for STATUS.md, manifest, and token-efficient MCP tools
+
+  - path: docs/vision/project-context-mcp.md
+    role: vision
+    priority: high
+    summary: Product vision for documentation-first project context
+    related:
+      - docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md
+
+  - path: docs/vision/xurgo-integration.md
+    role: vision
+    priority: high
+    summary: Boundary and integration plan between Xurgo and Xurgo Atlas
+    related:
+      - docs/vision/project-context-mcp.md
