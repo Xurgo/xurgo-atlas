@@ -272,7 +272,7 @@
 | External dogfooding (disposable project) | ✅ Complete | Init + registry + daemon + full MCP patch workflow + export verified; no `.docu-guard/` created |
 | Daemon path validation | ⏳ Pending | Validate configDir/dataDir existence at startup (currently prints paths but does not validate) |
 | Desktop/VPS/Docker path defaults | ⏳ Pending | Defaults use XDG conventions; `/etc`/`/var/lib` defaults not auto-detected |
-| Self-dogfood on docu-guard-mcp itself | ⏳ Pending | Run daemon with `--config-dir`/`--data-dir` pointed at this repo |
+| Self-dogfood on docu-guard-mcp itself | ✅ Complete | Self-dogfood validated: init + daemon + full MCP patch cycle on this repo |
 | Tests for new storage model | ✅ Complete | 22 registry tests (v2 schema, v1 compat, CRUD, resolution), 4 daemon tests, 9 HTTP server tests, tilde expansion, CLI init registration |
 
 ### Known Follow-Up Items
