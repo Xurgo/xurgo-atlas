@@ -2,7 +2,7 @@
 
 > **Product name:** Xurgo Atlas
 > **Current implementation:** docu-guard-mcp (transitional package/CLI)
-> **Status:** Spec — partially implemented (docs.status ✅, docs.manifest ✅, docs.read_section ✅, docs.context_pack ✅, read-only REST context API ✅, read-only web UI ✅)
+> **Status:** Implemented and stabilized as a private v0.4 milestone (docs.status ✅, docs.manifest ✅, docs.read_section ✅, docs.context_pack ✅, read-only REST context API ✅, read-only web UI ✅)
 > **Vision:** [`../vision/project-context-mcp.md`](../vision/project-context-mcp.md)
 > **Branch:** v0.2-daemon
 
@@ -38,7 +38,7 @@ v0.4 addresses these gaps by introducing two new standard files (`STATUS.md` and
 ## 3. Non-Goals
 
 1. **No implementation in this document.** This is a planning and spec document only.
-2. **No web UI implementation.** Future UI considerations are noted but not designed.
+2. **No write-capable web UI implementation.** v0.4 includes only a minimal read-only UI; proposal, approval, restore, export, merge, and publishing workflows remain out of scope.
 3. **No mechanical rename in this session.** The package, CLI, MCP server name, tool namespace, and config paths retain their current transitional names. A future rename should be planned separately.
 4. **No Xurgo dependency.** The tool must remain independently useful.
 5. **No complex YAML features** as core requirements (see §5).
@@ -402,8 +402,8 @@ The following criteria define when v0.4 can be considered implemented. They are 
 
 | # | Criterion | Status |
 |---|-----------|--------|
-| 1 | `init` creates `STATUS.md` with front matter and minimal template | ⏳ Planned |
-| 2 | `init` creates `docs/manifest.yml` with entries for all standard files | ⏳ Planned |
+| 1 | `init` creates `STATUS.md` with front matter and minimal template | ✅ Complete |
+| 2 | `init` creates `docs/manifest.yml` with entries for all standard files | ✅ Complete |
 | 3 | `init` does not create `.docu-guard/` (v0.3 behavior preserved) | ✅ Already v0.3 |
 | 4 | Existing projects can add STATUS.md and manifest without re-init | ⏳ Planned |
 
@@ -447,8 +447,8 @@ The following criteria define when v0.4 can be considered implemented. They are 
 |---|-----------|--------|
 | 21 | Manifest validates that referenced paths exist | ✅ Complete |
 | 23 | STATUS.md with invalid front matter is handled gracefully | ⏳ Planned |
-| 24 | All tests from v0.1–v0.3 continue to pass | ✅ Verified | `npm test` passes with 124 tests |
-| 25 | New tests cover all new tools and options | ✅ Partial (docs.status, docs.manifest, bounded docs.read, docs.read_section, STATUS.md guarded update, and docs.context_pack tests done) |
+| 24 | All tests from v0.1–v0.3 continue to pass | ✅ Verified | `npm test` passes with 137 tests |
+| 25 | New tests cover implemented v0.4 context, REST, and UI surfaces | ✅ Complete | Covered by docs.status, docs.manifest, bounded docs.read, docs.read_section, STATUS.md guarded update, docs.context_pack, REST route, and UI asset tests; docs.list compact/role remains future work |
 
 ---
 
@@ -469,9 +469,9 @@ This is a suggested order for the implementation phase. It is subject to change.
 | 9 | Add `compact` and `role` options to `docs.list` | Phase 2 | ⏳ Planned |
 | 10 | Implement `docs.context_pack` tool | Phase 1, 2 | ✅ Complete |
 | 11 | Update .docs-policy.yml default template | Phase 3 | ✅ Complete |
-| 12 | Write tests for all new features | All phases | ⏳ Partial (docs.status, docs.manifest, bounded docs.read, docs.read_section, and docs.context_pack tests done) |
-| 13 | Update `docs/implementation-checklist.md` | All phases | ✅ Ongoing |
-| 14 | Dogfood: run v0.4 on docu-guard itself | All phases | ⏳ Pending |
+| 12 | Write tests for all implemented v0.4 features | All phases | ✅ Complete for context tools, REST routes, and UI assets; docs.list compact/role remains future work |
+| 13 | Update `docs/implementation-checklist.md` | All phases | ✅ Complete for stabilization audit |
+| 14 | Dogfood: run v0.4 on docu-guard itself | All phases | ✅ Complete |
 
 Phases 1–4 are the foundation. Phases 5–10 are the MCP tool features. Phases 11–14 are documentation, testing, and validation.
 

@@ -2,9 +2,9 @@
 docuGuard.type: status
 statusVersion: 1
 priority: high
-currentFocus: "read-only web UI implemented"
+currentFocus: "v0.4 stabilization audit complete"
 nextActions:
-  - "Add compact and role options to docs.list (Phase 9)"
+  - "Plan mechanical rename/internal migration after the stable private v0.4 milestone"
 blockers:
 doNotDo:
   - "Do not edit STATUS.md, manifest.yml, or .docs-policy.yml directly"
@@ -22,10 +22,12 @@ lastUpdated: "2026-06-02"
 Xurgo Atlas is the project-context and documentation-safety MCP. The current implementation still uses transitional `docu-guard-mcp` package, CLI, and internal names.
 
 ## Current Focus
-The minimal read-only web UI is implemented and served by the daemon at `/` and `/ui`. It opens to STATUS.md, uses the manifest for navigation, reads documents through the REST context API, and exposes copy actions without editing or write workflows.
+The v0.4 context tools, minimal read-only REST API, and hardened read-only web UI are implemented and stabilized as a private milestone. The UI opens to STATUS.md, uses the manifest for navigation, reads documents through the REST context API, and exposes copy actions without editing or write workflows.
 
 ## Next Actions
-- Add `compact` and `role` options to `docs.list`
+- Plan mechanical rename/internal migration after the stable private v0.4 milestone
+- Keep `docs.list` compact/role support as a smaller follow-up if needed for orientation
+- Continue to defer proposal/approval UI and `docs.merge_branch` until separately planned
 
 ## Blockers
 - None currently

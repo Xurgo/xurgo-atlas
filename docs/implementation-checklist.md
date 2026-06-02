@@ -1,7 +1,7 @@
 # docu-guard-mcp — Implementation Checklist
 
-> Last updated: 2026-06-02 (read-only web UI implemented)
-> Status: **v0.2-daemon released; read-only web UI implemented**
+> Last updated: 2026-06-02 (v0.4 stabilization audit complete)
+> Status: **v0.4 context, REST, and read-only web UI stabilized as a private milestone**
 
 ---
 
@@ -141,12 +141,12 @@
 | CLI init command registration | ✅ Complete | 3 tests (registers, idempotent, custom dirs) |
 | v0.4 project context files (STATUS.md, manifest) | ✅ Complete | 8 tests (create, idempotent ×2, no .docu-guard/, policy protection, legacy policy merge, STATUS.md propose/commit, untracked rejection) |
 | docs.status front matter parsing | ✅ Complete | 7 tests (parse STATUS.md, read via project, truncation, missing file, no front matter, empty, partial delimiter) |
-| HTTP server with managed storage, read-only REST context API, and web UI | ✅ Complete | 21 tests (health, MCP dispatch, managed storage, REST context API, UI shell/assets/no write routes) |
+| HTTP server with managed storage, read-only REST context API, and web UI | ✅ Complete | 22 tests (health, MCP dispatch, managed storage, REST context API, UI shell/assets/no write routes) |
 | Daemon with managed storage | ✅ Complete | 4 tests (isolated temp paths) |
 | Bounded `docs.read` via handler | ✅ Complete | 9 tests: backward-compatible, truncation, maxChars>content, offset, offset+maxChars, revision preserved, missing file, offset beyond end, path traversal |
 | `docs.read_section` via handler | ✅ Complete | 10 tests: section reads, child subsections, includeHeading=false, maxChars, offset, duplicate occurrence, level filter, fenced code blocks, missing heading, docs.read compatibility |
 | `docs.context_pack` via handler | ✅ Complete | 6 tests: default orientation pack, total maxChars budget, explicit paths, explicit sections, missing paths, unsafe/untracked rejection |
-| **Total** | | **136 tests** |
+| **Total** | | **137 tests** |
 
 ---
 
@@ -173,7 +173,7 @@
 
 ## v0.2 — Multi-Project Daemon with Streamable HTTP
 
-> **Status:** Planned (spec complete, not yet implemented)
+> **Status:** Complete (multi-project daemon, registry, and Streamable HTTP implemented)
 > **Spec:** [`docs/spec/docu-guard-mcp-v0.2-daemon-prd.md`](./spec/docu-guard-mcp-v0.2-daemon-prd.md)
 > **Plan:** [`docs/spec/docu-guard-mcp-v0.2-implementation-plan.md`](./spec/docu-guard-mcp-v0.2-implementation-plan.md)
 
@@ -298,7 +298,7 @@
 
 > **Product name:** Xurgo Atlas
 > **Current implementation:** docu-guard-mcp (transitional package/CLI)
-> **Status:** In progress — v0.4 context tools, read-only REST context API, and read-only web UI implemented
+> **Status:** Stabilized — v0.4 context tools, read-only REST context API, and hardened read-only web UI implemented as a private milestone
 > **Integration:** [`docs/vision/xurgo-integration.md`](./vision/xurgo-integration.md)
 > **Vision:** [`docs/vision/project-context-mcp.md`](./vision/project-context-mcp.md)
 > **Spec:** [`docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md`](./spec/docu-guard-mcp-v0.4-status-manifest-context.md)
@@ -327,4 +327,5 @@
 | Self-dogfood / integration dogfood | ✅ Complete | Orientation workflow dogfooded with `docs.status`, `docs.manifest`, bounded `docs.read`, `docs.read_section`, and `docs.context_pack` |
 | Minimal read-only REST API | ✅ Complete | REST facade mirrors read-only MCP context tools; no write/proposal/approval/export endpoints |
 | Minimal read-only web UI | ✅ Complete | Served at `/` and `/ui`; opens to STATUS.md, uses manifest navigation, reads docs via REST, and exposes copy actions only |
-| Mechanical rename (package/CLI/repo/config → Xurgo Atlas) | ⏳ Future | Plan and execute separately; avoid breaking existing setups |
+| Focused v0.4 stabilization audit | ✅ Complete | Confirmed docs/policy coherence, MCP/REST/UI read-only alignment, package dependency manifest, and private milestone readiness |
+| Mechanical rename/internal migration planning | ⏳ Recommended next milestone | Plan package/CLI/internal/config naming migration separately after v0.4; avoid mechanical rename in stabilization work |
