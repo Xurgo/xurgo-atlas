@@ -282,3 +282,30 @@
 | GitStore `withWorkDir` should reset/clean workdir before each operation | Medium | Dogfood found that a failed or manual patch attempt can leave dirty state in the temporary workdir, causing subsequent operations on the same branch to apply on top of stale local changes |
 | Initial long-patch failure with `git apply` "corrupt patch" | Low | A patch with a `Date:` field line was rejected as corrupt by git; shorter simpler patch applied cleanly. Pre-existing patch-format fragility, not storage-model specific |
 | Self-dogfood on docu-guard-mcp itself | Medium | Complete the loop by initializing this repo, registering it, and managing its own docs through the daemon |
+
+---
+
+## v0.4 — Project Context, STATUS.md, Manifest & Token-Efficient Access
+
+> **Status:** Planning / Spec — not yet implemented
+> **Vision:** [`docs/vision/project-context-mcp.md`](./vision/project-context-mcp.md)
+> **Spec:** [`docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md`](./spec/docu-guard-mcp-v0.4-status-manifest-context.md)
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Define project-context vision | ✅ Complete | Vision doc created in `docs/vision/project-context-mcp.md` |
+| Plan STATUS.md, manifest, token-efficient access | ✅ Complete | Spec doc created in `docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md` |
+| STATUS.md template and front matter schema | ⏳ Planned | YAML front matter + Markdown body; short by design |
+| docs/manifest.yml schema and validation | ⏳ Planned | Machine-readable project map with roles, priorities, summaries |
+| Update `init` to create STATUS.md and manifest | ⏳ Planned | New standard files for all new projects |
+| Add STATUS.md and manifest to default protected paths | ⏳ Planned | High-priority protection like AGENTS.md |
+| Implement `docs.status` tool | ⏳ Planned | Returns STATUS.md front matter + body |
+| Implement `docs.manifest` tool | ⏳ Planned | Returns parsed manifest YAML as JSON |
+| Implement `docs.read_section` tool | ⏳ Planned | Read one section by heading |
+| Add `maxChars`/`maxBytes` options to `docs.read` | ⏳ Planned | Bounded reads for token efficiency |
+| Add `compact` and `role` options to `docs.list` | ⏳ Planned | Compact metadata responses |
+| Implement `docs.context_pack` tool | ⏳ Planned | Curated document set within token budget |
+| Update `.docs-policy.yml` default template | ⏳ Planned | Include STATUS.md and manifest in protected paths |
+| Tests for all new features | ⏳ Planned | New tools, options, validation, backward compat |
+| Self-dogfood on docu-guard-mcp itself | ⏳ Pending | Apply v0.4 patterns to this repo after implementation |
+| Future web UI: STATUS.md as default landing page | ⏳ Future | UI should open to STATUS.md, use manifest for navigation |
