@@ -99,6 +99,19 @@ export async function daemonCommand(options: DaemonOptions): Promise<void> {
    const { server } = await startHttpServer(createMcpServerForRequest, {
      host: options.host,
      port: options.port,
+     rest: {
+       resolveProject,
+       listProjects: async () => {
+         const reg = await getRegistry();
+         const defaultProject = reg.getDefault();
+         return reg.listProjects().map((project) => ({
+           projectId: project.projectId,
+           createdAt: project.createdAt,
+           updatedAt: project.updatedAt,
+           default: defaultProject?.projectId === project.projectId,
+         }));
+       },
+     },
    });
 
   console.error(
