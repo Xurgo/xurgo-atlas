@@ -2,9 +2,9 @@
 docuGuard.type: status
 statusVersion: 1
 priority: high
-currentFocus: "Xurgo Atlas naming migration planning complete"
+currentFocus: "Xurgo Atlas naming migration readiness audit complete"
 nextActions:
-  - "Review the Xurgo Atlas naming migration plan and approve implementation scope before any rename work"
+  - "Use the readiness inventory to scope a small Phase B implementation before any rename work"
 blockers:
 doNotDo:
   - "Do not edit STATUS.md, manifest.yml, or .docs-policy.yml directly"
@@ -22,10 +22,10 @@ lastUpdated: "2026-06-02"
 Xurgo Atlas is the project-context and documentation-safety MCP. The current implementation still uses transitional `docu-guard-mcp` package, CLI, and internal names.
 
 ## Current Focus
-The v0.4 context tools, minimal read-only REST API, and hardened read-only web UI are implemented and stabilized as a private milestone. The post-v0.4 Xurgo Atlas naming migration is now planned, with implementation explicitly deferred until package, CLI, storage, and compatibility scope are approved.
+The v0.4 context tools, minimal read-only REST API, and hardened read-only web UI are implemented and stabilized as a private milestone. The Xurgo Atlas naming migration now has a concrete implementation readiness inventory; implementation remains deferred until a small Phase B slice is explicitly approved.
 
 ## Next Actions
-- Review the Xurgo Atlas naming migration plan and approve implementation scope before any rename work
+- Use the readiness inventory to scope a small Phase B implementation before any rename work
 - Keep `docs.list` compact/role support as a smaller follow-up if needed for orientation
 - Continue to defer proposal/approval UI and `docs.merge_branch` until separately planned
 
@@ -41,5 +41,6 @@ The v0.4 context tools, minimal read-only REST API, and hardened read-only web U
 - [Implementation Checklist](docs/implementation-checklist.md)
 - [v0.4 Spec](docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md)
 - [Xurgo Atlas Naming Migration Plan](docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md#14-xurgo-atlas-naming-migration-plan-post-v04)
+- [Naming Migration Readiness Inventory](docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md#15-migration-implementation-readiness-inventory-phase-b-audit)
 - [Vision: Project Context MCP](docs/vision/project-context-mcp.md)
 - [Xurgo Integration](docs/vision/xurgo-integration.md)
