@@ -1,7 +1,7 @@
 # docu-guard-mcp — Implementation Checklist
 
-> Last updated: 2026-06-02 (STATUS.md guarded updates fixed)
-> Status: **v0.2-daemon released; STATUS.md guarded updates fixed**
+> Last updated: 2026-06-02 (docs.context_pack implemented)
+> Status: **v0.2-daemon released; docs.context_pack implemented**
 
 ---
 
@@ -34,6 +34,7 @@
 | `docs.list` | ✅ Complete | Returns per-file `{ path, revision, protected }` |
 | `docs.read` | ✅ Complete | Content + revision hash; bounded reads with `maxChars`/`offset`; `truncated`, `returnedChars`, `totalChars` |
 | `docs.read_section` | ✅ Complete | Reads one Markdown section by heading; supports `level`, `occurrence`, `includeHeading`, `maxChars`, and `offset` |
+| `docs.context_pack` | ✅ Complete | Assembles STATUS.md, AGENTS.md, manifest data, requested sections/paths, and manifest-guided docs within a total `maxChars` budget |
 | `docs.create_branch` | ✅ Complete | `from` parameter, returns `created: true` |
 | `docs.propose_patch` | ✅ Complete | Stores proposal, returns `proposalId` |
 | `docs.preview_diff` | ✅ Complete | Looks up by `proposalId`, returns diff + risk |
@@ -144,7 +145,8 @@
 | Daemon with managed storage | ✅ Complete | 4 tests (isolated temp paths) |
 | Bounded `docs.read` via handler | ✅ Complete | 9 tests: backward-compatible, truncation, maxChars>content, offset, offset+maxChars, revision preserved, missing file, offset beyond end, path traversal |
 | `docs.read_section` via handler | ✅ Complete | 10 tests: section reads, child subsections, includeHeading=false, maxChars, offset, duplicate occurrence, level filter, fenced code blocks, missing heading, docs.read compatibility |
-| **Total** | | **118 tests** |
+| `docs.context_pack` via handler | ✅ Complete | 6 tests: default orientation pack, total maxChars budget, explicit paths, explicit sections, missing paths, unsafe/untracked rejection |
+| **Total** | | **124 tests** |
 
 ---
 
@@ -316,7 +318,7 @@
 | Implement `docs.read_section` tool | ✅ Complete | Read one Markdown section by ATX heading; supports bounded reads and disambiguation |
 | Add `maxChars`/`maxBytes` options to `docs.read` | ✅ Complete | `maxChars` and `offset` implemented; `truncated`, `returnedChars`, `totalChars` in response |
 | Add `compact` and `role` options to `docs.list` | ⏳ Planned | Compact metadata responses |
-| Implement `docs.context_pack` tool | ⏳ Planned | Curated document set within token budget |
+| Implement `docs.context_pack` tool | ✅ Complete | Curated document set within token budget; supports explicit paths and sections |
 | Update `.docs-policy.yml` default template | ✅ Complete | Includes canonical guarded root paths (`STATUS.md`, `AGENTS.md`, `.docs-policy.yml`); `docs/manifest.yml` remains covered by `docs/**` |
 | Tests for v0.4 foundation (init) | ✅ Complete | 5 tests for STATUS.md + manifest creation, idempotency, .docu-guard/ absence, policy protection |
 | Tests for `docs.status` tool | ✅ Complete | 7 tests: full parse, read via project, truncation, missing file, no front matter, empty, partial delimiter |

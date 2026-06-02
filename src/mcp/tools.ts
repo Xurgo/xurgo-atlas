@@ -106,6 +106,29 @@ const ManifestSchema = z.object({
   validatePaths: z.boolean().optional().default(true),
 });
 
+const ContextPackSectionSchema = z.object({
+  path: z.string().min(1, 'path is required'),
+  heading: z.string().min(1, 'heading is required'),
+  level: z.number().int().min(1).max(6).optional(),
+  occurrence: z.number().int().positive().optional().default(1),
+  includeHeading: z.boolean().optional().default(true),
+  maxChars: z.number().int().positive().optional(),
+  offset: z.number().int().nonnegative().optional().default(0),
+});
+
+const ContextPackSchema = z.object({
+  projectId: z.string().min(1, 'projectId is required'),
+  branch: z.string().optional().default('main'),
+  revision: z.string().optional(),
+  maxChars: z.number().int().positive().optional(),
+  includeStatus: z.boolean().optional().default(true),
+  includeAgents: z.boolean().optional().default(true),
+  includeManifest: z.boolean().optional().default(true),
+  paths: z.array(z.string().min(1)).optional().default([]),
+  sections: z.array(ContextPackSectionSchema).optional().default([]),
+  maxDocuments: z.number().int().positive().optional(),
+});
+
 // ── Tool Registration ────────────────────────────────────────────────
 
 /**
@@ -195,6 +218,12 @@ export function registerTools(
             'Read docs/manifest.yml as a compact machine-readable project document map. Returns parsed YAML (JSON), revision, optional path validation, and optional raw YAML. Does not read full document bodies. Use this for project orientation instead of docs.list + multiple docs.read calls.',
           inputSchema: zodToJsonSchema(ManifestSchema),
         },
+        {
+          name: 'docs.context_pack',
+          description:
+            'Assemble a token-efficient project orientation pack from STATUS.md, AGENTS.md, docs/manifest.yml, requested sections, requested paths, and a small manifest-guided document set. Supports a total maxChars budget and structured missing-item reporting.',
+          inputSchema: zodToJsonSchema(ContextPackSchema),
+        },
       ],
     };
   });
@@ -243,6 +272,8 @@ export function registerTools(
           return await handleStatus(project, rawArgs);
         case 'docs.manifest':
           return await handleManifest(project, rawArgs);
+        case 'docs.context_pack':
+          return await handleContextPack(project, rawArgs);
         default:
           return {
             content: [
@@ -1490,6 +1521,375 @@ export async function handleManifest(project: Project, rawArgs: Record<string, u
       },
     ],
   };
+}
+
+// ── docs.context_pack handler ─────────────────────────────────────────
+
+type ContextPackItemKind = 'status' | 'agents' | 'manifest' | 'section' | 'document';
+
+interface ContextPackItem {
+  kind: ContextPackItemKind;
+  path: string;
+  heading?: string;
+  matchedHeading?: string;
+  level?: number;
+  occurrence?: number;
+  startLine?: number;
+  endLine?: number;
+  content: string;
+  returnedChars: number;
+  totalChars: number;
+  truncated: boolean;
+  revision: string | null;
+  missing?: boolean;
+  error?: string;
+  manifest?: Record<string, unknown>;
+}
+
+interface ContextReadResult {
+  content: string | null;
+  revision: string | null;
+}
+
+export async function handleContextPack(project: Project, rawArgs: Record<string, unknown>) {
+  const args = ContextPackSchema.parse(rawArgs);
+
+  const validationError = validateContextPackPaths(project, args.paths, args.sections);
+  if (validationError) {
+    return validationError;
+  }
+
+  const items: ContextPackItem[] = [];
+  const seenDocuments = new Set<string>();
+  const packRevision = args.revision ?? await project.gitStore.getBranchHead(args.branch);
+  let returnedChars = 0;
+  let truncated = false;
+  let manifestData: Record<string, unknown> | null = null;
+
+  const addItem = (item: Omit<ContextPackItem, 'content' | 'returnedChars' | 'truncated'> & { content?: string; maxChars?: number }): void => {
+    const content = item.content ?? '';
+    const bounded = sliceForContextPack(content, args.maxChars, returnedChars, item.maxChars);
+    const { maxChars: _itemMaxChars, ...packItem } = item;
+    returnedChars += bounded.returnedChars;
+    truncated = truncated || bounded.truncated;
+
+    items.push({
+      ...packItem,
+      content: bounded.content,
+      returnedChars: bounded.returnedChars,
+      truncated: bounded.truncated,
+    });
+  };
+
+  if (args.includeStatus) {
+    const status = await readContextFile(project, args.branch, args.revision, 'STATUS.md');
+    if (status.content === null) {
+      addItem(missingContextItem('status', 'STATUS.md', status.revision, 'STATUS.md not found'));
+    } else {
+      addItem({
+        kind: 'status',
+        path: 'STATUS.md',
+        revision: status.revision,
+        content: status.content,
+        totalChars: status.content.length,
+      });
+    }
+  }
+
+  if (args.includeAgents) {
+    const agents = await readContextFile(project, args.branch, args.revision, 'AGENTS.md');
+    if (agents.content === null) {
+      addItem(missingContextItem('agents', 'AGENTS.md', agents.revision, 'AGENTS.md not found'));
+    } else {
+      addItem({
+        kind: 'agents',
+        path: 'AGENTS.md',
+        revision: agents.revision,
+        content: agents.content,
+        totalChars: agents.content.length,
+      });
+    }
+  }
+
+  if (args.includeManifest) {
+    const manifest = await readContextFile(project, args.branch, args.revision, 'docs/manifest.yml');
+    if (manifest.content === null) {
+      addItem(missingContextItem('manifest', 'docs/manifest.yml', manifest.revision, 'docs/manifest.yml not found'));
+    } else {
+      try {
+        manifestData = parseManifestForContextPack(manifest.content, args.maxDocuments);
+        addItem({
+          kind: 'manifest',
+          path: 'docs/manifest.yml',
+          revision: manifest.revision,
+          content: manifest.content,
+          totalChars: manifest.content.length,
+          manifest: manifestData,
+        });
+      } catch (err) {
+        addItem({
+          kind: 'manifest',
+          path: 'docs/manifest.yml',
+          revision: manifest.revision,
+          content: manifest.content,
+          totalChars: manifest.content.length,
+          missing: true,
+          error: `Invalid YAML in docs/manifest.yml: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+    }
+  } else {
+    const manifest = await readContextFile(project, args.branch, args.revision, 'docs/manifest.yml');
+    if (manifest.content !== null) {
+      try {
+        manifestData = parseManifestForContextPack(manifest.content, args.maxDocuments);
+      } catch {
+        manifestData = null;
+      }
+    }
+  }
+
+  for (const sectionRequest of args.sections) {
+    const sectionFile = await readContextFile(project, args.branch, args.revision, sectionRequest.path);
+    if (sectionFile.content === null) {
+      addItem(missingContextItem('section', sectionRequest.path, sectionFile.revision, `File "${sectionRequest.path}" not found`, sectionRequest.heading));
+      continue;
+    }
+
+    const section = findMarkdownSection(sectionFile.content, {
+      heading: sectionRequest.heading,
+      level: sectionRequest.level,
+      occurrence: sectionRequest.occurrence,
+      includeHeading: sectionRequest.includeHeading,
+    });
+
+    if (!section) {
+      addItem(missingContextItem('section', sectionRequest.path, sectionFile.revision, `Heading "${sectionRequest.heading}" not found in "${sectionRequest.path}"`, sectionRequest.heading));
+      continue;
+    }
+
+    addItem({
+      kind: 'section',
+      path: sectionRequest.path,
+      heading: sectionRequest.heading,
+      matchedHeading: section.matchedHeading,
+      level: section.level,
+      occurrence: sectionRequest.occurrence,
+      startLine: section.startLine,
+      endLine: section.endLine,
+      revision: sectionFile.revision,
+      content: applyOffset(section.content, sectionRequest.offset),
+      totalChars: section.content.length,
+      maxChars: sectionRequest.maxChars,
+    });
+  }
+
+  const hasExplicitContent = args.paths.length > 0 || args.sections.length > 0;
+  const documentPaths = args.paths.length > 0
+    ? args.paths
+    : hasExplicitContent
+      ? []
+      : getManifestGuidedContextPaths(manifestData);
+  const boundedDocumentPaths = args.maxDocuments
+    ? documentPaths.slice(0, args.maxDocuments)
+    : documentPaths;
+  if (documentPaths.length > boundedDocumentPaths.length) {
+    truncated = true;
+  }
+
+  for (const documentPath of boundedDocumentPaths) {
+    if (seenDocuments.has(documentPath)) {
+      continue;
+    }
+    seenDocuments.add(documentPath);
+
+    const document = await readContextFile(project, args.branch, args.revision, documentPath);
+    if (document.content === null) {
+      addItem(missingContextItem('document', documentPath, document.revision, `File "${documentPath}" not found`));
+      continue;
+    }
+
+    addItem({
+      kind: 'document',
+      path: documentPath,
+      revision: document.revision,
+      content: document.content,
+      totalChars: document.content.length,
+    });
+  }
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(
+          {
+            projectId: project.projectId,
+            branch: args.branch,
+            revision: packRevision,
+            maxChars: args.maxChars ?? null,
+            returnedChars,
+            truncated,
+            items,
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  };
+}
+
+function validateContextPackPaths(
+  project: Project,
+  paths: string[],
+  sections: Array<z.infer<typeof ContextPackSectionSchema>>,
+) {
+  const explicitPaths = [
+    ...paths,
+    ...sections.map((section) => section.path),
+  ];
+
+  for (const filePath of explicitPaths) {
+    if (isPathTraversal(filePath)) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: `Path traversal detected: "${filePath}" is outside the project scope`,
+              path: filePath,
+            }),
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    if (!project.policy.isPathProtected(filePath)) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              error: `Path "${filePath}" is not in the list of tracked documentation paths`,
+              path: filePath,
+            }),
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  return null;
+}
+
+async function readContextFile(
+  project: Project,
+  branch: string,
+  revision: string | undefined,
+  filePath: string,
+): Promise<ContextReadResult> {
+  if (revision) {
+    return {
+      content: await project.gitStore.readFileAtRevision(revision, filePath),
+      revision,
+    };
+  }
+
+  return project.readFile(branch, filePath);
+}
+
+function sliceForContextPack(
+  content: string,
+  maxChars: number | undefined,
+  usedChars: number,
+  itemMaxChars?: number,
+): { content: string; returnedChars: number; truncated: boolean } {
+  const packRemaining = maxChars === undefined
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, maxChars - usedChars);
+  const itemLimit = itemMaxChars ?? Number.POSITIVE_INFINITY;
+  const limit = Math.min(packRemaining, itemLimit);
+
+  if (content.length > limit) {
+    const sliced = content.slice(0, limit);
+    return {
+      content: sliced,
+      returnedChars: sliced.length,
+      truncated: true,
+    };
+  }
+
+  return {
+    content,
+    returnedChars: content.length,
+    truncated: false,
+  };
+}
+
+function applyOffset(content: string, offset: number): string {
+  if (offset <= 0) {
+    return content;
+  }
+  return content.slice(offset);
+}
+
+function missingContextItem(
+  kind: ContextPackItemKind,
+  path: string,
+  revision: string | null,
+  error: string,
+  heading?: string,
+): Omit<ContextPackItem, 'content' | 'returnedChars' | 'truncated'> & { content?: string } {
+  return {
+    kind,
+    path,
+    heading,
+    revision,
+    content: '',
+    totalChars: 0,
+    missing: true,
+    error,
+  };
+}
+
+function parseManifestForContextPack(content: string, maxDocuments?: number): Record<string, unknown> {
+  const parsed = YAML.parse(content) as Record<string, unknown>;
+  const documents = Array.isArray(parsed?.documents)
+    ? parsed.documents as unknown[]
+    : [];
+  const processedDocuments = maxDocuments
+    ? documents.slice(0, maxDocuments)
+    : documents;
+
+  return {
+    version: parsed?.version ?? null,
+    entrypoints: Array.isArray(parsed?.entrypoints) ? parsed.entrypoints : [],
+    documents: processedDocuments,
+    documentCount: processedDocuments.length,
+    totalDocumentCount: documents.length,
+    truncated: processedDocuments.length < documents.length,
+  };
+}
+
+function getManifestGuidedContextPaths(manifestData: Record<string, unknown> | null): string[] {
+  if (!manifestData || !Array.isArray(manifestData.documents)) {
+    return [];
+  }
+
+  const skip = new Set(['STATUS.md', 'AGENTS.md', 'docs/manifest.yml']);
+  const paths: string[] = [];
+  for (const document of manifestData.documents) {
+    const filePath = (document as Record<string, unknown>)?.path;
+    if (typeof filePath !== 'string' || skip.has(filePath)) {
+      continue;
+    }
+    paths.push(filePath);
+  }
+
+  return paths;
 }
 
 // ── Front matter parser ────────────────────────────────────────────────

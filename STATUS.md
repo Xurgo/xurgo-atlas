@@ -2,10 +2,9 @@
 docuGuard.type: status
 statusVersion: 1
 priority: high
-currentFocus: "STATUS.md guarded updates fixed"
+currentFocus: "docs.context_pack implemented"
 nextActions:
   - "Add compact and role options to docs.list (Phase 9)"
-  - "Implement docs.context_pack tool (Phase 10)"
 blockers:
 doNotDo:
   - "Do not edit STATUS.md, manifest.yml, or .docs-policy.yml directly"
@@ -20,11 +19,10 @@ lastUpdated: "2026-06-02"
 # Project Status
 
 ## Current Focus
-`STATUS.md` guarded updates are fixed. Loaded policies now preserve canonical guarded root paths, so `docs.propose_patch` and `docs.commit_patch` can update STATUS.md while keeping it protected and approval-controlled.
+`docs.context_pack` implemented. It assembles STATUS.md, AGENTS.md, manifest data, requested sections/paths, and manifest-guided documents from the managed store within a total character budget.
 
 ## Next Actions
 - Add `compact` and `role` options to `docs.list`
-- Implement `docs.context_pack` tool
 
 ## Blockers
 - None currently

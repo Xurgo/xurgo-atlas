@@ -11,7 +11,7 @@ import { GitStore } from '../src/core/git-store.js';
 import { EventLog } from '../src/core/events.js';
 import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/patch.js';
 import { assessPatchRisk } from '../src/core/risk.js';
-import { parseFrontMatter, handleManifest, handleRead, handleReadSection, handleProposePatch, handleCommitPatch } from '../src/mcp/tools.js';
+import { parseFrontMatter, handleManifest, handleRead, handleReadSection, handleContextPack, handleProposePatch, handleCommitPatch } from '../src/mcp/tools.js';
 import YAML from 'yaml';
 
 let tmpDir: string;
@@ -1304,6 +1304,184 @@ After content.
     expect(data.content).toBe('# Guide');
     expect(data.truncated).toBe(true);
     expect(data.returnedChars).toBe(7);
+  });
+});
+
+describe('docs.context_pack via handler', () => {
+  const sectionDoc = `# Guide
+
+Intro.
+
+## Target
+
+Target body.
+
+### Child
+
+Child body.
+
+## Next
+
+Next body.
+`;
+
+  it('should include STATUS.md, AGENTS.md, and manifest data by default', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.projectId).toBe('test-project');
+    expect(data.branch).toBe('main');
+    expect(data.revision).toBeTruthy();
+    expect(data.maxChars).toBeNull();
+    expect(data.returnedChars).toBeGreaterThan(0);
+    expect(data.truncated).toBe(false);
+    expect(data.items[0].kind).toBe('status');
+    expect(data.items[0].path).toBe('STATUS.md');
+    expect(data.items[1].kind).toBe('agents');
+    expect(data.items[1].path).toBe('AGENTS.md');
+    expect(data.items[2].kind).toBe('manifest');
+    expect(data.items[2].path).toBe('docs/manifest.yml');
+    expect(data.items[2].manifest.version).toBe(1);
+    expect(Array.isArray(data.items[2].manifest.documents)).toBe(true);
+  });
+
+  it('should respect a total maxChars budget and report truncation metadata', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      maxChars: 50,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.returnedChars).toBeLessThanOrEqual(50);
+    expect(data.truncated).toBe(true);
+    const itemChars = data.items.reduce((sum: number, item: { returnedChars: number }) => sum + item.returnedChars, 0);
+    expect(itemChars).toBe(data.returnedChars);
+    expect(data.items.some((item: { truncated: boolean }) => item.truncated)).toBe(true);
+  });
+
+  it('should include explicit requested paths', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      includeStatus: false,
+      includeAgents: false,
+      includeManifest: false,
+      paths: ['docs/sections.md'],
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items).toHaveLength(1);
+    expect(data.items[0].kind).toBe('document');
+    expect(data.items[0].path).toBe('docs/sections.md');
+    expect(data.items[0].content).toContain('## Target');
+    expect(data.items[0].revision).toBeTruthy();
+  });
+
+  it('should include explicit sections using docs.read_section heading behavior', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      includeStatus: false,
+      includeAgents: false,
+      includeManifest: false,
+      sections: [
+        {
+          path: 'docs/sections.md',
+          heading: 'Target',
+        },
+      ],
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items).toHaveLength(1);
+    expect(data.items[0].kind).toBe('section');
+    expect(data.items[0].path).toBe('docs/sections.md');
+    expect(data.items[0].heading).toBe('Target');
+    expect(data.items[0].matchedHeading).toBe('Target');
+    expect(data.items[0].content).toContain('### Child');
+    expect(data.items[0].content).not.toContain('## Next');
+  });
+
+  it('should report missing requested paths without crashing', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      includeStatus: false,
+      includeAgents: false,
+      includeManifest: false,
+      paths: ['docs/missing.md'],
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items).toHaveLength(1);
+    expect(data.items[0].kind).toBe('document');
+    expect(data.items[0].path).toBe('docs/missing.md');
+    expect(data.items[0].missing).toBe(true);
+    expect(data.items[0].error).toContain('not found');
+    expect(data.items[0].returnedChars).toBe(0);
+  });
+
+  it('should reject unsafe or untracked requested paths', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const untracked = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      paths: ['notes/random.md'],
+    });
+
+    expect(untracked.isError).toBe(true);
+    const untrackedData = JSON.parse(untracked.content[0].text);
+    expect(untrackedData.error).toContain('not in the list of tracked documentation paths');
+
+    const traversal = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      paths: ['../secrets.md'],
+    });
+
+    expect(traversal.isError).toBe(true);
+    const traversalData = JSON.parse(traversal.content[0].text);
+    expect(traversalData.error).toContain('Path traversal');
   });
 });
 
