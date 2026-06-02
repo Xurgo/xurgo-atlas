@@ -7,6 +7,7 @@ import YAML from 'yaml';
  */
 export const DEFAULT_POLICY: PolicyConfig = {
   protected_paths: [
+    'STATUS.md',
     'AGENTS.md',
     'docs/**',
     'docs/spec/**',

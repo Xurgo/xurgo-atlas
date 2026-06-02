@@ -69,7 +69,8 @@ export async function initCommand(options: InitOptions): Promise<void> {
   console.log(`✓ Initialized Git-backed docs store at ${storage.projectRepoPath(options.projectId)}`);
   console.log(`✓ Created event log at ${storage.projectEventsPath(options.projectId)}`);
   console.log(`✓ Created .docs-policy.yml`);
-  console.log(`✓ Created docs/ directory structure`);
+  console.log(`✓ Created STATUS.md`);
+  console.log(`✓ Created docs/ directory structure with manifest.yml`);
   console.log(`✓ Created/updated AGENTS.md with documentation safety rules`);
   console.log(`✓ Snapshotted initial documentation`);
   console.log(`✓ Registered project in ${storage.registryPath()}`);

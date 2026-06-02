@@ -204,6 +204,134 @@ describe('project initialization', () => {
   });
 });
 
+// ── v0.4 STATUS.md and docs/manifest.yml foundation ───────────────────
+
+describe('v0.4 project context files', () => {
+  it('should create STATUS.md and docs/manifest.yml during init', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // STATUS.md at project root
+    const statusPath = path.join(tmpDir, 'STATUS.md');
+    const statusStat = await fs.promises.stat(statusPath);
+    expect(statusStat.isFile()).toBe(true);
+    const statusContent = await fs.promises.readFile(statusPath, 'utf-8');
+    expect(statusContent).toContain('docuGuard.type: status');
+    expect(statusContent).toContain('Project Status');
+
+    // docs/manifest.yml in docs dir
+    const manifestPath = path.join(tmpDir, 'docs', 'manifest.yml');
+    const manifestStat = await fs.promises.stat(manifestPath);
+    expect(manifestStat.isFile()).toBe(true);
+    const manifestContent = await fs.promises.readFile(manifestPath, 'utf-8');
+    expect(manifestContent).toContain('version: 1');
+    expect(manifestContent).toContain('STATUS.md');
+    expect(manifestContent).toContain('AGENTS.md');
+    expect(manifestContent).toContain('docs/manifest.yml');
+
+    // Both files should be tracked in the Git store
+    const trackedFiles = await project.getTrackedFiles();
+    expect(trackedFiles).toContain('STATUS.md');
+    expect(trackedFiles).toContain('docs/manifest.yml');
+
+    // References in manifest match actual tracked files
+    expect(trackedFiles).toContain('AGENTS.md');
+    expect(trackedFiles).toContain('.docs-policy.yml');
+    expect(trackedFiles).toContain('docs/README.md');
+    expect(trackedFiles).toContain('docs/implementation-checklist.md');
+  });
+
+  it('should not overwrite existing STATUS.md on re-init', async () => {
+    // First init
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // Modify STATUS.md with custom content
+    const statusPath = path.join(tmpDir, 'STATUS.md');
+    await fs.promises.writeFile(statusPath, '# Custom Status\n', 'utf-8');
+
+    // Re-init should NOT overwrite
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const content = await fs.promises.readFile(statusPath, 'utf-8');
+    expect(content).toBe('# Custom Status\n');
+  });
+
+  it('should not overwrite existing docs/manifest.yml on re-init', async () => {
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const manifestPath = path.join(tmpDir, 'docs', 'manifest.yml');
+    await fs.promises.writeFile(manifestPath, 'custom: true\n', 'utf-8');
+
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const content = await fs.promises.readFile(manifestPath, 'utf-8');
+    expect(content).toBe('custom: true\n');
+  });
+
+  it('should not create project-local .docu-guard/', async () => {
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    await expect(fs.promises.stat(path.join(tmpDir, '.docu-guard'))).rejects.toThrow();
+  });
+
+  it('should treat STATUS.md as a protected document by default', async () => {
+    const project = await Project.load({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // First init to create policy
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // Reload to pick up the written policy file
+    const loadedProject = await Project.load({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    expect(loadedProject.policy.isPathProtected('STATUS.md')).toBe(true);
+    expect(loadedProject.policy.isPathProtected('docs/manifest.yml')).toBe(true);
+  });
+});
+
 // ── Existing tests (updated for managed storage) ─────────────────────
 
 describe('reading docs', () => {
