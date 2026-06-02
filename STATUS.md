@@ -2,7 +2,7 @@
 docuGuard.type: status
 statusVersion: 1
 priority: high
-currentFocus: "v0.4 orientation workflow dogfooded"
+currentFocus: "read-only REST API plan documented"
 nextActions:
   - "Add compact and role options to docs.list (Phase 9)"
 blockers:
@@ -22,7 +22,7 @@ lastUpdated: "2026-06-02"
 Xurgo Atlas is the project-context and documentation-safety MCP. The current implementation still uses transitional `docu-guard-mcp` package, CLI, and internal names.
 
 ## Current Focus
-The v0.4 orientation workflow has been dogfooded. `docs.context_pack` works as the entry point, with `docs.status`, `docs.manifest`, bounded `docs.read`, and `docs.read_section` available for follow-up reads.
+The minimal read-only REST API for future UI support is documented as a facade over the existing MCP context tools. No REST or UI implementation has been started.
 
 ## Next Actions
 - Add `compact` and `role` options to `docs.list`
