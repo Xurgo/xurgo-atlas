@@ -2,10 +2,9 @@
 docuGuard.type: status
 statusVersion: 1
 priority: high
-currentFocus: "Implementing docs.manifest MCP tool (v0.4 Phase 6)"
+currentFocus: "Implementing bounded docs.read with maxChars/offset (v0.4 Phase 8 complete)"
 nextActions:
   - "Implement docs.read_section tool (Phase 7)"
-  - "Add maxChars/maxBytes options to docs.read (Phase 8)"
   - "Add compact and role options to docs.list (Phase 9)"
   - "Implement docs.context_pack tool (Phase 10)"
 blockers:
@@ -22,11 +21,10 @@ lastUpdated: "2026-06-02"
 # Project Status
 
 ## Current Focus
-Implementing `docs.manifest` MCP tool — v0.4 Phase 6 complete. The tool reads docs/manifest.yml and returns parsed YAML as JSON, with optional raw content, path validation, and maxDocuments truncation.
+Bounded `docs.read` implemented — v0.4 Phase 8 complete. The tool now supports `maxChars` and `offset` parameters for token-efficient reads, returning `truncated`, `returnedChars`, and `totalChars` metadata.
 
 ## Next Actions
 - Implement `docs.read_section` tool for heading-level reads
-- Add `maxChars`/`maxBytes` options to `docs.read`
 - Add `compact` and `role` options to `docs.list`
 - Implement `docs.context_pack` tool
 

@@ -26,6 +26,8 @@ const ReadDocSchema = z.object({
   projectId: z.string().min(1, 'projectId is required'),
   path: z.string().min(1, 'path is required'),
   branch: z.string().optional().default('main'),
+  maxChars: z.number().int().positive().optional(),
+  offset: z.number().int().nonnegative().optional().default(0),
 });
 
 const CreateBranchSchema = z.object({
@@ -118,7 +120,7 @@ export function registerTools(
         },
         {
           name: 'docs.read',
-          description: 'Read a documentation file from a specific branch',
+          description: 'Read a documentation file from a specific branch. Supports bounded reads with maxChars and offset for token-efficient access. Returns content, revision, truncation status, and character counts.',
           inputSchema: zodToJsonSchema(ReadDocSchema),
         },
         {
@@ -296,7 +298,7 @@ async function handleList(project: Project, rawArgs: Record<string, unknown>) {
   };
 }
 
-async function handleRead(project: Project, rawArgs: Record<string, unknown>) {
+export async function handleRead(project: Project, rawArgs: Record<string, unknown>) {
   const args = ReadDocSchema.parse(rawArgs);
 
   // Validate path
@@ -336,6 +338,23 @@ async function handleRead(project: Project, rawArgs: Record<string, unknown>) {
     };
   }
 
+  // Apply bounded read (offset/maxChars)
+  const totalChars = content.length;
+  const offset = args.offset ?? 0;
+  let sliced = content;
+  let truncated = false;
+
+  if (offset > 0) {
+    sliced = sliced.slice(offset);
+  }
+
+  if (args.maxChars !== undefined && sliced.length > args.maxChars) {
+    sliced = sliced.slice(0, args.maxChars);
+    truncated = true;
+  }
+
+  const returnedChars = sliced.length;
+
   return {
     content: [
       {
@@ -346,7 +365,12 @@ async function handleRead(project: Project, rawArgs: Record<string, unknown>) {
             path: args.path,
             branch: args.branch,
             revision,
-            content,
+            content: sliced,
+            truncated,
+            maxChars: args.maxChars ?? null,
+            offset,
+            returnedChars,
+            totalChars,
           },
           null,
           2,
