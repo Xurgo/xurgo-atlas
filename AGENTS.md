@@ -28,7 +28,9 @@ This project uses **docu-guard-mcp** for safe, versioned, auditable documentatio
 
 The following files and directories are managed through docu-guard-mcp and must not be edited directly:
 
+- `STATUS.md`
 - `AGENTS.md`
+- `docs/manifest.yml`
 - `docs/**`
 - `.docs-policy.yml`
 

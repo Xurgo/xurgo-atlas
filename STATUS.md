@@ -2,7 +2,7 @@
 docuGuard.type: status
 statusVersion: 1
 priority: high
-currentFocus: "docs.context_pack implemented"
+currentFocus: "v0.4 orientation workflow dogfooded"
 nextActions:
   - "Add compact and role options to docs.list (Phase 9)"
 blockers:
@@ -18,8 +18,11 @@ lastUpdated: "2026-06-02"
 
 # Project Status
 
+## Project
+Xurgo Atlas is the project-context and documentation-safety MCP. The current implementation still uses transitional `docu-guard-mcp` package, CLI, and internal names.
+
 ## Current Focus
-`docs.context_pack` implemented. It assembles STATUS.md, AGENTS.md, manifest data, requested sections/paths, and manifest-guided documents from the managed store within a total character budget.
+The v0.4 orientation workflow has been dogfooded. `docs.context_pack` works as the entry point, with `docs.status`, `docs.manifest`, bounded `docs.read`, and `docs.read_section` available for follow-up reads.
 
 ## Next Actions
 - Add `compact` and `role` options to `docs.list`
