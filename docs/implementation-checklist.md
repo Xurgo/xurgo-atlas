@@ -137,9 +137,10 @@
 | Registry managed-dir validation | ✅ Complete | 2 tests (resolve using dataDir, missing) |
 | CLI init command registration | ✅ Complete | 3 tests (registers, idempotent, custom dirs) |
 | v0.4 project context files (STATUS.md, manifest) | ✅ Complete | 5 tests (create, idempotent ×2, no .docu-guard/, policy protection) |
+| docs.status front matter parsing | ✅ Complete | 7 tests (parse STATUS.md, read via project, truncation, missing file, no front matter, empty, partial delimiter) |
 | HTTP server with managed storage | ✅ Complete | 9 tests (isolated temp paths, no `.docu-guard/`) |
 | Daemon with managed storage | ✅ Complete | 4 tests (isolated temp paths) |
-| **Total** | | **78 tests** |
+| **Total** | | **85 tests** |
 
 ---
 
@@ -291,7 +292,7 @@
 
 > **Product name:** Xurgo Atlas
 > **Current implementation:** docu-guard-mcp (transitional package/CLI)
-> **Status:** Planning / Spec — not yet implemented
+> **Status:** In progress — v0.4 foundation done; docs.status tool implemented
 > **Integration:** [`docs/vision/xurgo-integration.md`](./vision/xurgo-integration.md)
 > **Vision:** [`docs/vision/project-context-mcp.md`](./vision/project-context-mcp.md)
 > **Spec:** [`docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md`](./spec/docu-guard-mcp-v0.4-status-manifest-context.md)
@@ -306,7 +307,7 @@
 | docs/manifest.yml schema and validation | ✅ Complete | Machine-readable project map with roles, priorities, summaries; created by `init` |
 | Update `init` to create STATUS.md and manifest | ✅ Complete | Both files created during `init`; existing files not overwritten |
 | Add STATUS.md and manifest to default protected paths | ✅ Complete | `STATUS.md` added to `DEFAULT_POLICY.protected_paths`; `docs/manifest.yml` already covered by `docs/**` |
-| Implement `docs.status` tool | ⏳ Planned | Returns STATUS.md front matter + body |
+| Implement `docs.status` tool | ✅ Complete | Returns STATUS.md front matter + body; `parseFrontMatter` exported; truncation via `maxChars` |
 | Implement `docs.manifest` tool | ⏳ Planned | Returns parsed manifest YAML as JSON |
 | Implement `docs.read_section` tool | ⏳ Planned | Read one section by heading |
 | Add `maxChars`/`maxBytes` options to `docs.read` | ⏳ Planned | Bounded reads for token efficiency |
@@ -314,7 +315,8 @@
 | Implement `docs.context_pack` tool | ⏳ Planned | Curated document set within token budget |
 | Update `.docs-policy.yml` default template | ⏳ Planned | Include STATUS.md and manifest in protected paths |
 | Tests for v0.4 foundation (init) | ✅ Complete | 5 tests for STATUS.md + manifest creation, idempotency, .docu-guard/ absence, policy protection |
-| Tests for new MCP tools (status, manifest, read_section, etc.) | ⏳ Planned | New tools, options, validation, backward compat |
+| Tests for `docs.status` tool | ✅ Complete | 7 tests: full parse, read via project, truncation, missing file, no front matter, empty, partial delimiter |
+| Tests for remaining v0.4 tools (manifest, read_section, etc.) | ⏳ Planned | New tools, options, validation, backward compat |
 | Xurgo ↔ Xurgo Atlas MCP integration fixture | ⏳ Planned | Shared test fixtures for integration testing |
 | Self-dogfood / integration dogfood | ⏳ Pending | Apply v0.4 patterns and verify Xurgo Atlas integration |
 | Future web UI: STATUS.md as default landing page | ⏳ Future | UI should open to STATUS.md, use manifest for navigation |

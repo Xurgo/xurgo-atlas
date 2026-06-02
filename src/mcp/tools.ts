@@ -9,6 +9,7 @@ import { Project } from '../core/project.js';
 import { ProjectResolver } from './types.js';
 import { validatePatch, PatchProposal } from '../core/patch.js';
 import { isPathTraversal } from '../core/patch.js';
+import YAML from 'yaml';
 
 // ── Schemas ───────────────────────────────────────────────────────────
 
@@ -74,6 +75,12 @@ const ExportSchema = z.object({
   projectId: z.string().min(1, 'projectId is required'),
   branch: z.string().optional().default('main'),
   targetDir: z.string().optional(),
+});
+
+const StatusSchema = z.object({
+  projectId: z.string().min(1, 'projectId is required'),
+  branch: z.string().optional().default('main'),
+  maxChars: z.number().int().positive().optional().default(4000),
 });
 
 // ── Tool Registration ────────────────────────────────────────────────
@@ -148,6 +155,12 @@ export function registerTools(
             'Export documentation from a branch to a target directory',
           inputSchema: zodToJsonSchema(ExportSchema),
         },
+        {
+          name: 'docs.status',
+          description:
+            'Read the STATUS.md project front page. Returns compact orientation: front matter, body excerpt, revision, and truncation status. Use this instead of docs.read for STATUS.md to get structured front matter. Respects maxChars to limit response size.',
+          inputSchema: zodToJsonSchema(StatusSchema),
+        },
       ],
     };
   });
@@ -190,6 +203,8 @@ export function registerTools(
           return await handleRestoreFile(project, rawArgs);
         case 'docs.export':
           return await handleExport(project, rawArgs);
+        case 'docs.status':
+          return await handleStatus(project, rawArgs);
         default:
           return {
             content: [
@@ -952,4 +967,132 @@ async function handleExport(
       },
     ],
   };
+}
+
+// ── docs.status handler ────────────────────────────────────────────────
+
+async function handleStatus(project: Project, rawArgs: Record<string, unknown>) {
+  const args = StatusSchema.parse(rawArgs);
+
+  // Read STATUS.md
+  const { content, revision } = await project.readFile(args.branch, 'STATUS.md');
+
+  if (content === null) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              error: 'STATUS.md not found',
+              projectId: project.projectId,
+              branch: args.branch,
+              path: 'STATUS.md',
+              hint: 'Run docu-guard init to create project front page (STATUS.md)',
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  // Parse front matter
+  const { frontMatter, rawFrontMatter, body } = parseFrontMatter(content);
+
+  // Truncate body to maxChars
+  let truncatedBody = body;
+  let truncated = false;
+  if (args.maxChars && body.length > args.maxChars) {
+    truncatedBody = body.slice(0, args.maxChars);
+    truncated = true;
+  }
+
+  // Build summary from front matter
+  const summary: Record<string, unknown> = {};
+  if (frontMatter) {
+    if (frontMatter.currentFocus) summary.currentFocus = frontMatter.currentFocus;
+    if (frontMatter.nextActions) summary.nextActions = frontMatter.nextActions;
+    if (frontMatter.blockers) summary.blockers = frontMatter.blockers;
+    if (frontMatter.doNotDo) summary.doNotDo = frontMatter.doNotDo;
+    if (frontMatter.relatedDocs) summary.relatedDocs = frontMatter.relatedDocs;
+  }
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(
+          {
+            projectId: project.projectId,
+            path: 'STATUS.md',
+            branch: args.branch,
+            revision,
+            frontMatter: frontMatter ?? null,
+            rawFrontMatter: rawFrontMatter ?? null,
+            summary,
+            body: truncatedBody,
+            truncated,
+            maxChars: args.maxChars,
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  };
+}
+
+// ── Front matter parser ────────────────────────────────────────────────
+
+/**
+ * Parse YAML front matter from a Markdown file.
+ *
+ * Expects content in the format:
+ *   ---
+ *   key: value
+ *   ---
+ *   body text
+ *
+ * Returns the parsed front matter object, raw YAML text, and body.
+ * If no valid front matter is found, returns null values and the full content as body.
+ */
+export function parseFrontMatter(content: string): {
+  frontMatter: Record<string, unknown> | null;
+  rawFrontMatter: string | null;
+  body: string;
+} {
+  const lines = content.split('\n');
+  if (lines.length < 3 || lines[0].trim() !== '---') {
+    return { frontMatter: null, rawFrontMatter: null, body: content };
+  }
+
+  // Find closing ---
+  let endIdx = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === '---') {
+      endIdx = i;
+      break;
+    }
+  }
+
+  if (endIdx === -1) {
+    return { frontMatter: null, rawFrontMatter: null, body: content };
+  }
+
+  const rawYaml = lines.slice(1, endIdx).join('\n');
+  const body = lines.slice(endIdx + 1).join('\n');
+
+  try {
+    const parsed = YAML.parse(rawYaml);
+    return {
+      frontMatter: (parsed as Record<string, unknown>) ?? null,
+      rawFrontMatter: rawYaml,
+      body,
+    };
+  } catch {
+    return { frontMatter: null, rawFrontMatter: rawYaml, body };
+  }
 }

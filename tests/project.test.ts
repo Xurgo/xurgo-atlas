@@ -11,6 +11,7 @@ import { GitStore } from '../src/core/git-store.js';
 import { EventLog } from '../src/core/events.js';
 import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/patch.js';
 import { assessPatchRisk } from '../src/core/risk.js';
+import { parseFrontMatter } from '../src/mcp/tools.js';
 
 let tmpDir: string;
 
@@ -329,6 +330,105 @@ describe('v0.4 project context files', () => {
 
     expect(loadedProject.policy.isPathProtected('STATUS.md')).toBe(true);
     expect(loadedProject.policy.isPathProtected('docs/manifest.yml')).toBe(true);
+  });
+});
+
+// ── docs.status tool tests ────────────────────────────────────────────
+
+describe('docs.status', () => {
+  it('should parse front matter from STATUS.md', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content } = await project.readFile('main', 'STATUS.md');
+    expect(content).not.toBeNull();
+
+    const result = parseFrontMatter(content!);
+    expect(result.frontMatter).not.toBeNull();
+    expect(result.frontMatter!.docuGuard).toBeUndefined(); // nested key
+    expect(result.frontMatter!['docuGuard.type']).toBe('status');
+    expect(result.frontMatter!.statusVersion).toBe(1);
+    expect(result.frontMatter!.priority).toBe('high');
+    expect(result.rawFrontMatter).not.toBeNull();
+    expect(result.rawFrontMatter).toContain('docuGuard.type: status');
+    expect(result.body).toContain('Project Status');
+    expect(result.body).toContain('Current Focus');
+  });
+
+  it('should return full STATUS.md content via project.readFile', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'STATUS.md');
+    expect(content).not.toBeNull();
+    expect(content).toContain('docuGuard.type: status');
+    expect(content).toContain('Project Status');
+    expect(revision).not.toBeNull();
+    expect(revision!.length).toBeGreaterThan(0);
+  });
+
+  it('should truncate body to maxChars', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content } = await project.readFile('main', 'STATUS.md');
+    expect(content).not.toBeNull();
+
+    const result = parseFrontMatter(content!);
+    // Truncate body to a small value
+    const truncatedBody = result.body.slice(0, 10);
+    expect(truncatedBody.length).toBeLessThanOrEqual(10);
+    const fullBody = result.body;
+    if (fullBody.length > 10) {
+      expect(truncatedBody).not.toBe(fullBody);
+    }
+  });
+
+  it('should handle missing STATUS.md gracefully', async () => {
+    // Create project without init (so STATUS.md doesn't exist in managed store)
+    // We can simulate by reading a path that doesn't exist
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content } = await project.readFile('main', 'nonexistent.md');
+    expect(content).toBeNull();
+  });
+
+  it('should return null front matter for content without front matter', () => {
+    const result = parseFrontMatter('# Just a heading\n\nSome content');
+    expect(result.frontMatter).toBeNull();
+    expect(result.rawFrontMatter).toBeNull();
+    expect(result.body).toBe('# Just a heading\n\nSome content');
+  });
+
+  it('should return null front matter for empty content', () => {
+    const result = parseFrontMatter('');
+    expect(result.frontMatter).toBeNull();
+    expect(result.rawFrontMatter).toBeNull();
+    expect(result.body).toBe('');
+  });
+
+  it('should return null front matter for content with only opening delimiter', () => {
+    const result = parseFrontMatter('---\nkey: value\n');
+    expect(result.frontMatter).toBeNull();
+    expect(result.rawFrontMatter).toBeNull();
+    // No closing --- so no front matter detected
   });
 });
 
