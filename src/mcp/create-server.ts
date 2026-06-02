@@ -24,7 +24,7 @@ export function createMcpServer(
 ): Server {
   const server = new Server(
     {
-      name: options.name || 'docu-guard-mcp',
+      name: options.name || 'Xurgo Atlas',
       version: options.version || '0.2.0',
     },
     {

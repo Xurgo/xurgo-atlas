@@ -1,7 +1,7 @@
 {
-  "name": "docu-guard-mcp",
+  "name": "xurgo-atlas",
   "version": "0.1.0",
-  "description": "Safe, versioned, auditable documentation management for AI-assisted software projects",
+  "description": "Xurgo Atlas: safe, versioned, auditable documentation management for AI-assisted software projects",
   "type": "module",
   "bin": {
     "docu-guard": "./dist/index.js",
@@ -37,12 +37,16 @@
     "node": ">=22"
   },
   "keywords": [
+    "xurgo-atlas",
+    "xurgo",
+    "atlas",
     "mcp",
     "model-context-protocol",
     "documentation",
     "docs",
     "ai",
-    "version-control"
+    "version-control",
+    "project-context"
   ],
   "license": "MIT"
 }

@@ -3,7 +3,7 @@ import { Registry } from '../core/registry.js';
 import { getDefaultConfigDir } from '../core/storage.js';
 
 /**
- * Parse command-line args for `docu-guard project <subcommand> [options]`.
+ * Parse command-line args for `xurgo-atlas project <subcommand> [options]`.
  * Returns { subcommand, kwargs }.
  */
 export function parseProjectArgs(argv: string[]): {
@@ -30,14 +30,15 @@ export function parseProjectArgs(argv: string[]): {
 }
 
 /**
- * Print usage for `docu-guard project` subcommands.
+ * Print usage for `xurgo-atlas project` subcommands.
  */
 export function printProjectUsage(): void {
   console.log(`
-Manage registered docu-guard projects.
+Manage registered Xurgo Atlas projects.
+Legacy alias: docu-guard (temporary)
 
 USAGE:
-  docu-guard project <subcommand> [options]
+  xurgo-atlas project <subcommand> [options]
 
 SUBCOMMANDS:
   add       Register a new project
@@ -57,11 +58,13 @@ SUBCOMMANDS:
     --project-id <id>     Project identifier
 
 EXAMPLES:
-  docu-guard project add --project-id my-app --project-root /path/to/my-app
-  docu-guard project remove --project-id my-app
-  docu-guard project list
-  docu-guard project show --project-id my-app
-  docu-guard project default --project-id my-app
+  xurgo-atlas project add --project-id my-app --project-root /path/to/my-app
+  xurgo-atlas project remove --project-id my-app
+  xurgo-atlas project list
+  xurgo-atlas project show --project-id my-app
+  xurgo-atlas project default --project-id my-app
+
+Legacy compatibility alias remains: docu-guard project <subcommand>
 `);
 }
 
@@ -93,7 +96,7 @@ export async function projectListCommand(configDir?: string): Promise<void> {
 
   if (projects.length === 0) {
     console.log('No projects registered.');
-    console.log('Use "docu-guard project add --project-id <id> --project-root <path>" to add one.');
+    console.log('Use "xurgo-atlas project add --project-id <id> --project-root <path>" to add one.');
     return;
   }
 

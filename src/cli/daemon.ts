@@ -16,7 +16,7 @@ export interface DaemonOptions {
 }
 
 /**
- * Start the docu-guard daemon (HTTP MCP server).
+ * Start the Xurgo Atlas daemon (HTTP MCP server).
  *
  * The daemon uses the project registry to resolve projectId → Project
  * on each tool/resource request. Projects are cached in memory for
@@ -35,7 +35,7 @@ export async function daemonCommand(options: DaemonOptions): Promise<void> {
 
   // ── Print binding info ────────────────────────────────────────────
   console.error(
-    `docu-guard daemon — config: ${storage.configDir}, data: ${storage.dataDir}`,
+    `xurgo-atlas daemon — config: ${storage.configDir}, data: ${storage.dataDir}`,
   );
 
   // ── Print warning for non-localhost binding ───────────────────────
@@ -115,7 +115,7 @@ export async function daemonCommand(options: DaemonOptions): Promise<void> {
    });
 
   console.error(
-    `docu-guard daemon listening on http://${options.host}:${options.port}/mcp`,
+    `xurgo-atlas daemon listening on http://${options.host}:${options.port}/mcp`,
   );
   console.error('Press Ctrl+C to stop.');
 

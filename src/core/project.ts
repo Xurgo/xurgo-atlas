@@ -75,15 +75,16 @@ documents:
     summary: Implementation status for all features and milestones
 `;
 
-const AGENTS_MD_SAFETY_RULES = `# Agent Instructions for docu-guard-mcp
+const AGENTS_MD_SAFETY_RULES = `# Agent Instructions for Xurgo Atlas
 
 ## Documentation Safety Rules
 
-This project uses **docu-guard-mcp** for safe, versioned, auditable documentation management.
+This project uses **Xurgo Atlas** for safe, versioned, auditable documentation management.
+The historical \`docu-guard-mcp\` name remains as a transitional package and CLI alias for now.
 
 ### Rules for AI Agents
 
-1. **Never directly overwrite documentation files.** All documentation changes must go through the docu-guard-mcp MCP server.
+1. **Never directly overwrite documentation files.** All documentation changes must go through the Xurgo Atlas MCP server.
 
 2. **Read before you write.** Always read the current version of a document before proposing changes.
 
@@ -103,7 +104,7 @@ This project uses **docu-guard-mcp** for safe, versioned, auditable documentatio
 
 ### Tracked Files
 
-The following files and directories are managed through docu-guard-mcp and must not be edited directly:
+The following files and directories are managed through Xurgo Atlas and must not be edited directly:
 
 - \`STATUS.md\`
 - \`AGENTS.md\`
@@ -250,7 +251,7 @@ export class Project {
       path: '.docu-guard/init',
       tool_name: 'init',
       intent: 'Project initialization',
-      summary: `Initialized docu-guard project "${project.projectId}" at ${project.root}`,
+      summary: `Initialized Xurgo Atlas project "${project.projectId}" at ${project.root}`,
       result_revision: 'main',
     });
 
@@ -276,7 +277,7 @@ async function ensureDocsStructure(projectRoot: string): Promise<void> {
   await fs.promises.mkdir(docsDir, { recursive: true });
 
   const docsFiles: [string, string][] = [
-    ['README.md', '# Documentation\n\nThis directory contains project documentation managed by docu-guard-mcp.\n'],
+    ['README.md', '# Documentation\n\nThis directory contains project documentation managed by Xurgo Atlas (legacy CLI alias: docu-guard).\n'],
     ['spec/README.md', '# Specification\n\nThis directory contains project specifications.\n'],
     ['manifest.yml', MANIFEST_YML_TEMPLATE],
   ];
