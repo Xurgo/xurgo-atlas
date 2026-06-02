@@ -1,7 +1,7 @@
 # docu-guard-mcp — Implementation Checklist
 
-> Last updated: 2026-06-02 (v0.4 docs.read_section implemented)
-> Status: **v0.2-daemon released; v0.4 docs.read_section implemented**
+> Last updated: 2026-06-02 (STATUS.md guarded updates fixed)
+> Status: **v0.2-daemon released; STATUS.md guarded updates fixed**
 
 ---
 
@@ -93,6 +93,7 @@
 | AGENTS.md modification flagging | ✅ Complete | High risk + special approval messaging |
 | AGENTS.md intent validation | ✅ Complete | Intent/summary must reference safety/agent rules keywords |
 | `.docs-policy.yml` modification flagging | ✅ Complete | High risk + special approval messaging |
+| STATUS.md guarded update workflow | ✅ Complete | Canonical root protected paths are merged into loaded policy; `docs.propose_patch`/`docs.commit_patch` can update STATUS.md with approval |
 | Patch-only-deletions detection | ✅ Complete | No additions in patch = high risk |
 | Protected file change flagging | ✅ Complete | Configurable via policy |
 | Risk override for high-risk patches | ✅ Complete | `riskOverride: "accept"` on `commit_patch` |
@@ -137,13 +138,13 @@
 | Registry v1 backward compat | ✅ Complete | 2 tests (load v1, upgrade on write) |
 | Registry managed-dir validation | ✅ Complete | 2 tests (resolve using dataDir, missing) |
 | CLI init command registration | ✅ Complete | 3 tests (registers, idempotent, custom dirs) |
-| v0.4 project context files (STATUS.md, manifest) | ✅ Complete | 5 tests (create, idempotent ×2, no .docu-guard/, policy protection) |
+| v0.4 project context files (STATUS.md, manifest) | ✅ Complete | 8 tests (create, idempotent ×2, no .docu-guard/, policy protection, legacy policy merge, STATUS.md propose/commit, untracked rejection) |
 | docs.status front matter parsing | ✅ Complete | 7 tests (parse STATUS.md, read via project, truncation, missing file, no front matter, empty, partial delimiter) |
 | HTTP server with managed storage | ✅ Complete | 9 tests (isolated temp paths, no `.docu-guard/`) |
 | Daemon with managed storage | ✅ Complete | 4 tests (isolated temp paths) |
 | Bounded `docs.read` via handler | ✅ Complete | 9 tests: backward-compatible, truncation, maxChars>content, offset, offset+maxChars, revision preserved, missing file, offset beyond end, path traversal |
 | `docs.read_section` via handler | ✅ Complete | 10 tests: section reads, child subsections, includeHeading=false, maxChars, offset, duplicate occurrence, level filter, fenced code blocks, missing heading, docs.read compatibility |
-| **Total** | | **115 tests** |
+| **Total** | | **118 tests** |
 
 ---
 
@@ -316,7 +317,7 @@
 | Add `maxChars`/`maxBytes` options to `docs.read` | ✅ Complete | `maxChars` and `offset` implemented; `truncated`, `returnedChars`, `totalChars` in response |
 | Add `compact` and `role` options to `docs.list` | ⏳ Planned | Compact metadata responses |
 | Implement `docs.context_pack` tool | ⏳ Planned | Curated document set within token budget |
-| Update `.docs-policy.yml` default template | ⏳ Planned | Include STATUS.md and manifest in protected paths |
+| Update `.docs-policy.yml` default template | ✅ Complete | Includes canonical guarded root paths (`STATUS.md`, `AGENTS.md`, `.docs-policy.yml`); `docs/manifest.yml` remains covered by `docs/**` |
 | Tests for v0.4 foundation (init) | ✅ Complete | 5 tests for STATUS.md + manifest creation, idempotency, .docu-guard/ absence, policy protection |
 | Tests for `docs.status` tool | ✅ Complete | 7 tests: full parse, read via project, truncation, missing file, no front matter, empty, partial delimiter |
 | Tests for `docs.manifest` tool | ✅ Complete | 11 tests: parsed JSON + revision, no raw by default, raw when requested, path validation (valid + missing), missing manifest, invalid YAML, maxDocuments truncation, validatePaths=false, entrypoints |

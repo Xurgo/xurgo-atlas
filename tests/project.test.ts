@@ -11,7 +11,7 @@ import { GitStore } from '../src/core/git-store.js';
 import { EventLog } from '../src/core/events.js';
 import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/patch.js';
 import { assessPatchRisk } from '../src/core/risk.js';
-import { parseFrontMatter, handleManifest, handleRead, handleReadSection } from '../src/mcp/tools.js';
+import { parseFrontMatter, handleManifest, handleRead, handleReadSection, handleProposePatch, handleCommitPatch } from '../src/mcp/tools.js';
 import YAML from 'yaml';
 
 let tmpDir: string;
@@ -344,6 +344,129 @@ describe('v0.4 project context files', () => {
 
     expect(loadedProject.policy.isPathProtected('STATUS.md')).toBe(true);
     expect(loadedProject.policy.isPathProtected('docs/manifest.yml')).toBe(true);
+  });
+
+  it('should preserve canonical guarded root paths when loading legacy policy files', async () => {
+    await fs.promises.writeFile(
+      path.join(tmpDir, '.docs-policy.yml'),
+      `protected_paths:
+  - AGENTS.md
+  - docs/**
+write_mode:
+  default: propose_patch_only
+  protected: approval_required
+forbidden_operations:
+  - silent_delete
+  - whole_file_replace_without_base_revision
+  - overwrite_without_diff
+  - delete_protected_doc_without_approval
+required_metadata:
+  - intent
+  - baseRevision
+  - summary
+branching:
+  agent_branches: true
+  merge_to_main_requires: approval
+risk_rules:
+  large_deletion_percent: 25
+  whole_file_replacement_requires_approval: true
+  heading_removal_requires_approval: true
+  protected_file_change_requires_approval: true
+`,
+      'utf-8',
+    );
+
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const loadedProject = await Project.load({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    expect(loadedProject.policy.isPathProtected('STATUS.md')).toBe(true);
+    expect(loadedProject.policy.isPathProtected('AGENTS.md')).toBe(true);
+    expect(loadedProject.policy.isPathProtected('.docs-policy.yml')).toBe(true);
+    expect(loadedProject.policy.isPathProtected('docs/README.md')).toBe(true);
+  });
+
+  it('should propose and commit STATUS.md updates through the guarded workflow', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'STATUS.md');
+    expect(content).not.toBeNull();
+    expect(revision).toBeTruthy();
+
+    const updated = content!.replace(
+      '<!-- What is the team working on right now? -->',
+      'Validating guarded STATUS.md updates.',
+    );
+    const patch = createSimplePatch(content!, updated, 'STATUS.md');
+
+    const proposeResult = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      baseRevision: revision,
+      patch,
+      intent: 'Update STATUS.md project context through guarded workflow',
+      summary: 'Record guarded STATUS.md update support',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+    expect(proposal.valid).toBe(true);
+    expect(proposal.riskLevel).toBe('high');
+    expect(proposal.requiresApproval).toBe(true);
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBeFalsy();
+    const commit = JSON.parse(commitResult.content[0].text);
+    expect(commit.changedFiles).toEqual(['STATUS.md']);
+
+    const { content: committedContent } = await project.readFile('main', 'STATUS.md');
+    expect(committedContent).toContain('Validating guarded STATUS.md updates.');
+  });
+
+  it('should still reject untracked paths in the guarded proposal workflow', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'notes/random.md',
+      baseRevision: 'not-used-for-untracked-paths',
+      patch: createSimplePatch('', '# Random\n', 'notes/random.md'),
+      intent: 'Try to update an untracked path',
+      summary: 'Untracked path should be rejected',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.valid).toBe(false);
+    expect(data.error).toContain('not in the list of tracked documentation paths');
   });
 });
 

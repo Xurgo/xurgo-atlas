@@ -346,14 +346,13 @@ The existing `.docs-policy.yml` safety policy should be extended to support the 
 
 ```yaml
 # Current fields (unchanged)
-protectedPaths:
+protected_paths:
+  - STATUS.md
   - AGENTS.md
   - .docs-policy.yml
-  - docs/implementation-checklist.md
+  - docs/**
 
-# New protected paths for v0.4
-  - STATUS.md
-  - docs/manifest.yml
+# docs/manifest.yml is covered by docs/**
 
 # Current risk thresholds (unchanged)
 largeDeletionThreshold: 0.25
@@ -382,9 +381,9 @@ The following criteria define when v0.4 can be considered implemented. They are 
 
 | # | Criterion | Status |
 |---|-----------|--------|
-| 5 | `STATUS.md` is protected by default (high risk to modify) | ⏳ Planned |
-| 6 | `docs/manifest.yml` is protected by default (high risk to modify) | ⏳ Planned |
-| 7 | `.docs-policy.yml` default template includes STATUS.md and manifest | ⏳ Planned |
+| 5 | `STATUS.md` is protected by default (high risk to modify) | ✅ Complete | Canonical guarded root paths are merged into loaded policy |
+| 6 | `docs/manifest.yml` is protected by default (high risk to modify) | ✅ Complete | Covered by `docs/**` |
+| 7 | `.docs-policy.yml` default template includes STATUS.md and manifest | ✅ Complete | Template includes canonical guarded root paths; manifest is covered by `docs/**` |
 | 8 | Intent validation covers STATUS.md and manifest edits | ⏳ Planned |
 
 ### 10.3 MCP Tools
@@ -418,8 +417,8 @@ The following criteria define when v0.4 can be considered implemented. They are 
 |---|-----------|--------|
 | 21 | Manifest validates that referenced paths exist | ✅ Complete |
 | 23 | STATUS.md with invalid front matter is handled gracefully | ⏳ Planned |
-| 24 | All tests from v0.1–v0.3 continue to pass | ✅ Verified | `npm test` passes with 115 tests |
-| 25 | New tests cover all new tools and options | ✅ Partial (docs.status, docs.manifest, bounded docs.read, and docs.read_section tests done) |
+| 24 | All tests from v0.1–v0.3 continue to pass | ✅ Verified | `npm test` passes with 118 tests |
+| 25 | New tests cover all new tools and options | ✅ Partial (docs.status, docs.manifest, bounded docs.read, docs.read_section, and STATUS.md guarded update tests done) |
 
 ---
 
@@ -439,7 +438,7 @@ This is a suggested order for the implementation phase. It is subject to change.
 | 8 | Add `maxChars`/`maxBytes` to `docs.read` | None | ✅ Complete | `maxChars` and `offset` implemented; also returns `truncated`, `returnedChars`, `totalChars` |
 | 9 | Add `compact` and `role` options to `docs.list` | Phase 2 | ⏳ Planned |
 | 10 | Implement `docs.context_pack` tool | Phase 1, 2 | ⏳ Planned |
-| 11 | Update .docs-policy.yml default template | Phase 3 | ⏳ Planned |
+| 11 | Update .docs-policy.yml default template | Phase 3 | ✅ Complete |
 | 12 | Write tests for all new features | All phases | ⏳ Partial (docs.status, docs.manifest, bounded docs.read, and docs.read_section tests done) |
 | 13 | Update `docs/implementation-checklist.md` | All phases | ✅ Ongoing |
 | 14 | Dogfood: run v0.4 on docu-guard itself | All phases | ⏳ Pending |
