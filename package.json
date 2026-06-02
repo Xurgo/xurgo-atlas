@@ -4,7 +4,8 @@
   "description": "Safe, versioned, auditable documentation management for AI-assisted software projects",
   "type": "module",
   "bin": {
-    "docu-guard": "./dist/index.js"
+    "docu-guard": "./dist/index.js",
+    "xurgo-atlas": "./dist/index.js"
   },
   "main": "./dist/index.js",
   "exports": {
