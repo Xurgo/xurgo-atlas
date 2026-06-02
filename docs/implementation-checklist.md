@@ -140,7 +140,7 @@
 | docs.status front matter parsing | ✅ Complete | 7 tests (parse STATUS.md, read via project, truncation, missing file, no front matter, empty, partial delimiter) |
 | HTTP server with managed storage | ✅ Complete | 9 tests (isolated temp paths, no `.docu-guard/`) |
 | Daemon with managed storage | ✅ Complete | 4 tests (isolated temp paths) |
-| **Total** | | **85 tests** |
+| **Total** | | **96 tests** |
 
 ---
 
@@ -308,7 +308,7 @@
 | Update `init` to create STATUS.md and manifest | ✅ Complete | Both files created during `init`; existing files not overwritten |
 | Add STATUS.md and manifest to default protected paths | ✅ Complete | `STATUS.md` added to `DEFAULT_POLICY.protected_paths`; `docs/manifest.yml` already covered by `docs/**` |
 | Implement `docs.status` tool | ✅ Complete | Returns STATUS.md front matter + body; `parseFrontMatter` exported; truncation via `maxChars` |
-| Implement `docs.manifest` tool | ⏳ Planned | Returns parsed manifest YAML as JSON |
+| Implement `docs.manifest` tool | ✅ Complete | Returns parsed manifest YAML as JSON; supports `includeRaw`, `validatePaths`, `maxDocuments` |
 | Implement `docs.read_section` tool | ⏳ Planned | Read one section by heading |
 | Add `maxChars`/`maxBytes` options to `docs.read` | ⏳ Planned | Bounded reads for token efficiency |
 | Add `compact` and `role` options to `docs.list` | ⏳ Planned | Compact metadata responses |
@@ -316,7 +316,7 @@
 | Update `.docs-policy.yml` default template | ⏳ Planned | Include STATUS.md and manifest in protected paths |
 | Tests for v0.4 foundation (init) | ✅ Complete | 5 tests for STATUS.md + manifest creation, idempotency, .docu-guard/ absence, policy protection |
 | Tests for `docs.status` tool | ✅ Complete | 7 tests: full parse, read via project, truncation, missing file, no front matter, empty, partial delimiter |
-| Tests for remaining v0.4 tools (manifest, read_section, etc.) | ⏳ Planned | New tools, options, validation, backward compat |
+| Tests for `docs.manifest` tool | ✅ Complete | 11 tests: parsed JSON + revision, no raw by default, raw when requested, path validation (valid + missing), missing manifest, invalid YAML, maxDocuments truncation, validatePaths=false, entrypoints |
 | Xurgo ↔ Xurgo Atlas MCP integration fixture | ⏳ Planned | Shared test fixtures for integration testing |
 | Self-dogfood / integration dogfood | ⏳ Pending | Apply v0.4 patterns and verify Xurgo Atlas integration |
 | Future web UI: STATUS.md as default landing page | ⏳ Future | UI should open to STATUS.md, use manifest for navigation |

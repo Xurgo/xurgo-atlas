@@ -2,12 +2,12 @@
 docuGuard.type: status
 statusVersion: 1
 priority: high
-currentFocus: "Implementing docs.status MCP tool (v0.4 Phase 5)"
+currentFocus: "Implementing docs.manifest MCP tool (v0.4 Phase 6)"
 nextActions:
-  - "Implement docs.manifest tool (Phase 6)"
   - "Implement docs.read_section tool (Phase 7)"
   - "Add maxChars/maxBytes options to docs.read (Phase 8)"
-  - "Validate self-dogfood with docs.status"
+  - "Add compact and role options to docs.list (Phase 9)"
+  - "Implement docs.context_pack tool (Phase 10)"
 blockers:
 doNotDo:
   - "Do not edit STATUS.md, manifest.yml, or .docs-policy.yml directly"
@@ -22,13 +22,13 @@ lastUpdated: "2026-06-02"
 # Project Status
 
 ## Current Focus
-Implementing `docs.status` MCP tool — v0.4 Phase 5 complete. The tool reads STATUS.md front matter + body, with optional truncation via `maxChars`.
+Implementing `docs.manifest` MCP tool — v0.4 Phase 6 complete. The tool reads docs/manifest.yml and returns parsed YAML as JSON, with optional raw content, path validation, and maxDocuments truncation.
 
 ## Next Actions
-- Implement `docs.manifest` tool to return parsed manifest YAML as JSON
 - Implement `docs.read_section` tool for heading-level reads
 - Add `maxChars`/`maxBytes` options to `docs.read`
 - Add `compact` and `role` options to `docs.list`
+- Implement `docs.context_pack` tool
 
 ## Blockers
 - None currently

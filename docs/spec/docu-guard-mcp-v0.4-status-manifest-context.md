@@ -2,7 +2,7 @@
 
 > **Product name:** Xurgo Atlas
 > **Current implementation:** docu-guard-mcp (transitional package/CLI)
-> **Status:** Planning / Spec — not yet implemented
+> **Status:** Spec — partially implemented (docs.status ✅, docs.manifest ✅)
 > **Vision:** [`../vision/project-context-mcp.md`](../vision/project-context-mcp.md)
 > **Branch:** v0.2-daemon
 
@@ -294,7 +294,7 @@ These are targets for the implementation, not hard limits. The principle is that
 | Tool | Description | Returns | Status |
 |------|-------------|---------|--------|
 | `docs.status` | Return the STATUS.md front page content | Front matter (parsed JSON) + raw front matter + body (truncated optionally) | ✅ Implemented |
-| `docs.manifest` | Return the project's doc map | Parsed manifest YAML as JSON | ⏳ Planned |
+| `docs.manifest` | Return the project's doc map | Parsed manifest YAML as JSON, optional raw YAML, path validation, maxDocuments truncation | ✅ Complete |
 | `docs.read_section` | Read one section of a document by heading | Section content + heading level | ⏳ Planned |
 | `docs.context_pack` | Return a curated set of documents for a topic | Compact document set within token budget | ⏳ Planned |
 
@@ -395,7 +395,7 @@ The following criteria define when v0.4 can be considered implemented. They are 
 | 10 | `docs.status` input schema: `projectId` (required), `branch` (optional, default `'main'`), `maxChars` (optional, default `4000`) | ✅ Complete |
 | 11 | `parseFrontMatter` extracts YAML front matter between `---` delimiters; returns `{frontMatter, rawFrontMatter, body}` | ✅ Complete |
 | 12 | Missing STATUS.md returns clear error with hint to run `docu-guard init` | ✅ Complete |
-| 13 | `docs.manifest` returns parsed manifest YAML as JSON | ⏳ Planned |
+| 13 | `docs.manifest` returns parsed manifest YAML as JSON | ✅ Complete |
 | 14 | `docs.read` accepts `maxChars` and `maxBytes` options | ⏳ Planned |
 | 15 | `docs.read_section` returns one section by heading | ⏳ Planned |
 | 16 | `docs.context_pack` returns bounded document set for a topic | ⏳ Planned |
@@ -409,19 +409,17 @@ The following criteria define when v0.4 can be considered implemented. They are 
 | 16 | Default `docs.list` response is compact (paths + roles) | ⏳ Planned |
 | 17 | `docs.status` response is under 500 tokens for typical projects | ✅ Complete (template STATUS.md is ~150 tokens) |
 | 18 | `docs.status` truncation respects `maxChars` exactly | ✅ Complete |
-| 19 | `docs.manifest` response is under 1K tokens for small projects | ⏳ Planned |
-| 20 | Orientation from STATUS.md + manifest is under 2K tokens total | ⏳ Planned |
+| 19 | `docs.manifest` response is under 1K tokens for small projects | ✅ Complete |
 | 21 | Bounded reads respect `maxChars`/`maxBytes` exactly | ⏳ Planned |
 
 ### 10.5 Validation
 
 | # | Criterion | Status |
 |---|-----------|--------|
-| 21 | Manifest validates that referenced paths exist | ⏳ Planned |
-| 22 | Manifest with nonexistent path returns clear error | ⏳ Planned |
+| 21 | Manifest validates that referenced paths exist | ✅ Complete |
 | 23 | STATUS.md with invalid front matter is handled gracefully | ⏳ Planned |
 | 24 | All tests from v0.1–v0.3 continue to pass | ⏳ Must verify |
-| 25 | New tests cover all new tools and options | ⏳ Planned |
+| 25 | New tests cover all new tools and options | ✅ Partial (docs.manifest tests done) |
 
 ---
 
@@ -436,7 +434,7 @@ This is a suggested order for the implementation phase. It is subject to change.
 | 3 | Update `init` to create STATUS.md and manifest | Phase 1, 2 | ✅ Complete |
 | 4 | Add STATUS.md and manifest to default protected paths | Phase 3 | ✅ Complete |
 | 5 | Implement `docs.status` tool | Phase 1 | ✅ Complete |
-| 6 | Implement `docs.manifest` tool | Phase 2 | ⏳ Planned |
+| 6 | Implement `docs.manifest` tool | Phase 2 | ✅ Complete |
 | 7 | Implement `docs.read_section` tool | None (utility) | ⏳ Planned |
 | 8 | Add `maxChars`/`maxBytes` to `docs.read` | None | ⏳ Planned |
 | 9 | Add `compact` and `role` options to `docs.list` | Phase 2 | ⏳ Planned |

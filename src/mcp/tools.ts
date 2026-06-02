@@ -83,6 +83,14 @@ const StatusSchema = z.object({
   maxChars: z.number().int().positive().optional().default(4000),
 });
 
+const ManifestSchema = z.object({
+  projectId: z.string().min(1, 'projectId is required'),
+  branch: z.string().optional().default('main'),
+  maxDocuments: z.number().int().positive().optional().default(100),
+  includeRaw: z.boolean().optional().default(false),
+  validatePaths: z.boolean().optional().default(true),
+});
+
 // ── Tool Registration ────────────────────────────────────────────────
 
 /**
@@ -161,6 +169,12 @@ export function registerTools(
             'Read the STATUS.md project front page. Returns compact orientation: front matter, body excerpt, revision, and truncation status. Use this instead of docs.read for STATUS.md to get structured front matter. Respects maxChars to limit response size.',
           inputSchema: zodToJsonSchema(StatusSchema),
         },
+        {
+          name: 'docs.manifest',
+          description:
+            'Read docs/manifest.yml as a compact machine-readable project document map. Returns parsed YAML (JSON), revision, optional path validation, and optional raw YAML. Does not read full document bodies. Use this for project orientation instead of docs.list + multiple docs.read calls.',
+          inputSchema: zodToJsonSchema(ManifestSchema),
+        },
       ],
     };
   });
@@ -205,6 +219,8 @@ export function registerTools(
           return await handleExport(project, rawArgs);
         case 'docs.status':
           return await handleStatus(project, rawArgs);
+        case 'docs.manifest':
+          return await handleManifest(project, rawArgs);
         default:
           return {
             content: [
@@ -1040,6 +1056,137 @@ async function handleStatus(project: Project, rawArgs: Record<string, unknown>) 
           null,
           2,
         ),
+      },
+    ],
+  };
+}
+
+// ── docs.manifest handler ──────────────────────────────────────────────
+
+export async function handleManifest(project: Project, rawArgs: Record<string, unknown>) {
+  const args = ManifestSchema.parse(rawArgs);
+  const manifestPath = 'docs/manifest.yml';
+
+  // Read docs/manifest.yml from the managed store
+  const { content, revision } = await project.readFile(args.branch, manifestPath);
+
+  if (content === null) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              error: 'docs/manifest.yml not found',
+              projectId: project.projectId,
+              branch: args.branch,
+              path: manifestPath,
+              hint: 'Run docu-guard init to create project documentation structure (docs/manifest.yml)',
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  // Parse YAML
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = YAML.parse(content) as Record<string, unknown>;
+  } catch (err) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              error: 'Invalid YAML in docs/manifest.yml',
+              projectId: project.projectId,
+              branch: args.branch,
+              path: manifestPath,
+              details: err instanceof Error ? err.message : String(err),
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  // Extract documents and entrypoints (gracefully handle missing/malformed data)
+  const documents: unknown[] = Array.isArray(parsed?.documents) ? parsed.documents as unknown[] : [];
+  const entrypoints: unknown[] = Array.isArray(parsed?.entrypoints) ? parsed.entrypoints as unknown[] : [];
+
+  // Apply maxDocuments truncation
+  let truncated = false;
+  let processedDocuments = documents;
+  if (args.maxDocuments && documents.length > args.maxDocuments) {
+    processedDocuments = documents.slice(0, args.maxDocuments);
+    truncated = true;
+  }
+
+  // Collect all paths for validation (from both entrypoints and documents)
+  const allReferencedPaths: string[] = [];
+  for (const ep of entrypoints) {
+    const p = (ep as Record<string, unknown>)?.path;
+    if (typeof p === 'string' && p) allReferencedPaths.push(p);
+  }
+  for (const doc of processedDocuments) {
+    const p = (doc as Record<string, unknown>)?.path;
+    if (typeof p === 'string' && p) allReferencedPaths.push(p);
+  }
+
+  // Path validation (lightweight: use git ls-tree to list all tracked files)
+  let missingPaths: string[] = [];
+  let valid = true;
+  const warnings: string[] = [];
+  if (args.validatePaths) {
+    const trackedFiles = await project.gitStore.listFiles(args.branch);
+    const trackedSet = new Set(trackedFiles);
+    missingPaths = allReferencedPaths.filter((p) => !trackedSet.has(p));
+    valid = missingPaths.length === 0;
+  }
+
+  // Build the response
+  const response: Record<string, unknown> = {
+    projectId: project.projectId,
+    path: manifestPath,
+    branch: args.branch,
+    revision,
+    version: parsed?.version ?? null,
+    entrypoints,
+    documents: processedDocuments,
+    documentCount: processedDocuments.length,
+    totalDocumentCount: documents.length,
+    truncated,
+  };
+
+  // Optionally include raw YAML
+  if (args.includeRaw) {
+    response.raw = content;
+  }
+
+  // Optionally include path validation result
+  if (args.validatePaths) {
+    response.validation = {
+      valid,
+      missingPaths,
+    };
+    if (warnings.length > 0) {
+      (response.validation as Record<string, unknown>).warnings = warnings;
+    }
+  }
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(response, null, 2),
       },
     ],
   };
