@@ -298,7 +298,7 @@
 
 > **Product name:** Xurgo Atlas
 > **Current implementation:** docu-guard-mcp (transitional package/CLI)
-> **Status:** In progress — v0.4 foundation done; docs.status tool implemented
+> **Status:** In progress — v0.4 context tools implemented and dogfooded; read-only REST API planned
 > **Integration:** [`docs/vision/xurgo-integration.md`](./vision/xurgo-integration.md)
 > **Vision:** [`docs/vision/project-context-mcp.md`](./vision/project-context-mcp.md)
 > **Spec:** [`docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md`](./spec/docu-guard-mcp-v0.4-status-manifest-context.md)
@@ -324,6 +324,7 @@
 | Tests for `docs.status` tool | ✅ Complete | 7 tests: full parse, read via project, truncation, missing file, no front matter, empty, partial delimiter |
 | Tests for `docs.manifest` tool | ✅ Complete | 11 tests: parsed JSON + revision, no raw by default, raw when requested, path validation (valid + missing), missing manifest, invalid YAML, maxDocuments truncation, validatePaths=false, entrypoints |
 | Xurgo ↔ Xurgo Atlas MCP integration fixture | ⏳ Planned | Shared test fixtures for integration testing |
-| Self-dogfood / integration dogfood | ⏳ Pending | Apply v0.4 patterns and verify Xurgo Atlas integration |
-| Future web UI: STATUS.md as default landing page | ⏳ Future | UI should open to STATUS.md, use manifest for navigation |
+| Self-dogfood / integration dogfood | ✅ Complete | Orientation workflow dogfooded with `docs.status`, `docs.manifest`, bounded `docs.read`, `docs.read_section`, and `docs.context_pack` |
+| Minimal read-only REST API plan | ✅ Documented | Future REST facade should mirror read-only MCP context tools; no write/proposal/approval/export endpoints |
+| Future web UI: STATUS.md as default landing page | ⏳ Future | UI should open to STATUS.md, use manifest for navigation, and consume the read-only REST facade when implemented |
 | Mechanical rename (package/CLI/repo/config → Xurgo Atlas) | ⏳ Future | Plan and execute separately; avoid breaking existing setups |
