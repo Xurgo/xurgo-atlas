@@ -30,6 +30,19 @@ const ReadDocSchema = z.object({
   offset: z.number().int().nonnegative().optional().default(0),
 });
 
+const ReadSectionSchema = z.object({
+  projectId: z.string().min(1, 'projectId is required'),
+  path: z.string().min(1, 'path is required'),
+  branch: z.string().optional().default('main'),
+  revision: z.string().optional(),
+  heading: z.string().min(1, 'heading is required'),
+  level: z.number().int().min(1).max(6).optional(),
+  occurrence: z.number().int().positive().optional().default(1),
+  includeHeading: z.boolean().optional().default(true),
+  maxChars: z.number().int().positive().optional(),
+  offset: z.number().int().nonnegative().optional().default(0),
+});
+
 const CreateBranchSchema = z.object({
   projectId: z.string().min(1, 'projectId is required'),
   branch: z.string().min(1, 'branch name is required'),
@@ -124,6 +137,11 @@ export function registerTools(
           inputSchema: zodToJsonSchema(ReadDocSchema),
         },
         {
+          name: 'docs.read_section',
+          description: 'Read one Markdown section from a documentation file by ATX heading. Ignores headings in fenced code blocks, includes child subsections, and supports maxChars/offset bounded reads.',
+          inputSchema: zodToJsonSchema(ReadSectionSchema),
+        },
+        {
           name: 'docs.create_branch',
           description:
             'Create a new branch for making documentation changes',
@@ -205,6 +223,8 @@ export function registerTools(
           return await handleList(project, rawArgs);
         case 'docs.read':
           return await handleRead(project, rawArgs);
+        case 'docs.read_section':
+          return await handleReadSection(project, rawArgs);
         case 'docs.create_branch':
           return await handleCreateBranch(project, rawArgs);
         case 'docs.propose_patch':
@@ -378,6 +398,262 @@ export async function handleRead(project: Project, rawArgs: Record<string, unkno
       },
     ],
   };
+}
+
+export async function handleReadSection(project: Project, rawArgs: Record<string, unknown>) {
+  const args = ReadSectionSchema.parse(rawArgs);
+
+  if (isPathTraversal(args.path)) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            error: `Path traversal detected: "${args.path}" is outside the project scope`,
+          }),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const readResult = args.revision
+    ? {
+        content: await project.gitStore.readFileAtRevision(args.revision, args.path),
+        revision: args.revision,
+      }
+    : await project.readFile(args.branch, args.path);
+
+  const { content, revision } = readResult;
+
+  if (content === null) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            error: args.revision
+              ? `File "${args.path}" not found at revision "${args.revision}"`
+              : `File "${args.path}" not found on branch "${args.branch}"`,
+            projectId: project.projectId,
+            path: args.path,
+            branch: args.branch,
+            revision: args.revision ?? null,
+          }),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const section = findMarkdownSection(content, {
+    heading: args.heading,
+    level: args.level,
+    occurrence: args.occurrence,
+    includeHeading: args.includeHeading,
+  });
+
+  if (!section) {
+    const availableHeadings = collectMarkdownHeadings(content)
+      .filter((heading) => args.level === undefined || heading.level === args.level)
+      .slice(0, 10)
+      .map((heading) => ({
+        heading: heading.text,
+        level: heading.level,
+        line: heading.line,
+      }));
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              error: `Heading "${args.heading}" not found in "${args.path}"`,
+              projectId: project.projectId,
+              path: args.path,
+              branch: args.branch,
+              revision,
+              heading: args.heading,
+              level: args.level ?? null,
+              occurrence: args.occurrence,
+              availableHeadings,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const totalChars = section.content.length;
+  const offset = args.offset ?? 0;
+  let sliced = section.content;
+  let truncated = false;
+
+  if (offset > 0) {
+    sliced = sliced.slice(offset);
+  }
+
+  if (args.maxChars !== undefined && sliced.length > args.maxChars) {
+    sliced = sliced.slice(0, args.maxChars);
+    truncated = true;
+  }
+
+  const returnedChars = sliced.length;
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(
+          {
+            projectId: project.projectId,
+            path: args.path,
+            branch: args.branch,
+            revision,
+            heading: args.heading,
+            matchedHeading: section.matchedHeading,
+            level: section.level,
+            occurrence: args.occurrence,
+            startLine: section.startLine,
+            endLine: section.endLine,
+            content: sliced,
+            truncated,
+            maxChars: args.maxChars ?? null,
+            offset,
+            returnedChars,
+            totalChars,
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  };
+}
+
+interface MarkdownHeading {
+  text: string;
+  level: number;
+  line: number;
+  index: number;
+}
+
+interface MarkdownSection {
+  matchedHeading: string;
+  level: number;
+  startLine: number;
+  endLine: number;
+  content: string;
+}
+
+function findMarkdownSection(
+  content: string,
+  options: {
+    heading: string;
+    level?: number;
+    occurrence: number;
+    includeHeading: boolean;
+  },
+): MarkdownSection | null {
+  const lines = content.split('\n');
+  const headings = collectMarkdownHeadings(content);
+  const targetHeading = normalizeHeadingText(options.heading);
+  let seen = 0;
+
+  for (const heading of headings) {
+    if (options.level !== undefined && heading.level !== options.level) {
+      continue;
+    }
+
+    if (normalizeHeadingText(heading.text) !== targetHeading) {
+      continue;
+    }
+
+    seen += 1;
+    if (seen !== options.occurrence) {
+      continue;
+    }
+
+    const nextHeading = headings.find(
+      (candidate) =>
+        candidate.index > heading.index && candidate.level <= heading.level,
+    );
+    const endIndex = nextHeading ? nextHeading.index : lines.length;
+    const contentStartIndex = options.includeHeading ? heading.index : heading.index + 1;
+    const sectionContent = lines.slice(contentStartIndex, endIndex).join('\n');
+
+    return {
+      matchedHeading: heading.text,
+      level: heading.level,
+      startLine: heading.line,
+      endLine: nextHeading ? nextHeading.line - 1 : countMarkdownLines(content),
+      content: sectionContent,
+    };
+  }
+
+  return null;
+}
+
+function collectMarkdownHeadings(content: string): MarkdownHeading[] {
+  const lines = content.split('\n');
+  const headings: MarkdownHeading[] = [];
+  let fence: { marker: '`' | '~'; length: number } | null = null;
+
+  lines.forEach((line, index) => {
+    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const markerRun = fenceMatch[1];
+      const marker = markerRun[0] as '`' | '~';
+      if (!fence) {
+        fence = { marker, length: markerRun.length };
+        return;
+      }
+
+      if (marker === fence.marker && markerRun.length >= fence.length) {
+        fence = null;
+        return;
+      }
+    }
+
+    if (fence) {
+      return;
+    }
+
+    const headingMatch = line.match(/^ {0,3}(#{1,6})(?:\s+|$)(.*)$/);
+    if (!headingMatch) {
+      return;
+    }
+
+    headings.push({
+      text: normalizeHeadingText(headingMatch[2]),
+      level: headingMatch[1].length,
+      line: index + 1,
+      index,
+    });
+  });
+
+  return headings;
+}
+
+function normalizeHeadingText(text: string): string {
+  return text
+    .trim()
+    .replace(/\s+#+\s*$/, '')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function countMarkdownLines(content: string): number {
+  if (content.length === 0) {
+    return 0;
+  }
+
+  const lines = content.split('\n');
+  return content.endsWith('\n') ? lines.length - 1 : lines.length;
 }
 
 async function handleCreateBranch(

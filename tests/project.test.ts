@@ -11,7 +11,7 @@ import { GitStore } from '../src/core/git-store.js';
 import { EventLog } from '../src/core/events.js';
 import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/patch.js';
 import { assessPatchRisk } from '../src/core/risk.js';
-import { parseFrontMatter, handleManifest, handleRead } from '../src/mcp/tools.js';
+import { parseFrontMatter, handleManifest, handleRead, handleReadSection } from '../src/mcp/tools.js';
 import YAML from 'yaml';
 
 let tmpDir: string;
@@ -23,6 +23,19 @@ beforeEach(async () => {
 afterEach(async () => {
   await fs.promises.rm(tmpDir, { recursive: true, force: true });
 });
+
+async function initProjectWithSectionDoc(content: string): Promise<Project> {
+  const docsDir = path.join(tmpDir, 'docs');
+  await fs.promises.mkdir(docsDir, { recursive: true });
+  await fs.promises.writeFile(path.join(docsDir, 'sections.md'), content, 'utf-8');
+
+  return Project.init({
+    projectRoot: tmpDir,
+    projectId: 'test-project',
+    configDir: path.join(tmpDir, 'config'),
+    dataDir: path.join(tmpDir, 'data'),
+  });
+}
 
 // ── Storage path resolution tests ─────────────────────────────────────
 
@@ -930,6 +943,244 @@ describe('bounded docs.read via handler', () => {
     expect(result.isError).toBe(true);
     const data = JSON.parse(result.content[0].text);
     expect(data.error).toContain('Path traversal');
+  });
+});
+
+describe('docs.read_section via handler', () => {
+  const sectionDoc = `# Guide
+
+Intro.
+
+## Target
+
+Target body.
+
+### Child
+
+Child body.
+
+## Next
+
+Next body.
+
+## Target
+
+Second target.
+
+### Same Text
+
+Child same.
+
+# Same Text
+
+Top same.
+
+~~~markdown
+## Hidden
+~~~
+
+\`\`\`js
+# Also Hidden
+\`\`\`
+
+## After Fences ###
+
+After content.
+`;
+
+  it('should read a simple section by heading', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/sections.md',
+      branch: 'main',
+      heading: 'Next',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.projectId).toBe('test-project');
+    expect(data.path).toBe('docs/sections.md');
+    expect(data.branch).toBe('main');
+    expect(data.revision).toBeTruthy();
+    expect(data.heading).toBe('Next');
+    expect(data.matchedHeading).toBe('Next');
+    expect(data.level).toBe(2);
+    expect(data.startLine).toBe(13);
+    expect(data.endLine).toBe(16);
+    expect(data.content).toBe('## Next\n\nNext body.\n');
+    expect(data.truncated).toBe(false);
+    expect(data.maxChars).toBeNull();
+    expect(data.offset).toBe(0);
+    expect(data.returnedChars).toBe(data.totalChars);
+  });
+
+  it('should include child subsections until the next same-or-higher heading', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/sections.md',
+      branch: 'main',
+      heading: 'Target',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe('## Target\n\nTarget body.\n\n### Child\n\nChild body.\n');
+    expect(data.content).toContain('### Child');
+    expect(data.content).not.toContain('## Next');
+  });
+
+  it('should omit the heading line when includeHeading is false', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/sections.md',
+      branch: 'main',
+      heading: 'Target',
+      includeHeading: false,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe('\nTarget body.\n\n### Child\n\nChild body.\n');
+    expect(data.content).not.toContain('## Target');
+  });
+
+  it('should truncate section content with maxChars and set metadata correctly', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/sections.md',
+      branch: 'main',
+      heading: 'Target',
+      maxChars: 12,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe('## Target\n\nT');
+    expect(data.content.length).toBe(12);
+    expect(data.truncated).toBe(true);
+    expect(data.maxChars).toBe(12);
+    expect(data.returnedChars).toBe(12);
+    expect(data.totalChars).toBeGreaterThan(12);
+  });
+
+  it('should apply offset before maxChars within section content', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+    const fullSection = '## Target\n\nTarget body.\n\n### Child\n\nChild body.\n';
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/sections.md',
+      branch: 'main',
+      heading: 'Target',
+      offset: 10,
+      maxChars: 11,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe(fullSection.slice(10, 21));
+    expect(data.offset).toBe(10);
+    expect(data.maxChars).toBe(11);
+    expect(data.returnedChars).toBe(11);
+    expect(data.totalChars).toBe(fullSection.length);
+    expect(data.truncated).toBe(true);
+  });
+
+  it('should disambiguate duplicate headings with occurrence', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/sections.md',
+      branch: 'main',
+      heading: 'Target',
+      occurrence: 2,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.occurrence).toBe(2);
+    expect(data.content).toContain('Second target.');
+    expect(data.content).not.toContain('Target body.');
+  });
+
+  it('should disambiguate same-text headings with level', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/sections.md',
+      branch: 'main',
+      heading: 'Same Text',
+      level: 1,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.level).toBe(1);
+    expect(data.content).toContain('# Same Text');
+    expect(data.content).toContain('Top same.');
+    expect(data.content).toContain('## After Fences ###');
+    expect(data.content).not.toContain('Child same.');
+  });
+
+  it('should ignore headings inside fenced code blocks', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/sections.md',
+      branch: 'main',
+      heading: 'Hidden',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Heading "Hidden" not found');
+    expect(data.availableHeadings.some((heading: { heading: string }) => heading.heading === 'Hidden')).toBe(false);
+  });
+
+  it('should report missing headings clearly', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/sections.md',
+      branch: 'main',
+      heading: 'Missing',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Heading "Missing" not found');
+    expect(data.projectId).toBe('test-project');
+    expect(data.path).toBe('docs/sections.md');
+    expect(data.availableHeadings.length).toBeGreaterThan(0);
+  });
+
+  it('should leave existing docs.read behavior intact', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/sections.md',
+      branch: 'main',
+      maxChars: 7,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe('# Guide');
+    expect(data.truncated).toBe(true);
+    expect(data.returnedChars).toBe(7);
   });
 });
 

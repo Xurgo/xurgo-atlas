@@ -1,7 +1,7 @@
 # docu-guard-mcp — Implementation Checklist
 
-> Last updated: 2026-06-02 (v0.4 bounded docs.read implemented)
-> Status: **v0.2-daemon released; v0.4 bounded docs.read implemented**
+> Last updated: 2026-06-02 (v0.4 docs.read_section implemented)
+> Status: **v0.2-daemon released; v0.4 docs.read_section implemented**
 
 ---
 
@@ -33,6 +33,7 @@
 |------|--------|-------|
 | `docs.list` | ✅ Complete | Returns per-file `{ path, revision, protected }` |
 | `docs.read` | ✅ Complete | Content + revision hash; bounded reads with `maxChars`/`offset`; `truncated`, `returnedChars`, `totalChars` |
+| `docs.read_section` | ✅ Complete | Reads one Markdown section by heading; supports `level`, `occurrence`, `includeHeading`, `maxChars`, and `offset` |
 | `docs.create_branch` | ✅ Complete | `from` parameter, returns `created: true` |
 | `docs.propose_patch` | ✅ Complete | Stores proposal, returns `proposalId` |
 | `docs.preview_diff` | ✅ Complete | Looks up by `proposalId`, returns diff + risk |
@@ -141,7 +142,8 @@
 | HTTP server with managed storage | ✅ Complete | 9 tests (isolated temp paths, no `.docu-guard/`) |
 | Daemon with managed storage | ✅ Complete | 4 tests (isolated temp paths) |
 | Bounded `docs.read` via handler | ✅ Complete | 9 tests: backward-compatible, truncation, maxChars>content, offset, offset+maxChars, revision preserved, missing file, offset beyond end, path traversal |
-| **Total** | | **105 tests** |
+| `docs.read_section` via handler | ✅ Complete | 10 tests: section reads, child subsections, includeHeading=false, maxChars, offset, duplicate occurrence, level filter, fenced code blocks, missing heading, docs.read compatibility |
+| **Total** | | **115 tests** |
 
 ---
 
@@ -310,7 +312,7 @@
 | Add STATUS.md and manifest to default protected paths | ✅ Complete | `STATUS.md` added to `DEFAULT_POLICY.protected_paths`; `docs/manifest.yml` already covered by `docs/**` |
 | Implement `docs.status` tool | ✅ Complete | Returns STATUS.md front matter + body; `parseFrontMatter` exported; truncation via `maxChars` |
 | Implement `docs.manifest` tool | ✅ Complete | Returns parsed manifest YAML as JSON; supports `includeRaw`, `validatePaths`, `maxDocuments` |
-| Implement `docs.read_section` tool | ⏳ Planned | Read one section by heading |
+| Implement `docs.read_section` tool | ✅ Complete | Read one Markdown section by ATX heading; supports bounded reads and disambiguation |
 | Add `maxChars`/`maxBytes` options to `docs.read` | ✅ Complete | `maxChars` and `offset` implemented; `truncated`, `returnedChars`, `totalChars` in response |
 | Add `compact` and `role` options to `docs.list` | ⏳ Planned | Compact metadata responses |
 | Implement `docs.context_pack` tool | ⏳ Planned | Curated document set within token budget |

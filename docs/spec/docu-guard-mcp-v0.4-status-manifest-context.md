@@ -2,7 +2,7 @@
 
 > **Product name:** Xurgo Atlas
 > **Current implementation:** docu-guard-mcp (transitional package/CLI)
-> **Status:** Spec — partially implemented (docs.status ✅, docs.manifest ✅)
+> **Status:** Spec — partially implemented (docs.status ✅, docs.manifest ✅, docs.read_section ✅)
 > **Vision:** [`../vision/project-context-mcp.md`](../vision/project-context-mcp.md)
 > **Branch:** v0.2-daemon
 
@@ -295,7 +295,7 @@ These are targets for the implementation, not hard limits. The principle is that
 |------|-------------|---------|--------|
 | `docs.status` | Return the STATUS.md front page content | Front matter (parsed JSON) + raw front matter + body (truncated optionally) | ✅ Implemented |
 | `docs.manifest` | Return the project's doc map | Parsed manifest YAML as JSON, optional raw YAML, path validation, maxDocuments truncation | ✅ Complete |
-| `docs.read_section` | Read one section of a document by heading | Section content + heading level | ⏳ Planned |
+| `docs.read_section` | Read one section of a document by heading | Section content + heading metadata + bounded-read metadata | ✅ Complete |
 | `docs.context_pack` | Return a curated set of documents for a topic | Compact document set within token budget | ⏳ Planned |
 
 ### 7.2 Tool Options (Proposed Enhancements)
@@ -397,10 +397,10 @@ The following criteria define when v0.4 can be considered implemented. They are 
 | 12 | Missing STATUS.md returns clear error with hint to run `docu-guard init` | ✅ Complete |
 | 13 | `docs.manifest` returns parsed manifest YAML as JSON | ✅ Complete |
 | 14 | `docs.read` accepts `maxChars` and `offset` options | ✅ Complete | Also returns `truncated`, `returnedChars`, `totalChars`; backward-compatible |
-| 15 | `docs.read_section` returns one section by heading | ⏳ Planned |
+| 15 | `docs.read_section` returns one section by heading | ✅ Complete |
 | 16 | `docs.context_pack` returns bounded document set for a topic | ⏳ Planned |
 | 17 | `docs.list` accepts `compact` and `role` options | ⏳ Planned |
-| 18 | All existing tools work unchanged with new options | ⏳ Must verify |
+| 18 | All existing tools work unchanged with new options | ✅ Verified | Existing `docs.read` handler behavior covered by regression test |
 
 ### 10.4 Token Efficiency
 
@@ -418,8 +418,8 @@ The following criteria define when v0.4 can be considered implemented. They are 
 |---|-----------|--------|
 | 21 | Manifest validates that referenced paths exist | ✅ Complete |
 | 23 | STATUS.md with invalid front matter is handled gracefully | ⏳ Planned |
-| 24 | All tests from v0.1–v0.3 continue to pass | ⏳ Must verify |
-| 25 | New tests cover all new tools and options | ✅ Partial (docs.manifest tests done) |
+| 24 | All tests from v0.1–v0.3 continue to pass | ✅ Verified | `npm test` passes with 115 tests |
+| 25 | New tests cover all new tools and options | ✅ Partial (docs.status, docs.manifest, bounded docs.read, and docs.read_section tests done) |
 
 ---
 
@@ -435,12 +435,12 @@ This is a suggested order for the implementation phase. It is subject to change.
 | 4 | Add STATUS.md and manifest to default protected paths | Phase 3 | ✅ Complete |
 | 5 | Implement `docs.status` tool | Phase 1 | ✅ Complete |
 | 6 | Implement `docs.manifest` tool | Phase 2 | ✅ Complete |
-| 7 | Implement `docs.read_section` tool | None (utility) | ⏳ Planned |
+| 7 | Implement `docs.read_section` tool | None (utility) | ✅ Complete |
 | 8 | Add `maxChars`/`maxBytes` to `docs.read` | None | ✅ Complete | `maxChars` and `offset` implemented; also returns `truncated`, `returnedChars`, `totalChars` |
 | 9 | Add `compact` and `role` options to `docs.list` | Phase 2 | ⏳ Planned |
 | 10 | Implement `docs.context_pack` tool | Phase 1, 2 | ⏳ Planned |
 | 11 | Update .docs-policy.yml default template | Phase 3 | ⏳ Planned |
-| 12 | Write tests for all new features | All phases | ⏳ Partial (docs.status tests done) |
+| 12 | Write tests for all new features | All phases | ⏳ Partial (docs.status, docs.manifest, bounded docs.read, and docs.read_section tests done) |
 | 13 | Update `docs/implementation-checklist.md` | All phases | ✅ Ongoing |
 | 14 | Dogfood: run v0.4 on docu-guard itself | All phases | ⏳ Pending |
 
