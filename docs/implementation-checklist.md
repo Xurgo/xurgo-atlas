@@ -1,7 +1,7 @@
 # docu-guard-mcp — Implementation Checklist
 
-> Last updated: 2026-06-02 (v0.4 stabilization audit complete)
-> Status: **v0.4 context, REST, and read-only web UI stabilized as a private milestone**
+> Last updated: 2026-06-02 (Xurgo Atlas naming migration planning complete)
+> Status: **v0.4 private milestone stabilized; Xurgo Atlas naming migration planned, not implemented**
 
 ---
 
@@ -328,4 +328,22 @@
 | Minimal read-only REST API | ✅ Complete | REST facade mirrors read-only MCP context tools; no write/proposal/approval/export endpoints |
 | Minimal read-only web UI | ✅ Complete | Served at `/` and `/ui`; opens to STATUS.md, uses manifest navigation, reads docs via REST, and exposes copy actions only |
 | Focused v0.4 stabilization audit | ✅ Complete | Confirmed docs/policy coherence, MCP/REST/UI read-only alignment, package dependency manifest, and private milestone readiness |
-| Mechanical rename/internal migration planning | ⏳ Recommended next milestone | Plan package/CLI/internal/config naming migration separately after v0.4; avoid mechanical rename in stabilization work |
+| Mechanical rename/internal migration planning | ✅ Planning complete | Phased post-v0.4 plan added to the v0.4 spec; implementation remains deferred |
+
+---
+
+## Xurgo Atlas Naming Migration Planning (Post-v0.4)
+
+> **Status:** Planning complete; implementation not started.
+> **Plan:** [Xurgo Atlas Naming Migration Plan](./spec/docu-guard-mcp-v0.4-status-manifest-context.md#14-xurgo-atlas-naming-migration-plan-post-v04)
+
+| Item | Status | Notes |
+|------|--------|-------|
+| Inventory legacy naming references | ✅ Complete | Identified package/lockfile, CLI text, MCP server metadata, `docs.*` namespace, generated templates, config/data defaults, event paths, docs, and tests |
+| Define compatibility posture | ✅ Complete | Keep existing package/CLI/config/storage/MCP namespace behavior until implementation is separately approved |
+| Plan package/internal rename phase | ✅ Complete | Package identity decision deferred; lockfile/import/bin risks documented |
+| Plan CLI/server compatibility | ✅ Complete | Candidate new CLI alias can be introduced while retaining `docu-guard` for at least one transition period |
+| Plan config/storage compatibility | ✅ Complete | Prefer non-destructive legacy discovery/aliasing before any explicit copy/move; rollback required |
+| Plan MCP namespace compatibility | ✅ Complete | Keep `docs.*` initially; any future namespace requires aliases and deprecation docs |
+| Plan test/validation scope | ✅ Complete | Future implementation must cover package metadata, CLI aliases, server metadata, storage migration, namespace stability, build/test/pack/runtime smoke checks |
+| Implement rename changes | ⏳ Deferred | No runtime, package, CLI, config, storage, source-module, or MCP namespace rename is included in this planning task |
