@@ -287,14 +287,19 @@
 
 ## v0.4 — Project Context, STATUS.md, Manifest & Token-Efficient Access
 
+> **Product name:** Xurgo Atlas
+> **Current implementation:** docu-guard-mcp (transitional package/CLI)
 > **Status:** Planning / Spec — not yet implemented
+> **Integration:** [`docs/vision/xurgo-integration.md`](./vision/xurgo-integration.md)
 > **Vision:** [`docs/vision/project-context-mcp.md`](./vision/project-context-mcp.md)
 > **Spec:** [`docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md`](./spec/docu-guard-mcp-v0.4-status-manifest-context.md)
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Define project-context vision | ✅ Complete | Vision doc created in `docs/vision/project-context-mcp.md` |
-| Plan STATUS.md, manifest, token-efficient access | ✅ Complete | Spec doc created in `docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md` |
+| Define project-context vision | ✅ Complete | Vision doc created and updated for Xurgo Atlas naming |
+| Plan STATUS.md, manifest, token-efficient access | ✅ Complete | Spec doc created and updated for Xurgo Atlas naming |
+| Define Xurgo Atlas ↔ Xurgo integration boundary | ✅ Complete | Integration alignment doc created in `docs/vision/xurgo-integration.md` |
+| Xurgo Atlas naming / transition status documented | ✅ Complete | Naming transition captured in vision doc, spec, and checklist |
 | STATUS.md template and front matter schema | ⏳ Planned | YAML front matter + Markdown body; short by design |
 | docs/manifest.yml schema and validation | ⏳ Planned | Machine-readable project map with roles, priorities, summaries |
 | Update `init` to create STATUS.md and manifest | ⏳ Planned | New standard files for all new projects |
@@ -307,5 +312,7 @@
 | Implement `docs.context_pack` tool | ⏳ Planned | Curated document set within token budget |
 | Update `.docs-policy.yml` default template | ⏳ Planned | Include STATUS.md and manifest in protected paths |
 | Tests for all new features | ⏳ Planned | New tools, options, validation, backward compat |
-| Self-dogfood on docu-guard-mcp itself | ⏳ Pending | Apply v0.4 patterns to this repo after implementation |
+| Xurgo ↔ Xurgo Atlas MCP integration fixture | ⏳ Planned | Shared test fixtures for integration testing |
+| Self-dogfood / integration dogfood | ⏳ Pending | Apply v0.4 patterns and verify Xurgo Atlas integration |
 | Future web UI: STATUS.md as default landing page | ⏳ Future | UI should open to STATUS.md, use manifest for navigation |
+| Mechanical rename (package/CLI/repo/config → Xurgo Atlas) | ⏳ Future | Plan and execute separately; avoid breaking existing setups |

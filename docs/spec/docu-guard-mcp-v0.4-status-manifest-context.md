@@ -1,5 +1,7 @@
-# docu-guard-mcp v0.4 — STATUS.md, Manifest, and Token-Efficient Context
+# Xurgo Atlas v0.4 — STATUS.md, Manifest, and Token-Efficient Context
 
+> **Product name:** Xurgo Atlas
+> **Current implementation:** docu-guard-mcp (transitional package/CLI)
 > **Status:** Planning / Spec — not yet implemented
 > **Vision:** [`../vision/project-context-mcp.md`](../vision/project-context-mcp.md)
 > **Branch:** v0.2-daemon
@@ -8,7 +10,7 @@
 
 ## 1. Motivation
 
-As of v0.3, docu-guard provides safe, versioned documentation management with configurable storage and a multi-project daemon. Agents can read, edit, propose, and commit documentation changes with full audit and safety guarantees.
+As of v0.3, Xurgo Atlas (currently implemented as the docu-guard-mcp package with the `docu-guard` CLI) provides safe, versioned documentation management with configurable storage and a multi-project daemon. Agents can read, edit, propose, and commit documentation changes with full audit and safety guarantees.
 
 However, the current tool surface assumes the agent already knows what it is looking for. There is no mechanism for:
 
@@ -37,7 +39,7 @@ v0.4 addresses these gaps by introducing two new standard files (`STATUS.md` and
 
 1. **No implementation in this document.** This is a planning and spec document only.
 2. **No web UI implementation.** Future UI considerations are noted but not designed.
-3. **No rename.** The package, CLI, MCP server name, tool namespace, and config paths remain unchanged.
+3. **No mechanical rename in this session.** The package, CLI, MCP server name, tool namespace, and config paths retain their current transitional names. A future rename should be planned separately.
 4. **No Xurgo dependency.** The tool must remain independently useful.
 5. **No complex YAML features** as core requirements (see §5).
 6. **No search/full-text index** — deferred unless explicitly needed later.
@@ -248,7 +250,7 @@ These YAML features are deliberately **not** part of the core design:
 
 - **In generated files** that agents consume but do not edit (e.g., export dumps).
 - **In tool-internal files** that are never read directly by agents.
-- **In CI/CD configuration** that is outside the docu-guard scope.
+- **In CI/CD configuration** that is outside the Xurgo Atlas scope.
 
 For all project-facing files that agents read and edit, use simple explicit YAML.
 
@@ -256,7 +258,7 @@ For all project-facing files that agents read and edit, use simple explicit YAML
 
 ## 6. Token-Efficiency Principles
 
-docu-guard should default to **orientation, not bulk content.** The tool's default behavior should assume the agent wants to find the right information, not download the entire knowledge base.
+Xurgo Atlas should default to **orientation, not bulk content.** The tool's default behavior should assume the agent wants to find the right information, not download the entire knowledge base.
 
 ### 6.1 Principles
 
@@ -459,7 +461,7 @@ These questions should be answered during implementation:
 
 ## 13. Summary
 
-v0.4 proposes an evolution from safe doc editing to **documentation-first project context.** By adding `STATUS.md` as the front page, `docs/manifest.yml` as the project map, and token-efficient access patterns, the tool becomes the primary orientation mechanism for AI agents joining any project.
+Xurgo Atlas v0.4 proposes an evolution from safe doc editing to **documentation-first project context.** By adding `STATUS.md` as the front page, `docs/manifest.yml` as the project map, and token-efficient access patterns, the tool becomes the primary orientation mechanism for AI agents joining any project.
 
 The existing safety, versioning, and audit guarantees are preserved and extended to cover the new files. All existing tools and workflows remain backward-compatible.
 

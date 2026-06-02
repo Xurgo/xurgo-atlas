@@ -1,9 +1,10 @@
-# Project Context MCP — Expanded Vision
+# Xurgo Atlas — Documentation-First Project Context
 
-> **Working codename:** Xurgo Atlas (see [Naming note](#naming-note) below)
+> **Product name:** Xurgo Atlas
+> **Current implementation:** docu-guard-mcp (transitional package/CLI)
 > **Status:** Vision / Planning — not yet implemented
-> **Current product:** docu-guard-mcp (the MCP server and CLI)
 > **Branch:** v0.2-daemon
+> **Integration:** [`xurgo-integration.md`](./xurgo-integration.md)
 
 ---
 
@@ -37,7 +38,7 @@ The expanded identity can be summarized as:
 | **docs/manifest.yml** | The project knowledge map. A compact machine-readable index of all documents and their roles. |
 | **AGENTS.md** | The agent operating contract. Rules, conventions, and boundaries every agent must follow. |
 | **.docs-policy.yml** | The safety policy. Configurable rules for risk detection, protected paths, and intent validation. |
-| **docu-guard** | The safety, versioning, and audit layer. Guards every mutation, rejects corrupting changes, and records every event. |
+| **Xurgo Atlas** | The safety, versioning, and audit layer. Guards every mutation, rejects corrupting changes, and records every event. |
 
 Together, these files form a **project context layer** that any MCP-capable agent can use to orient itself, find canonical information, and make safe changes.
 
@@ -118,57 +119,75 @@ A future read-only web UI (post-MVP) should:
 
 ## 5. Relationship to Xurgo
 
-> **Working codename "Xurgo Atlas":** This name is used here only as a placeholder for a potential broader product direction. No rename is approved or in progress.
+> See the dedicated integration alignment doc at [`xurgo-integration.md`](./xurgo-integration.md) for the full boundary definition and MCP integration model.
 
-### 5.1 What Xurgo Could Be
+### 5.1 What Xurgo Is
 
-Xurgo is an exploratory concept for a broader AI-assisted development runtime. Within that concept, "Xurgo Atlas" would be the documentation, context, and memory layer — the part of the system that holds project knowledge durable across agent sessions.
+Xurgo is a terminal-native agent workbench and runtime. It is a separate project with its own repository, build system, and release cycle. Xurgo owns the agent workspace — runs, threads, session memory, tool orchestration, approvals, and provider routing.
 
-### 5.2 Independence Requirement
+### 5.2 What Xurgo Atlas Is
 
-**This MCP tool must not depend on Xurgo.** It must remain:
+Xurgo Atlas is the documentation-first project context MCP layer. It owns canonical project documentation, STATUS.md, AGENTS.md, .docs-policy.yml, docs/manifest.yml, roadmap/specs/checklists, document history, patch proposals, diffs, restore/export, and token-efficient context tools.
 
-- Independently installable and runnable.
+### 5.3 Independence Requirement
+
+**Xurgo Atlas must not depend on Xurgo.** It must remain:
+
+- Independently installable and runnable without Xurgo.
 - Useful to any MCP-capable agent or tool: opencode, Claude, Codex, OpenClaw-like tools, Hermes-like tools, Cline, and others.
 - Self-contained with no external runtime dependencies beyond Node.js and the project's own packages.
 
-### 5.3 Why Independence Matters
+### 5.4 How They Relate
 
-- **Ecosystem reach.** The tool's value grows with the number of agents and runtimes that can use it. Tying it to a single runtime would limit adoption.
-- **Separation of concerns.** Documentation management and agent runtime are different problems. Solving them independently leads to better design in both.
-- **Future flexibility.** If Xurgo does not materialize, the MCP tool remains useful. If Xurgo does materialize, it can consume this tool as a dependency without any changes to the tool itself.
+- Xurgo **may** consume Xurgo Atlas as an MCP server for docs and context.
+- Xurgo Atlas is designed to be consumed by any MCP client — Xurgo is one consumer among many.
+- The relationship is asymmetrical: Xurgo Atlas must compile, test, and run without Xurgo, but Xurgo may choose to depend on Xurgo Atlas for canonical project context.
 
-### 5.4 Codename Scope
+### 5.5 Memory Boundary
 
-"Xurgo Atlas" refers to the vision of documentation-first project context, not to any specific implementation or rename. It is a North Star for direction, not a brand or a package name.
+- Xurgo memory is **operational** — session scope, ephemeral, user-preference-driven.
+- Xurgo Atlas memory is **canonical** — project scope, durable, Git-versioned, auditable.
+- Xurgo may propose durable project learning by submitting doc patches to Xurgo Atlas.
+- Xurgo Atlas validates and records canonical changes through its propose/commit workflow.
 
 ---
 
-## 6. Naming Note
+## 6. Transition Naming Note
 
-The name **docu-guard** accurately describes the original focus — guarding documentation — but may be too narrow for the expanded vision, which encompasses project context, agent navigation, project memory, and safety governance under a single umbrella.
+**Xurgo Atlas** is the intended product and application name going forward. The name reflects the expanded vision — project context, agent navigation, project memory, and safety governance under a single umbrella.
 
-### 6.1 Current Constraints
+### 6.1 Current Implementation Names (Transitional)
 
-- No rename is approved in this session.
-- The package remains `docu-guard-mcp`.
-- The CLI remains `docu-guard`.
-- The MCP server name and tool namespace remain unchanged.
-- Config paths remain at `~/.config/docu-guard/` and `~/.local/share/docu-guard/`.
+During this transition period, the implementation may still be referred to by its earlier names where necessary for technical accuracy:
 
-### 6.2 Future Rename Criteria
+| Aspect | Current Name | Notes |
+|--------|-------------|-------|
+| Package | `docu-guard-mcp` | npm package name, not yet renamed |
+| CLI | `docu-guard` | Binary name, not yet renamed |
+| Repository | `docs-mcp` | Git repo path, not yet renamed |
+| MCP server | `docu-guard-mcp` | Server identity in MCP discovery |
+| Tool namespace | `docs.*` | MCP tool namespace, not yet renamed |
+| Config paths | `~/.config/docu-guard/` | XDG config path, not yet renamed |
+| Data paths | `~/.local/share/docu-guard/` | XDG data path, not yet renamed |
 
-If a rename is considered later, any new name should preserve these identities:
+**No mechanical rename is being performed in this docs-only session.** A future rename should be planned as a separate work item to avoid breaking existing configs, package metadata, MCP server registrations, documentation links, repository references, and user workflows.
 
-- **Docs-first identity.** The name should evoke documentation, knowledge, memory, or context — not just "guard."
-- **Context/navigation identity.** The name should suggest wayfinding, orientation, or discovery, not just protection.
-- **Safety/audit identity.** The name should not lose the connotation of safe, guarded operations.
-- **Token-efficiency identity.** The name should hint at conciseness (Atlas carries this connotation — a concise map, not a full encyclopedia.)
-- **Independence identity.** The name should not imply it is part of the broader Xurgo runtime. Even if Xurgo Atlas eventually uses this tool, the tool's name should stand on its own.
+### 6.2 Naming in Documentation
 
-### 6.3 Recommended Approach
+- **New docs** use "Xurgo Atlas" as the product name.
+- This document and other vision/spec docs are being updated to reflect the product name.
+- References to "docu-guard-mcp" or "docu-guard" are retained only when discussing the current transitional implementation, CLI, or package state.
+- Avoid using "docu-guard" as the future product name in new content.
 
-Until a rename is explicitly approved, use "docu-guard" as the product name and "project-context MCP" or "docs-first project context" as the directional description. "Xurgo Atlas" is a working codename for internal reference only.
+### 6.3 Preserved Identities
+
+The name "Xurgo Atlas" was chosen to preserve these identities:
+
+- **Docs-first identity.** "Atlas" evokes a collection of knowledge, not just a guard.
+- **Context/navigation identity.** "Atlas" suggests wayfinding, orientation, and discovery.
+- **Safety/audit identity.** The safety, versioning, and audit guarantees remain regardless of the product name.
+- **Token-efficiency identity.** "Atlas" hints at concise maps rather than full encyclopedias.
+- **Independence identity.** "Xurgo Atlas" stands on its own as a product name, even though Xurgo may consume it. It is not "Xurgo Runtime Docs" — it is a separate product with its own identity.
 
 ---
 
@@ -179,7 +198,7 @@ The expanded vision does not invalidate existing work. It contextualizes it:
 - **v0.1 (MVP):** Established the safe doc-editing MCP tool. The foundation.
 - **v0.2 (Daemon):** Added multi-project daemon mode. The context server architecture.
 - **v0.3 (Storage):** Moved managed state to configurable directories. Deployment-ready.
-- **v0.4 (Project Context):** Adds STATUS.md, docs/manifest.yml, token-efficient access, and the project-context framing. This document proposes the v0.4 direction.
+- **v0.4 (Project Context):** Adds STATUS.md, docs/manifest.yml, token-efficient access, and the project-context framing under the Xurgo Atlas product name.
 
 ---
 
@@ -202,6 +221,6 @@ The vision described here is intentionally broader than any single implementatio
 - Individual features may be added, deferred, or reordered based on user needs.
 - The "project context" framing may deepen as more agents adopt MCP and need better orientation mechanisms.
 - The relationship to Xurgo may become more concrete or may recede depending on external developments.
-- The name may change if the project's scope outgrows "docu-guard."
+- The implementation names (package, CLI, repo, config paths) may be renamed if the transition to "Xurgo Atlas" is carried out.
 
 Regardless of how these specifics evolve, the core principles — **safe, documented, auditable, token-efficient, independent** — should remain constant.
