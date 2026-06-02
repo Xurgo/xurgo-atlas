@@ -158,6 +158,7 @@
 | CI/pre-commit integration | Post-MVP | Secondary goal |
 | Historical full-text search | Post-MVP | Future enhancement |
 | Agent activity dashboard | Post-MVP | Future enhancement |
+| Managed branch promotion / merge (`docs.merge_branch`) | Unimplemented | Policy defines `branching.merge_to_main_requires` but no tool or workflow exists. De facto sync model: feature branch → `docs.export` → working tree → `git add/commit` → source repo. Does not block v0.4 — STATUS.md and manifest can be edited directly on `main` via `propose_patch` → `commit_patch`, or synced via export from feature branches. |
 | `better-sqlite3` vs `node:sqlite` | ✅ Resolved | Using built-in `node:sqlite` (Node 22+) — intentional improvement |
 
 ---
@@ -281,7 +282,7 @@
 |-------|----------|-------|
 | GitStore `withWorkDir` should reset/clean workdir before each operation | ✅ Complete | `git reset --hard HEAD && git clean -fd` added at start of every `withWorkDir` call; regression test added (`GitStore workdir cleanup`). Fix in `src/core/git-store.ts` line 146-151 |
 | Initial long-patch failure with `git apply` "corrupt patch" | Low | A patch with a `Date:` field line was rejected as corrupt by git; shorter simpler patch applied cleanly. Pre-existing patch-format fragility, not storage-model specific |
-| Self-dogfood on docu-guard-mcp itself | Medium | Complete the loop by initializing this repo, registering it, and managing its own docs through the daemon |
+| Self-dogfood on docu-guard-mcp itself | Medium | Completed end-to-end (init → daemon → create_branch → propose_patch → preview_diff → commit_patch → history → export). Branch promoted to source repo via export + manual git commit. Managed `main` does not yet contain feature branch commits — see "Managed branch promotion" gap in Known Gaps above. |
 
 ---
 
