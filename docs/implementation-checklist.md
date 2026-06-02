@@ -279,7 +279,7 @@
 
 | Issue | Priority | Notes |
 |-------|----------|-------|
-| GitStore `withWorkDir` should reset/clean workdir before each operation | Medium | Dogfood found that a failed or manual patch attempt can leave dirty state in the temporary workdir, causing subsequent operations on the same branch to apply on top of stale local changes |
+| GitStore `withWorkDir` should reset/clean workdir before each operation | ✅ Complete | `git reset --hard HEAD && git clean -fd` added at start of every `withWorkDir` call; regression test added (`GitStore workdir cleanup`). Fix in `src/core/git-store.ts` line 146-151 |
 | Initial long-patch failure with `git apply` "corrupt patch" | Low | A patch with a `Date:` field line was rejected as corrupt by git; shorter simpler patch applied cleanly. Pre-existing patch-format fragility, not storage-model specific |
 | Self-dogfood on docu-guard-mcp itself | Medium | Complete the loop by initializing this repo, registering it, and managing its own docs through the daemon |
 
