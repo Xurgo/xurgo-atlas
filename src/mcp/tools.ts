@@ -8,7 +8,7 @@ import { zodToJsonSchema } from '../utils.js';
 import { Project } from '../core/project.js';
 import { ProposalMetadata, StoredProposal } from '../core/events.js';
 import { ProjectResolver } from './types.js';
-import { validatePatch, PatchProposal } from '../core/patch.js';
+import { validatePatch, PatchProposal, PatchValidation } from '../core/patch.js';
 import { isPathTraversal } from '../core/patch.js';
 import { assessPatchRisk } from '../core/risk.js';
 import {
@@ -1181,6 +1181,13 @@ function ensureTrailingNewline(content: string): string {
   return content.endsWith('\n') ? content : `${content}\n`;
 }
 
+function getProposalValidationStatus(validation: {
+  valid: boolean;
+  failureType?: 'stale' | 'invalid';
+}) {
+  return validation.failureType === 'stale' ? 'stale' : 'rejected';
+}
+
 export async function handleProposePatch(
   project: Project,
   rawArgs: Record<string, unknown>,
@@ -1317,6 +1324,37 @@ export async function handlePreviewDiff(
     };
   }
 
+  const validation = isDocumentCreateProposal(stored)
+    ? await validateStoredDocumentCreateProposal(project, stored)
+    : await validateStoredPatchProposal(project, stored);
+
+  if (!validation.valid) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              valid: false,
+              applyable: validation.applyable ?? false,
+              error: validation.error,
+              proposalId: stored.id,
+              status: stored.status,
+              validationStatus: validation.failureType ?? 'invalid',
+              projectId: project.projectId,
+              path: stored.path,
+              branch: stored.branch,
+              changedFiles: getProposalChangedFiles(stored),
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+      isError: true,
+    };
+  }
+
   return {
     content: [
       {
@@ -1332,6 +1370,9 @@ export async function handlePreviewDiff(
             branch: stored.branch,
             summary: stored.summary,
             changedFiles: getProposalChangedFiles(stored),
+            valid: true,
+            applyable: validation.applyable ?? true,
+            validationStatus: 'valid',
           },
           null,
           2,
@@ -1386,8 +1427,10 @@ export async function handleCommitPatch(
     : await validateStoredPatchProposal(project, stored);
 
   if (!validation.valid) {
-    // Mark the proposal as stale so the agent knows to re-propose
-    project.eventLog.updateProposalStatus(stored.id, 'stale');
+    project.eventLog.updateProposalStatus(
+      stored.id,
+      getProposalValidationStatus(validation),
+    );
     return {
       content: [
         {
@@ -1400,7 +1443,12 @@ export async function handleCommitPatch(
               projectId: project.projectId,
               path: stored.path,
               branch: stored.branch,
-              message: 'Proposal marked as stale. Re-read the file and create a new proposal.',
+              status: getProposalValidationStatus(validation),
+              validationStatus: validation.failureType ?? 'invalid',
+              message:
+                validation.failureType === 'stale'
+                  ? 'Proposal marked as stale. Re-read the file and create a new proposal.'
+                  : 'Proposal marked as rejected because the stored patch is invalid. Re-create the proposal with a valid patch.',
             },
             null,
             2,
@@ -1495,7 +1543,7 @@ export async function handleCommitPatch(
 async function validateStoredPatchProposal(
   project: Project,
   stored: StoredProposal,
-) {
+): Promise<PatchValidation> {
   const patchProposal: PatchProposal = {
     projectId: stored.project_id,
     branch: stored.branch,
@@ -1516,10 +1564,12 @@ async function validateStoredPatchProposal(
 async function validateStoredDocumentCreateProposal(
   project: Project,
   stored: StoredProposal,
-) {
+): Promise<PatchValidation> {
   if (!stored.metadata) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: false,
       error: 'Stored proposal metadata is missing for docs.propose_document',
     };
   }
@@ -1528,6 +1578,8 @@ async function validateStoredDocumentCreateProposal(
   if (pathError) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: false,
       error: pathError,
     };
   }
@@ -1536,6 +1588,8 @@ async function validateStoredDocumentCreateProposal(
   if (!branchExists) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: false,
       error: `Branch "${stored.branch}" does not exist. Create it with docs.create_branch first.`,
     };
   }
@@ -1543,6 +1597,8 @@ async function validateStoredDocumentCreateProposal(
   if (await project.gitStore.fileExists(stored.branch, stored.path)) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: false,
       error: `File "${stored.path}" already exists on branch "${stored.branch}"`,
     };
   }
@@ -1556,24 +1612,48 @@ async function validateStoredDocumentCreateProposal(
   if (!currentManifestRevision || currentManifestRevision !== expectedManifestRevision) {
     return {
       valid: false,
+      failureType: 'stale',
+      applyable: false,
       error: `Base revision mismatch for "${MANIFEST_PATH}" on branch "${stored.branch}": expected ${expectedManifestRevision}, but current revision is ${currentManifestRevision ?? 'missing'}. The file has been modified since you created the proposal. Re-read the manifest and create a new proposal.`,
     };
   }
 
   const manifestState = await readManifestState(project, stored.branch);
   if (!manifestState.valid) {
-    return manifestState;
+    return {
+      valid: false,
+      failureType: 'invalid',
+      applyable: false,
+      error: manifestState.error,
+    };
   }
 
   if (manifestState.documents.some((entry) => entry.path === stored.path)) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: false,
       error: `${MANIFEST_PATH} already contains a documents[] entry for "${stored.path}"`,
+    };
+  }
+
+  const applyCheck = await project.gitStore.validatePatchApplyability(
+    stored.branch,
+    stored.patch,
+    getProposalChangedFiles(stored),
+  );
+  if (!applyCheck.applyable) {
+    return {
+      valid: false,
+      failureType: 'invalid',
+      applyable: false,
+      error: `Patch does not apply cleanly: ${applyCheck.error ?? 'Unknown git apply error'}`,
     };
   }
 
   return {
     valid: true,
+    applyable: true,
     risk: {
       highRisk: stored.risk_level === 'high',
       reasons: stored.metadata.riskReasons ?? [],

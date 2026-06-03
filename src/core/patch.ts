@@ -14,6 +14,8 @@ export interface PatchProposal {
 
 export interface PatchValidation {
   valid: boolean;
+  failureType?: 'stale' | 'invalid';
+  applyable?: boolean;
   error?: string;
   risk?: RiskAssessment;
 }
@@ -37,6 +39,8 @@ export async function validatePatch(
   if (missingMetadata.length > 0) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: false,
       error: `Missing required metadata: ${missingMetadata.join(', ')}`,
     };
   }
@@ -45,6 +49,8 @@ export async function validatePatch(
   if (isPathTraversal(path)) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: false,
       error: `Path traversal detected: "${path}" is outside the project scope`,
     };
   }
@@ -53,6 +59,8 @@ export async function validatePatch(
   if (!policy.isPathProtected(path)) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: false,
       error: `Path "${path}" is not in the list of tracked documentation paths`,
     };
   }
@@ -62,6 +70,8 @@ export async function validatePatch(
   if (!branchExists) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: false,
       error: `Branch "${branch}" does not exist. Create it with docs.create_branch first.`,
     };
   }
@@ -71,12 +81,24 @@ export async function validatePatch(
   if (currentRevision && currentRevision !== baseRevision) {
     return {
       valid: false,
+      failureType: 'stale',
+      applyable: false,
       error: `Base revision mismatch for "${path}" on branch "${branch}": expected ${baseRevision}, but current revision is ${currentRevision}. The file has been modified since you read it. Re-read the file and re-create your patch.`,
     };
   }
 
   // Read the current file content for patch testing
   const originalContent = (await gitStore.readFile(branch, path)) ?? '';
+
+  const applyCheck = await gitStore.validatePatchApplyability(branch, patch, [path]);
+  if (!applyCheck.applyable) {
+    return {
+      valid: false,
+      failureType: 'invalid',
+      applyable: false,
+      error: `Patch does not apply cleanly: ${applyCheck.error ?? 'Unknown git apply error'}`,
+    };
+  }
 
   // Attempt to apply the patch to validate it applies cleanly
   let newContent: string;
@@ -85,6 +107,8 @@ export async function validatePatch(
   } catch (err: unknown) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: false,
       error: `Patch does not apply cleanly: ${(err as Error).message}`,
     };
   }
@@ -93,6 +117,8 @@ export async function validatePatch(
   if (policy.isOperationForbidden('silent_delete') && newContent.trim().length === 0 && originalContent.trim().length > 0) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: true,
       error: 'Patch results in an empty file. Silent deletion is forbidden without approval.',
     };
   }
@@ -100,6 +126,8 @@ export async function validatePatch(
   if (policy.isOperationForbidden('delete_protected_doc_without_approval') && newContent.trim().length === 0 && policy.isPathProtected(path)) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: true,
       error: 'Deleting a protected document requires special approval.',
     };
   }
@@ -122,6 +150,8 @@ export async function validatePatch(
     if (!hasValidReference) {
       return {
         valid: false,
+        failureType: 'invalid',
+        applyable: true,
         error:
           'Changes to AGENTS.md require an intent or summary that explicitly references one of: ' +
           'AGENTS.md, agent instructions, documentation safety, docs safety, ' +
@@ -136,6 +166,7 @@ export async function validatePatch(
 
   return {
     valid: true,
+    applyable: true,
     risk,
   };
 }
