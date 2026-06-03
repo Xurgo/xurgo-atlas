@@ -713,6 +713,53 @@ documents:
     expect(persisted?.status).toBe('pending');
   });
 
+  it('should reject preview for a stored non-unified patch before commit', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { revision } = await project.readFile('main', 'STATUS.md');
+    expect(revision).toBeTruthy();
+
+    const stored = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      base_revision: revision ?? '',
+      patch: [
+        '*** Begin Patch',
+        '*** Update File: STATUS.md',
+        '@@',
+        '-currentFocus: "Create-only docs.propose_document support is complete alongside guarded Atlas document creation"',
+        '+currentFocus: "Create-only docs.propose_document support is complete, and guarded patch applyability hardening is now in place alongside guarded Atlas document creation"',
+        '*** End Patch',
+      ].join('\n'),
+      intent: 'Store an intentionally non-unified patch for preview validation',
+      summary: 'Non-unified preview test',
+      risk_level: 'low',
+      requires_approval: false,
+    });
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: stored.id,
+    });
+
+    expect(previewResult.isError).toBe(true);
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.valid).toBe(false);
+    expect(preview.applyable).toBe(false);
+    expect(preview.validationStatus).toBe('invalid');
+    expect(preview.error).toContain('Patch does not apply cleanly');
+    expect(preview.error).toContain('No valid patches in input');
+
+    const persisted = project.eventLog.getProposal(stored.id);
+    expect(persisted?.status).toBe('pending');
+  });
+
   it('should distinguish stale proposals from corrupt patches during preview', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
@@ -2422,6 +2469,53 @@ describe('committing a patch', () => {
     expect(commitResult.isError).toBe(true);
     const data = JSON.parse(commitResult.content[0].text);
     expect(data.error).toContain('Patch does not apply cleanly');
+    expect(data.validationStatus).toBe('invalid');
+    expect(data.status).toBe('rejected');
+
+    const persisted = project.eventLog.getProposal(stored.id);
+    expect(persisted?.status).toBe('rejected');
+  });
+
+  it('should reject a stored non-unified patch at commit time and mark it rejected', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { revision } = await project.readFile('main', 'STATUS.md');
+    expect(revision).toBeTruthy();
+
+    const stored = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      base_revision: revision ?? '',
+      patch: [
+        '*** Begin Patch',
+        '*** Update File: STATUS.md',
+        '@@',
+        '-currentFocus: "Create-only docs.propose_document support is complete alongside guarded Atlas document creation"',
+        '+currentFocus: "Create-only docs.propose_document support is complete, and guarded patch applyability hardening is now in place alongside guarded Atlas document creation"',
+        '*** End Patch',
+      ].join('\n'),
+      intent: 'Store an intentionally non-unified patch for commit validation',
+      summary: 'Non-unified commit test',
+      risk_level: 'low',
+      requires_approval: false,
+    });
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: stored.id,
+      actor: 'test',
+    });
+
+    expect(commitResult.isError).toBe(true);
+    const data = JSON.parse(commitResult.content[0].text);
+    expect(data.error).toContain('Patch does not apply cleanly');
+    expect(data.error).toContain('No valid patches in input');
     expect(data.validationStatus).toBe('invalid');
     expect(data.status).toBe('rejected');
 
