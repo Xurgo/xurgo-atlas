@@ -35,6 +35,39 @@ describe('MCP server metadata', () => {
     });
   });
 
+  it('registers docs.propose_patch with unified-diff guidance in tools/list', async () => {
+    const server = createMcpServer(async () => {
+      throw new Error('not used');
+    });
+
+    const handlers = (server as unknown as {
+      _requestHandlers: Map<string, (request: unknown) => Promise<{ tools: Array<{ name: string; description?: string; inputSchema: unknown }> }>>;
+    })._requestHandlers;
+    const listTools = handlers.get('tools/list');
+
+    expect(listTools).toBeTypeOf('function');
+
+    const result = await listTools!({
+      method: 'tools/list',
+      params: {},
+    });
+    const proposePatchTool = result.tools.find((tool) => tool.name === 'docs.propose_patch');
+
+    expect(proposePatchTool).toBeDefined();
+    expect(proposePatchTool?.description).toContain('standard unified diff');
+    expect(proposePatchTool?.description).toContain('*** Begin Patch');
+    expect(proposePatchTool?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['projectId', 'branch', 'path', 'baseRevision', 'patch', 'intent', 'summary'],
+      properties: {
+        patch: {
+          type: 'string',
+          description: expect.stringContaining('Standard unified diff patch text only.'),
+        },
+      },
+    });
+  });
+
   it('registers docs.propose_document in tools/list', async () => {
     const server = createMcpServer(async () => {
       throw new Error('not used');

@@ -60,7 +60,12 @@ const ProposePatchSchema = z.object({
   branch: z.string().min(1, 'branch is required'),
   path: z.string().min(1, 'path is required'),
   baseRevision: z.string().min(1, 'baseRevision is required'),
-  patch: z.string().min(1, 'patch is required'),
+  patch: z
+    .string()
+    .min(1, 'patch is required')
+    .describe(
+      'Standard unified diff patch text only. Required format uses ---/+++ file headers and @@ hunks. Do not send apply_patch blocks such as *** Begin Patch or prose-only patch summaries.',
+    ),
   intent: z.string().min(1, 'intent is required'),
   summary: z.string().min(1, 'summary is required'),
 });
@@ -204,7 +209,7 @@ export function registerTools(
         {
           name: 'docs.propose_patch',
           description:
-            'Propose a patch to a documentation file. Validates the patch against policy and checks for risks. Does not apply the change — use docs.commit_patch to finalize.',
+            'Propose a patch to a documentation file. The patch field must be a standard unified diff with ---/+++ file headers and @@ hunks; apply_patch blocks such as "*** Begin Patch" are rejected. Validates the patch against policy and checks for risks. Does not apply the change — use docs.commit_patch to finalize.',
           inputSchema: zodToJsonSchema(ProposePatchSchema),
         },
         {
@@ -1211,6 +1216,15 @@ export async function handleProposePatch(
   );
 
   if (!validation.valid) {
+    const formatErrorFields = validation.formatError
+      ? {
+          errorCode: validation.formatError.code,
+          expectedFormat: validation.formatError.expectedFormat,
+          receivedFormat: validation.formatError.receivedFormat,
+          hint: validation.formatError.hint,
+        }
+      : {};
+
     return {
       content: [
         {
@@ -1219,6 +1233,7 @@ export async function handleProposePatch(
             {
               valid: false,
               error: validation.error,
+              ...formatErrorFields,
               projectId: project.projectId,
               path: args.path,
               branch: args.branch,
