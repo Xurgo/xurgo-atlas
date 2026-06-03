@@ -6,9 +6,15 @@ import {
 import { z } from 'zod';
 import { zodToJsonSchema } from '../utils.js';
 import { Project } from '../core/project.js';
+import { ProposalMetadata, StoredProposal } from '../core/events.js';
 import { ProjectResolver } from './types.js';
 import { validatePatch, PatchProposal } from '../core/patch.js';
 import { isPathTraversal } from '../core/patch.js';
+import { assessPatchRisk } from '../core/risk.js';
+import {
+  createUnifiedDiffForNewFile,
+  createUnifiedDiffForReplacement,
+} from '../core/unified-diff.js';
 import YAML from 'yaml';
 
 // ── Schemas ───────────────────────────────────────────────────────────
@@ -57,6 +63,31 @@ const ProposePatchSchema = z.object({
   patch: z.string().min(1, 'patch is required'),
   intent: z.string().min(1, 'intent is required'),
   summary: z.string().min(1, 'summary is required'),
+});
+
+const ProposeDocumentSchema = z.object({
+  projectId: z.string().min(1, 'projectId is required'),
+  branch: z.string().optional().default('main'),
+  mode: z.enum(['create']),
+  path: z.string().min(1, 'path is required'),
+  content: z.string().refine((value) => value.trim().length > 0, {
+    message: 'content is required',
+  }),
+  document: z.object({
+    role: z.string().refine((value) => value.trim().length > 0, {
+      message: 'document.role is required',
+    }),
+    summary: z.string().refine((value) => value.trim().length > 0, {
+      message: 'document.summary is required',
+    }),
+    priority: z.string().optional(),
+  }),
+  intent: z.string().refine((value) => value.trim().length > 0, {
+    message: 'intent is required',
+  }),
+  summary: z.string().refine((value) => value.trim().length > 0, {
+    message: 'summary is required',
+  }),
 });
 
 const PreviewDiffSchema = z.object({
@@ -177,6 +208,12 @@ export function registerTools(
           inputSchema: zodToJsonSchema(ProposePatchSchema),
         },
         {
+          name: 'docs.propose_document',
+          description:
+            'Propose creation of a new Atlas-managed Markdown document under docs/atlas/** and the matching docs/manifest.yml entry. Stores a previewable two-file proposal that is committed through docs.commit_patch.',
+          inputSchema: zodToJsonSchema(ProposeDocumentSchema),
+        },
+        {
           name: 'docs.preview_diff',
           description:
             'Preview the diff for a previously proposed patch by proposalId. Returns the diff, risk level, and approval requirements without committing.',
@@ -258,6 +295,8 @@ export function registerTools(
           return await handleCreateBranch(project, rawArgs);
         case 'docs.propose_patch':
           return await handleProposePatch(project, rawArgs);
+        case 'docs.propose_document':
+          return await handleProposeDocument(project, rawArgs);
         case 'docs.preview_diff':
           return await handlePreviewDiff(project, rawArgs);
         case 'docs.commit_patch':
@@ -771,6 +810,377 @@ async function handleCreateBranch(
   };
 }
 
+const MANIFEST_PATH = 'docs/manifest.yml';
+const ATLAS_DOCS_PREFIX = 'docs/atlas/';
+
+interface DocumentCreateProposalMetadata {
+  role: string;
+  summary: string;
+  priority?: string;
+}
+
+interface ManifestState {
+  content: string;
+  revision: string;
+  parsed: Record<string, unknown>;
+  documents: Array<Record<string, unknown>>;
+}
+
+interface DocumentCreatePreparation {
+  path: string;
+  patch: string;
+  manifestRevision: string;
+  riskLevel: 'high' | 'low';
+  requiresApproval: boolean;
+  riskReasons: string[];
+  changedFiles: string[];
+}
+
+export async function handleProposeDocument(
+  project: Project,
+  rawArgs: Record<string, unknown>,
+) {
+  const args = ProposeDocumentSchema.parse(rawArgs);
+
+  if (args.document.priority !== undefined && args.document.priority.trim().length === 0) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              valid: false,
+              error: 'document.priority must not be empty',
+              projectId: project.projectId,
+              path: normalizeManagedPath(args.path),
+              branch: args.branch,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const normalizedDocument = {
+    role: args.document.role.trim(),
+    summary: args.document.summary.trim(),
+    priority: args.document.priority?.trim() || undefined,
+  };
+
+  const prepared = await prepareDocumentCreateProposal(
+    project,
+    args.branch,
+    args.path,
+    args.content,
+    normalizedDocument,
+  );
+
+  if (!prepared.valid) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              valid: false,
+              error: prepared.error,
+              projectId: project.projectId,
+              path: normalizeManagedPath(args.path),
+              branch: args.branch,
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const metadata: ProposalMetadata = {
+    kind: 'document_create',
+    mode: 'create',
+    changedFiles: prepared.changedFiles,
+    baseRevisions: {
+      [MANIFEST_PATH]: prepared.manifestRevision,
+    },
+    riskReasons: prepared.riskReasons,
+  };
+
+  const stored = project.eventLog.storeProposal({
+    project_id: project.projectId,
+    branch: args.branch,
+    path: prepared.path,
+    base_revision: prepared.manifestRevision,
+    patch: prepared.patch,
+    intent: args.intent,
+    summary: args.summary,
+    risk_level: prepared.riskLevel,
+    requires_approval: prepared.requiresApproval,
+    metadata,
+  });
+
+  project.eventLog.logEvent({
+    project_id: project.projectId,
+    branch: args.branch,
+    path: prepared.path,
+    tool_name: 'propose_document',
+    intent: args.intent,
+    summary: args.summary,
+    base_revision: prepared.manifestRevision,
+    risk_level: prepared.riskLevel,
+    diff: prepared.patch,
+  });
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(
+          {
+            proposalId: stored.id,
+            valid: true,
+            riskLevel: prepared.riskLevel,
+            requiresApproval: prepared.requiresApproval,
+            summary: args.summary,
+            changedFiles: prepared.changedFiles,
+            projectId: project.projectId,
+            branch: args.branch,
+            message: 'Document proposal stored. Use docs.preview_diff to review or docs.commit_patch to apply.',
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  };
+}
+
+async function prepareDocumentCreateProposal(
+  project: Project,
+  branch: string,
+  requestedPath: string,
+  requestedContent: string,
+  document: DocumentCreateProposalMetadata,
+): Promise<
+  | ({ valid: true } & DocumentCreatePreparation)
+  | { valid: false; error: string }
+> {
+  const normalizedPath = normalizeManagedPath(requestedPath);
+  const content = ensureTrailingNewline(requestedContent);
+
+  const pathError = validateCreateDocumentPath(normalizedPath);
+  if (pathError) {
+    return { valid: false, error: pathError };
+  }
+
+  const branchExists = await project.gitStore.branchExists(branch);
+  if (!branchExists) {
+    return {
+      valid: false,
+      error: `Branch "${branch}" does not exist. Create it with docs.create_branch first.`,
+    };
+  }
+
+  if (await project.gitStore.fileExists(branch, normalizedPath)) {
+    return {
+      valid: false,
+      error: `File "${normalizedPath}" already exists on branch "${branch}"`,
+    };
+  }
+
+  const manifestState = await readManifestState(project, branch);
+  if (!manifestState.valid) {
+    return manifestState;
+  }
+
+  const hasManifestPath = manifestState.documents.some(
+    (entry) => entry.path === normalizedPath,
+  );
+  if (hasManifestPath) {
+    return {
+      valid: false,
+      error: `docs/manifest.yml already contains a documents[] entry for "${normalizedPath}"`,
+    };
+  }
+
+  const updatedManifest = buildManifestWithDocumentEntry(
+    manifestState.content,
+    manifestState.parsed,
+    manifestState.documents,
+    normalizedPath,
+    document,
+  );
+  const documentPatch = createNewFilePatch(content, normalizedPath);
+  const manifestPatch = createSimplePatch(
+    manifestState.content,
+    updatedManifest,
+    MANIFEST_PATH,
+  );
+  const patch = `${documentPatch}\n${manifestPatch}`;
+
+  const documentRisk = assessPatchRisk(
+    project.policy,
+    normalizedPath,
+    '',
+    content,
+    documentPatch,
+  );
+  const manifestRisk = assessPatchRisk(
+    project.policy,
+    MANIFEST_PATH,
+    manifestState.content,
+    updatedManifest,
+    manifestPatch,
+  );
+  const riskReasons = Array.from(
+    new Set([...documentRisk.reasons, ...manifestRisk.reasons]),
+  );
+  const requiresApproval = documentRisk.highRisk || manifestRisk.highRisk;
+
+  return {
+    valid: true,
+    path: normalizedPath,
+    patch,
+    manifestRevision: manifestState.revision,
+    riskLevel: requiresApproval ? 'high' : 'low',
+    requiresApproval,
+    riskReasons,
+    changedFiles: [normalizedPath, MANIFEST_PATH],
+  };
+}
+
+function validateCreateDocumentPath(filePath: string): string | null {
+  if (isPathTraversal(filePath)) {
+    return `Path traversal detected: "${filePath}" is outside the project scope`;
+  }
+
+  if (!filePath.startsWith(ATLAS_DOCS_PREFIX)) {
+    return `Path "${filePath}" must be under ${ATLAS_DOCS_PREFIX}`;
+  }
+
+  if (!filePath.toLowerCase().endsWith('.md')) {
+    return `Path "${filePath}" must be a Markdown document under ${ATLAS_DOCS_PREFIX}`;
+  }
+
+  return null;
+}
+
+async function readManifestState(
+  project: Project,
+  branch: string,
+): Promise<
+  | ({ valid: true } & ManifestState)
+  | { valid: false; error: string }
+> {
+  const { content, revision } = await project.readFile(branch, MANIFEST_PATH);
+
+  if (content === null) {
+    return {
+      valid: false,
+      error: `${MANIFEST_PATH} not found on branch "${branch}"`,
+    };
+  }
+
+  if (!revision) {
+    return {
+      valid: false,
+      error: `Could not determine the current revision for ${MANIFEST_PATH} on branch "${branch}"`,
+    };
+  }
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = YAML.parse(content) as Record<string, unknown>;
+  } catch (err) {
+    return {
+      valid: false,
+      error: `Invalid YAML in ${MANIFEST_PATH}: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return {
+      valid: false,
+      error: `${MANIFEST_PATH} must contain a top-level mapping`,
+    };
+  }
+
+  if (!Array.isArray(parsed.documents)) {
+    return {
+      valid: false,
+      error: `${MANIFEST_PATH} is missing a valid documents[] array`,
+    };
+  }
+
+  const documents = parsed.documents.map((entry) =>
+    ((entry && typeof entry === 'object' && !Array.isArray(entry))
+      ? { ...(entry as Record<string, unknown>) }
+      : {}) as Record<string, unknown>,
+  );
+
+  return {
+    valid: true,
+    content,
+    revision,
+    parsed,
+    documents,
+  };
+}
+
+function buildManifestWithDocumentEntry(
+  originalContent: string,
+  parsed: Record<string, unknown>,
+  documents: Array<Record<string, unknown>>,
+  filePath: string,
+  document: DocumentCreateProposalMetadata,
+): string {
+  const updated = {
+    ...parsed,
+    documents: [
+      ...documents,
+      {
+        path: filePath,
+        role: document.role,
+        ...(document.priority ? { priority: document.priority } : {}),
+        summary: document.summary,
+      },
+    ],
+  };
+
+  const headerComment = extractLeadingYamlComment(originalContent);
+  const serialized = YAML.stringify(updated).trimEnd() + '\n';
+  return headerComment ? `${headerComment}${serialized}` : serialized;
+}
+
+function extractLeadingYamlComment(content: string): string {
+  const match = content.match(/^((?:#.*\n)+)/);
+  return match?.[1] ?? '';
+}
+
+function createNewFilePatch(content: string, filePath: string): string {
+  return createUnifiedDiffForNewFile(filePath, content);
+}
+
+function createSimplePatch(
+  original: string,
+  updated: string,
+  filePath: string,
+): string {
+  return createUnifiedDiffForReplacement(filePath, original, updated);
+}
+
+function normalizeManagedPath(filePath: string): string {
+  return filePath.replace(/\\/g, '/');
+}
+
+function ensureTrailingNewline(content: string): string {
+  return content.endsWith('\n') ? content : `${content}\n`;
+}
+
 export async function handleProposePatch(
   project: Project,
   rawArgs: Record<string, unknown>,
@@ -921,6 +1331,7 @@ export async function handlePreviewDiff(
             path: stored.path,
             branch: stored.branch,
             summary: stored.summary,
+            changedFiles: getProposalChangedFiles(stored),
           },
           null,
           2,
@@ -969,22 +1380,10 @@ export async function handleCommitPatch(
     };
   }
 
-  // Re-validate the patch (re-checks base revision, may have gone stale)
-  const patchProposal: PatchProposal = {
-    projectId: stored.project_id,
-    branch: stored.branch,
-    path: stored.path,
-    baseRevision: stored.base_revision,
-    patch: stored.patch,
-    intent: stored.intent,
-    summary: stored.summary,
-  };
-
-  const validation = await validatePatch(
-    project.policy,
-    project.gitStore,
-    patchProposal,
-  );
+  const changedFiles = getProposalChangedFiles(stored);
+  const validation = isDocumentCreateProposal(stored)
+    ? await validateStoredDocumentCreateProposal(project, stored)
+    : await validateStoredPatchProposal(project, stored);
 
   if (!validation.valid) {
     // Mark the proposal as stale so the agent knows to re-propose
@@ -1012,7 +1411,6 @@ export async function handleCommitPatch(
     };
   }
 
-  // If high risk and no override, require explicit confirmation
   const isHighRisk = validation.risk?.highRisk ?? false;
   if (isHighRisk && args.riskOverride !== 'accept') {
     return {
@@ -1039,14 +1437,21 @@ export async function handleCommitPatch(
     };
   }
 
-  // Commit the changes
-  const commitResult = await project.gitStore.applyPatchAndCommit(
-    stored.branch,
-    stored.path,
-    stored.patch,
-    stored.summary,
-    stored.base_revision,
-  );
+  const commitResult = isDocumentCreateProposal(stored)
+    ? await project.gitStore.applyMultiFilePatchAndCommit(
+        stored.branch,
+        stored.patch,
+        stored.summary,
+        changedFiles,
+        stored.metadata?.baseRevisions,
+      )
+    : await project.gitStore.applyPatchAndCommit(
+        stored.branch,
+        stored.path,
+        stored.patch,
+        stored.summary,
+        stored.base_revision,
+      );
 
   // Mark proposal as committed
   project.eventLog.updateProposalStatus(stored.id, 'committed');
@@ -1074,7 +1479,7 @@ export async function handleCommitPatch(
           {
             proposalId: stored.id,
             commit: commitResult.hash,
-            changedFiles: [stored.path],
+            changedFiles,
             projectId: project.projectId,
             branch: stored.branch,
             message: 'Patch committed successfully',
@@ -1085,6 +1490,109 @@ export async function handleCommitPatch(
       },
     ],
   };
+}
+
+async function validateStoredPatchProposal(
+  project: Project,
+  stored: StoredProposal,
+) {
+  const patchProposal: PatchProposal = {
+    projectId: stored.project_id,
+    branch: stored.branch,
+    path: stored.path,
+    baseRevision: stored.base_revision,
+    patch: stored.patch,
+    intent: stored.intent,
+    summary: stored.summary,
+  };
+
+  return validatePatch(
+    project.policy,
+    project.gitStore,
+    patchProposal,
+  );
+}
+
+async function validateStoredDocumentCreateProposal(
+  project: Project,
+  stored: StoredProposal,
+) {
+  if (!stored.metadata) {
+    return {
+      valid: false,
+      error: 'Stored proposal metadata is missing for docs.propose_document',
+    };
+  }
+
+  const pathError = validateCreateDocumentPath(stored.path);
+  if (pathError) {
+    return {
+      valid: false,
+      error: pathError,
+    };
+  }
+
+  const branchExists = await project.gitStore.branchExists(stored.branch);
+  if (!branchExists) {
+    return {
+      valid: false,
+      error: `Branch "${stored.branch}" does not exist. Create it with docs.create_branch first.`,
+    };
+  }
+
+  if (await project.gitStore.fileExists(stored.branch, stored.path)) {
+    return {
+      valid: false,
+      error: `File "${stored.path}" already exists on branch "${stored.branch}"`,
+    };
+  }
+
+  const expectedManifestRevision = stored.metadata.baseRevisions[MANIFEST_PATH];
+  const currentManifestRevision = await project.gitStore.getFileRevision(
+    stored.branch,
+    MANIFEST_PATH,
+  );
+
+  if (!currentManifestRevision || currentManifestRevision !== expectedManifestRevision) {
+    return {
+      valid: false,
+      error: `Base revision mismatch for "${MANIFEST_PATH}" on branch "${stored.branch}": expected ${expectedManifestRevision}, but current revision is ${currentManifestRevision ?? 'missing'}. The file has been modified since you created the proposal. Re-read the manifest and create a new proposal.`,
+    };
+  }
+
+  const manifestState = await readManifestState(project, stored.branch);
+  if (!manifestState.valid) {
+    return manifestState;
+  }
+
+  if (manifestState.documents.some((entry) => entry.path === stored.path)) {
+    return {
+      valid: false,
+      error: `${MANIFEST_PATH} already contains a documents[] entry for "${stored.path}"`,
+    };
+  }
+
+  return {
+    valid: true,
+    risk: {
+      highRisk: stored.risk_level === 'high',
+      reasons: stored.metadata.riskReasons ?? [],
+    },
+  };
+}
+
+function isDocumentCreateProposal(
+  stored: StoredProposal,
+): stored is StoredProposal & { metadata: ProposalMetadata } {
+  return stored.metadata?.kind === 'document_create' && stored.metadata.mode === 'create';
+}
+
+function getProposalChangedFiles(stored: StoredProposal): string[] {
+  if (stored.metadata?.changedFiles?.length) {
+    return stored.metadata.changedFiles;
+  }
+
+  return [stored.path];
 }
 
 async function handleHistory(

@@ -358,30 +358,49 @@ export class GitStore {
     message: string,
     baseRevision?: string,
   ): Promise<CommitResult> {
-    return this.withWorkDir(branch, async (git: SimpleGit, workDir: string) => {
-      const fullPath = path.join(workDir, filePath);
+    return this.applyMultiFilePatchAndCommit(
+      branch,
+      patchContent,
+      message,
+      [filePath],
+      baseRevision ? { [filePath]: baseRevision } : undefined,
+    );
+  }
 
-      // Verify base revision
-      if (baseRevision) {
-        const currentRevision = await this.getFileRevision(branch, filePath);
-        if (currentRevision && currentRevision !== baseRevision) {
-          throw new Error(
-            `Base revision mismatch: expected ${baseRevision}, but current revision is ${currentRevision}. The file has been modified since you read it.`,
-          );
+  /**
+   * Apply a unified diff patch that can touch multiple files and commit atomically.
+   */
+  async applyMultiFilePatchAndCommit(
+    branch: string,
+    patchContent: string,
+    message: string,
+    changedFiles: string[],
+    baseRevisions?: Record<string, string>,
+  ): Promise<CommitResult> {
+    return this.withWorkDir(branch, async (git: SimpleGit, workDir: string) => {
+      if (changedFiles.length === 0) {
+        throw new Error('Patch does not name any changed files');
+      }
+
+      if (baseRevisions) {
+        for (const [filePath, expectedRevision] of Object.entries(baseRevisions)) {
+          const currentRevision = await this.getFileRevision(branch, filePath);
+          if (currentRevision && currentRevision !== expectedRevision) {
+            throw new Error(
+              `Base revision mismatch: expected ${expectedRevision}, but current revision is ${currentRevision}. The file has been modified since you read it.`,
+            );
+          }
         }
       }
 
-      // Write the patch to a temp file
+      for (const filePath of changedFiles) {
+        const fullPath = path.join(workDir, filePath);
+        await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
+      }
+
       const patchFile = path.join(workDir, '.docu-guard-patch.tmp');
       await fs.promises.writeFile(patchFile, patchContent, 'utf-8');
 
-      // Ensure the file exists (even if patch creates it)
-      await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
-      if (!fs.existsSync(fullPath)) {
-        await fs.promises.writeFile(fullPath, '', 'utf-8');
-      }
-
-      // Apply the patch using git apply
       try {
         const applyResult = await git.raw([
           'apply',
@@ -389,12 +408,12 @@ export class GitStore {
           '--whitespace=nowarn',
           patchFile,
         ]);
-        // Check if apply produced output (error)
         if (applyResult && applyResult.includes('error:')) {
-          throw new Error(`Patch application failed: ${applyResult}`);
+          throw new Error(
+            `Patch application failed: ${applyResult}`,
+          );
         }
       } catch (err: unknown) {
-        // Clean up patch file
         try {
           await fs.promises.unlink(patchFile);
         } catch { /* ignore */ }
@@ -408,8 +427,7 @@ export class GitStore {
         await fs.promises.unlink(patchFile);
       } catch { /* ignore */ }
 
-      // Stage and commit
-      await git.add(filePath);
+      await git.add(changedFiles);
       const result = await git.commit(message);
       await git.push('origin', branch);
 

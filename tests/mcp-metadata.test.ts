@@ -34,4 +34,36 @@ describe('MCP server metadata', () => {
       required: ['projectId', 'proposalId'],
     });
   });
+
+  it('registers docs.propose_document in tools/list', async () => {
+    const server = createMcpServer(async () => {
+      throw new Error('not used');
+    });
+
+    const handlers = (server as unknown as {
+      _requestHandlers: Map<string, (request: unknown) => Promise<{ tools: Array<{ name: string; inputSchema: unknown }> }>>;
+    })._requestHandlers;
+    const listTools = handlers.get('tools/list');
+
+    expect(listTools).toBeTypeOf('function');
+
+    const result = await listTools!({
+      method: 'tools/list',
+      params: {},
+    });
+    const proposeDocumentTool = result.tools.find((tool) => tool.name === 'docs.propose_document');
+
+    expect(proposeDocumentTool).toBeDefined();
+    expect(proposeDocumentTool?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['projectId', 'mode', 'path', 'content', 'document', 'intent', 'summary'],
+      properties: {
+        mode: { enum: ['create'] },
+        document: {
+          type: 'object',
+          required: ['role', 'summary'],
+        },
+      },
+    });
+  });
 });
