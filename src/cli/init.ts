@@ -131,7 +131,7 @@ export async function listCommand(
     dataDir,
   });
 
-  const filePaths = await project.getTrackedFiles();
+  const filePaths = await project.getOwnedFiles();
   const branchRevision = await project.gitStore.getBranchHead('main');
 
   // Enrich each file with revision and protected status

@@ -741,7 +741,7 @@ function restErrorFromToolError(payload: Record<string, unknown>): RestError {
   if (lower.includes('path traversal')) {
     status = 400;
     code = 'unsafe_path';
-  } else if (lower.includes('not in the list of tracked documentation paths')) {
+  } else if (lower.includes('not in the list of atlas-owned managed documents')) {
     status = 403;
     code = 'untracked_path';
   } else if (lower.includes('not found') || lower.includes('missing')) {
@@ -755,7 +755,7 @@ function restErrorFromToolError(payload: Record<string, unknown>): RestError {
   return new RestError(status, code, message, payload);
 }
 
-function ensureRestReadablePath(project: Project, filePath: string): void {
+async function ensureRestReadablePath(project: Project, branch: string, filePath: string): Promise<void> {
   if (isPathTraversal(filePath)) {
     throw new RestError(
       400,
@@ -765,11 +765,11 @@ function ensureRestReadablePath(project: Project, filePath: string): void {
     );
   }
 
-  if (!project.policy.isPathProtected(filePath)) {
+  if (!(await project.isPathOwned(branch, filePath))) {
     throw new RestError(
       403,
       'untracked_path',
-      `Path "${filePath}" is not in the list of tracked documentation paths`,
+      `Path "${filePath}" is not in the list of Atlas-owned managed documents`,
       { path: filePath },
     );
   }
@@ -870,7 +870,7 @@ function registerReadOnlyRestRoutes(
       const projectId = decodeURIComponent(req.params[0]);
       const docPath = decodeURIComponent(req.params[1]);
       const project = await resolveRestProject(rest, projectId);
-      ensureRestReadablePath(project, docPath);
+      await ensureRestReadablePath(project, getQueryString(req.query.branch as string | string[] | undefined) ?? 'main', docPath);
       const data = parseToolJson(await handleRead(project, restReadArgs(projectId, docPath, req.query)));
       res.json(data);
     } catch (err) {
@@ -883,7 +883,7 @@ function registerReadOnlyRestRoutes(
       const project = await resolveRestProject(rest, req.params.projectId);
       const sectionPath = getQueryString(req.query.path as string | string[] | undefined);
       if (sectionPath) {
-        ensureRestReadablePath(project, sectionPath);
+        await ensureRestReadablePath(project, getQueryString(req.query.branch as string | string[] | undefined) ?? 'main', sectionPath);
       }
       const data = parseToolJson(await handleReadSection(project, {
         projectId: req.params.projectId,

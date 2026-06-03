@@ -36,7 +36,7 @@ export function registerResources(
       project = projectOrResolver as Project;
     }
 
-    const trackedFiles = await project.getTrackedFiles();
+    const trackedFiles = await project.getOwnedFiles();
     const resources = [
       {
         uri: `docs://project/${project.projectId}/manifest`,
@@ -110,7 +110,7 @@ async function serveResource(
 ) {
   switch (parsed.type) {
     case 'manifest': {
-      const files = await project.getTrackedFiles();
+      const files = await project.getOwnedFiles();
       return {
         contents: [
           {
@@ -144,6 +144,11 @@ async function serveResource(
     }
 
     case 'file': {
+      if (!(await project.isPathOwned(parsed.branch, parsed.path))) {
+        throw new Error(
+          `Path "${parsed.path}" is not in the list of Atlas-owned managed documents`,
+        );
+      }
       const { content, revision } = await project.readFile(
         parsed.branch,
         parsed.path,
@@ -168,6 +173,11 @@ async function serveResource(
     }
 
     case 'history': {
+      if (!(await project.isPathOwned(parsed.branch, parsed.path))) {
+        throw new Error(
+          `Path "${parsed.path}" is not in the list of Atlas-owned managed documents`,
+        );
+      }
       const history = await project.gitStore.getHistory(parsed.path);
       return {
         contents: [

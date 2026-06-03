@@ -11,6 +11,7 @@ import { GitStore } from '../src/core/git-store.js';
 import { EventLog } from '../src/core/events.js';
 import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/patch.js';
 import { assessPatchRisk } from '../src/core/risk.js';
+import { createMcpServer } from '../src/mcp/create-server.js';
 import { parseFrontMatter, handleManifest, handleRead, handleReadSection, handleContextPack, handleProposePatch, handlePreviewDiff, handleCommitPatch } from '../src/mcp/tools.js';
 import YAML from 'yaml';
 
@@ -25,7 +26,7 @@ afterEach(async () => {
 });
 
 async function initProjectWithSectionDoc(content: string): Promise<Project> {
-  const docsDir = path.join(tmpDir, 'docs');
+  const docsDir = path.join(tmpDir, 'docs', 'atlas');
   await fs.promises.mkdir(docsDir, { recursive: true });
   await fs.promises.writeFile(path.join(docsDir, 'sections.md'), content, 'utf-8');
 
@@ -35,6 +36,23 @@ async function initProjectWithSectionDoc(content: string): Promise<Project> {
     configDir: path.join(tmpDir, 'config'),
     dataDir: path.join(tmpDir, 'data'),
   });
+}
+
+async function callTool(project: Project, name: string, args: Record<string, unknown>) {
+  const server = createMcpServer(project);
+  const handlers = (server as unknown as {
+    _requestHandlers: Map<string, (request: unknown) => Promise<unknown>>;
+  })._requestHandlers;
+  const call = handlers.get('tools/call');
+  expect(call).toBeTypeOf('function');
+
+  return call!({
+    method: 'tools/call',
+    params: {
+      name,
+      arguments: args,
+    },
+  }) as Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
 }
 
 // ── Storage path resolution tests ─────────────────────────────────────
@@ -398,6 +416,154 @@ risk_rules:
     expect(loadedProject.policy.isPathProtected('AGENTS.md')).toBe(true);
     expect(loadedProject.policy.isPathProtected('.docs-policy.yml')).toBe(true);
     expect(loadedProject.policy.isPathProtected('docs/README.md')).toBe(true);
+  });
+
+  it('should resolve curated owned documents separately from protected paths', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs', 'atlas'), {
+      recursive: true,
+    });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'manifest.yml'),
+      `version: 1
+documents:
+  - path: docs/listed.md
+    role: notes
+    summary: Listed doc
+`,
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'listed.md'),
+      '# Listed\n',
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'atlas', 'owned.md'),
+      '# Owned\n',
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'unlisted.md'),
+      '# Unlisted\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    expect(await project.isPathOwned('main', 'STATUS.md')).toBe(true);
+    expect(await project.isPathOwned('main', 'AGENTS.md')).toBe(true);
+    expect(await project.isPathOwned('main', '.docs-policy.yml')).toBe(true);
+    expect(await project.isPathOwned('main', 'docs/manifest.yml')).toBe(true);
+    expect(await project.isPathOwned('main', 'docs/atlas/owned.md')).toBe(true);
+    expect(await project.isPathOwned('main', 'docs/listed.md')).toBe(true);
+    expect(await project.isPathOwned('main', 'docs/unlisted.md')).toBe(false);
+
+    expect(project.policy.isPathProtected('docs/unlisted.md')).toBe(true);
+  });
+
+  it('should exclude unowned documents from docs.list', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'manifest.yml'),
+      `version: 1
+documents:
+  - path: docs/listed.md
+    role: notes
+    summary: Listed doc
+`,
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'listed.md'),
+      '# Listed\n',
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'unlisted.md'),
+      '# Unlisted\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await callTool(project, 'docs.list', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    const paths = data.files.map((file: { path: string }) => file.path);
+    expect(paths).toContain('STATUS.md');
+    expect(paths).toContain('docs/manifest.yml');
+    expect(paths).toContain('docs/listed.md');
+    expect(paths).not.toContain('docs/unlisted.md');
+  });
+
+  it('should reject reads for unowned docs that still exist in the managed store', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'unlisted.md'),
+      '# Unlisted\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    expect(await project.gitStore.readFile('main', 'docs/unlisted.md')).toBe(
+      '# Unlisted\n',
+    );
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/unlisted.md',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Atlas-owned managed documents');
+  });
+
+  it('should not include unowned docs in default context packs', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'unlisted.md'),
+      '# Unlisted\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    const paths = data.items.map((item: { path: string }) => item.path);
+    expect(paths).not.toContain('docs/unlisted.md');
   });
 
   it('should propose and commit STATUS.md updates through the guarded workflow', async () => {
@@ -1074,7 +1240,7 @@ describe('bounded docs.read via handler', () => {
 
     const result = await handleRead(project, {
       projectId: 'test-project',
-      path: 'nonexistent-file.md',
+      path: 'docs/atlas/missing.md',
       branch: 'main',
     });
 
@@ -1172,7 +1338,7 @@ After content.
 
     const result = await handleReadSection(project, {
       projectId: 'test-project',
-      path: 'docs/sections.md',
+      path: 'docs/atlas/sections.md',
       branch: 'main',
       heading: 'Next',
     });
@@ -1180,7 +1346,7 @@ After content.
     expect(result.isError).toBeFalsy();
     const data = JSON.parse(result.content[0].text);
     expect(data.projectId).toBe('test-project');
-    expect(data.path).toBe('docs/sections.md');
+    expect(data.path).toBe('docs/atlas/sections.md');
     expect(data.branch).toBe('main');
     expect(data.revision).toBeTruthy();
     expect(data.heading).toBe('Next');
@@ -1200,7 +1366,7 @@ After content.
 
     const result = await handleReadSection(project, {
       projectId: 'test-project',
-      path: 'docs/sections.md',
+      path: 'docs/atlas/sections.md',
       branch: 'main',
       heading: 'Target',
     });
@@ -1217,7 +1383,7 @@ After content.
 
     const result = await handleReadSection(project, {
       projectId: 'test-project',
-      path: 'docs/sections.md',
+      path: 'docs/atlas/sections.md',
       branch: 'main',
       heading: 'Target',
       includeHeading: false,
@@ -1234,7 +1400,7 @@ After content.
 
     const result = await handleReadSection(project, {
       projectId: 'test-project',
-      path: 'docs/sections.md',
+      path: 'docs/atlas/sections.md',
       branch: 'main',
       heading: 'Target',
       maxChars: 12,
@@ -1256,7 +1422,7 @@ After content.
 
     const result = await handleReadSection(project, {
       projectId: 'test-project',
-      path: 'docs/sections.md',
+      path: 'docs/atlas/sections.md',
       branch: 'main',
       heading: 'Target',
       offset: 10,
@@ -1278,7 +1444,7 @@ After content.
 
     const result = await handleReadSection(project, {
       projectId: 'test-project',
-      path: 'docs/sections.md',
+      path: 'docs/atlas/sections.md',
       branch: 'main',
       heading: 'Target',
       occurrence: 2,
@@ -1296,7 +1462,7 @@ After content.
 
     const result = await handleReadSection(project, {
       projectId: 'test-project',
-      path: 'docs/sections.md',
+      path: 'docs/atlas/sections.md',
       branch: 'main',
       heading: 'Same Text',
       level: 1,
@@ -1316,7 +1482,7 @@ After content.
 
     const result = await handleReadSection(project, {
       projectId: 'test-project',
-      path: 'docs/sections.md',
+      path: 'docs/atlas/sections.md',
       branch: 'main',
       heading: 'Hidden',
     });
@@ -1332,7 +1498,7 @@ After content.
 
     const result = await handleReadSection(project, {
       projectId: 'test-project',
-      path: 'docs/sections.md',
+      path: 'docs/atlas/sections.md',
       branch: 'main',
       heading: 'Missing',
     });
@@ -1341,7 +1507,7 @@ After content.
     const data = JSON.parse(result.content[0].text);
     expect(data.error).toContain('Heading "Missing" not found');
     expect(data.projectId).toBe('test-project');
-    expect(data.path).toBe('docs/sections.md');
+    expect(data.path).toBe('docs/atlas/sections.md');
     expect(data.availableHeadings.length).toBeGreaterThan(0);
   });
 
@@ -1350,7 +1516,7 @@ After content.
 
     const result = await handleRead(project, {
       projectId: 'test-project',
-      path: 'docs/sections.md',
+      path: 'docs/atlas/sections.md',
       branch: 'main',
       maxChars: 7,
     });
@@ -1444,14 +1610,14 @@ Next body.
       includeStatus: false,
       includeAgents: false,
       includeManifest: false,
-      paths: ['docs/sections.md'],
+      paths: ['docs/atlas/sections.md'],
     });
 
     expect(result.isError).toBeFalsy();
     const data = JSON.parse(result.content[0].text);
     expect(data.items).toHaveLength(1);
     expect(data.items[0].kind).toBe('document');
-    expect(data.items[0].path).toBe('docs/sections.md');
+    expect(data.items[0].path).toBe('docs/atlas/sections.md');
     expect(data.items[0].content).toContain('## Target');
     expect(data.items[0].revision).toBeTruthy();
   });
@@ -1467,7 +1633,7 @@ Next body.
       includeManifest: false,
       sections: [
         {
-          path: 'docs/sections.md',
+          path: 'docs/atlas/sections.md',
           heading: 'Target',
         },
       ],
@@ -1477,7 +1643,7 @@ Next body.
     const data = JSON.parse(result.content[0].text);
     expect(data.items).toHaveLength(1);
     expect(data.items[0].kind).toBe('section');
-    expect(data.items[0].path).toBe('docs/sections.md');
+    expect(data.items[0].path).toBe('docs/atlas/sections.md');
     expect(data.items[0].heading).toBe('Target');
     expect(data.items[0].matchedHeading).toBe('Target');
     expect(data.items[0].content).toContain('### Child');
@@ -1498,14 +1664,14 @@ Next body.
       includeStatus: false,
       includeAgents: false,
       includeManifest: false,
-      paths: ['docs/missing.md'],
+      paths: ['docs/atlas/missing.md'],
     });
 
     expect(result.isError).toBeFalsy();
     const data = JSON.parse(result.content[0].text);
     expect(data.items).toHaveLength(1);
     expect(data.items[0].kind).toBe('document');
-    expect(data.items[0].path).toBe('docs/missing.md');
+    expect(data.items[0].path).toBe('docs/atlas/missing.md');
     expect(data.items[0].missing).toBe(true);
     expect(data.items[0].error).toContain('not found');
     expect(data.items[0].returnedChars).toBe(0);
@@ -1527,7 +1693,7 @@ Next body.
 
     expect(untracked.isError).toBe(true);
     const untrackedData = JSON.parse(untracked.content[0].text);
-    expect(untrackedData.error).toContain('not in the list of tracked documentation paths');
+    expect(untrackedData.error).toContain('not in the list of Atlas-owned managed documents');
 
     const traversal = await handleContextPack(project, {
       projectId: 'test-project',
