@@ -25,6 +25,11 @@ export interface PatchApplyCheckResult {
   error?: string;
 }
 
+export interface ExportTargetBranchInfo {
+  repoRoot: string | null;
+  branch: string | null;
+}
+
 function looksLikeUnifiedDiff(patchContent: string): boolean {
   const lines = patchContent.split('\n');
   let sawFileHeader = false;
@@ -619,6 +624,20 @@ export class GitStore {
    * Export files from a branch to a target directory.
    */
   async exportBranch(branch: string, targetDir: string): Promise<string[]> {
+    const branchExists = await this.branchExists(branch);
+    if (!branchExists) {
+      throw new Error(
+        `Managed docs branch "${branch}" does not exist. Managed docs branches are separate from the source repo branch. Create it with docs.create_branch or export an existing managed branch.`,
+      );
+    }
+
+    const targetBranchInfo = await this.getExportTargetBranchInfo(targetDir);
+    if (targetBranchInfo.branch && targetBranchInfo.branch !== branch) {
+      throw new Error(
+        `Refusing to export managed docs branch "${branch}" into source branch "${targetBranchInfo.branch}" at "${targetBranchInfo.repoRoot ?? targetDir}". Export copies the full managed branch snapshot and may introduce unrelated cross-branch drift. Check out the matching source branch first, or create/export the matching managed branch explicitly.`,
+      );
+    }
+
     return this.withWorkDir(branch, async (_git: SimpleGit, _workDir: string) => {
       // List all tracked files in the branch
       const bareGit = simpleGit({ baseDir: this.repoPath });
@@ -686,5 +705,50 @@ export class GitStore {
     try {
       await fs.promises.rm(this.workDir, { recursive: true, force: true });
     } catch { /* ignore */ }
+  }
+
+  private async getExportTargetBranchInfo(targetDir: string): Promise<ExportTargetBranchInfo> {
+    const existingDir = await this.findExistingDirectory(targetDir);
+    if (!existingDir) {
+      return {
+        repoRoot: null,
+        branch: null,
+      };
+    }
+
+    const git = simpleGit({ baseDir: existingDir });
+
+    try {
+      const repoRoot = (await git.revparse(['--show-toplevel'])).trim();
+      const branchSummary = await git.branch();
+      const branch = branchSummary.current.trim();
+
+      return {
+        repoRoot,
+        branch: branch.length > 0 && branch !== 'HEAD' ? branch : null,
+      };
+    } catch {
+      return {
+        repoRoot: null,
+        branch: null,
+      };
+    }
+  }
+
+  private async findExistingDirectory(targetDir: string): Promise<string | null> {
+    let currentDir = path.resolve(targetDir);
+
+    while (true) {
+      if (await this.dirExists(currentDir)) {
+        return currentDir;
+      }
+
+      const parentDir = path.dirname(currentDir);
+      if (parentDir === currentDir) {
+        return null;
+      }
+
+      currentDir = parentDir;
+    }
   }
 }

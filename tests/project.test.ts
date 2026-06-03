@@ -16,6 +16,7 @@ import { createUnifiedDiffForReplacement } from '../src/core/unified-diff.js';
 import { createMcpServer } from '../src/mcp/create-server.js';
 import { parseFrontMatter, handleManifest, handleRead, handleReadSection, handleContextPack, handleProposePatch, handleProposeDocument, handlePreviewDiff, handleCommitPatch } from '../src/mcp/tools.js';
 import YAML from 'yaml';
+import { simpleGit } from 'simple-git';
 
 let tmpDir: string;
 
@@ -55,6 +56,28 @@ async function callTool(project: Project, name: string, args: Record<string, unk
       arguments: args,
     },
   }) as Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
+}
+
+async function initSourceRepo(currentBranch = 'main') {
+  await fs.promises.writeFile(
+    path.join(tmpDir, '.gitignore'),
+    'config/\ndata/\n',
+    'utf-8',
+  );
+
+  const git = simpleGit({ baseDir: tmpDir });
+  await git.init();
+  await git.addConfig('user.name', 'Test User');
+  await git.addConfig('user.email', 'test@example.com');
+  await git.add('.');
+  await git.commit('Initial source commit');
+  await git.raw(['branch', '-M', 'main']);
+
+  if (currentBranch !== 'main') {
+    await git.checkoutLocalBranch(currentBranch);
+  }
+
+  return git;
 }
 
 function getStoredProposalCount(project: Project, projectId = 'test-project'): number {
@@ -525,6 +548,24 @@ documents:
     expect(paths).toContain('docs/manifest.yml');
     expect(paths).toContain('docs/listed.md');
     expect(paths).not.toContain('docs/unlisted.md');
+  });
+
+  it('should report a missing managed branch clearly in docs.list', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await callTool(project, 'docs.list', {
+      projectId: 'test-project',
+      branch: 'v0.2-daemon',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Managed docs branch "v0.2-daemon" does not exist');
   });
 
   it('should reject reads for unowned docs that still exist in the managed store', async () => {
@@ -1623,6 +1664,25 @@ describe('docs.status', () => {
     expect(result.rawFrontMatter).toBeNull();
     // No closing --- so no front matter detected
   });
+
+  it('should report a missing managed branch clearly', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await callTool(project, 'docs.status', {
+      projectId: 'test-project',
+      branch: 'v0.2-daemon',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Managed docs branch "v0.2-daemon" does not exist');
+    expect(data.hint).toContain('docs.create_branch');
+  });
 });
 
 // ── docs.manifest tool tests ──────────────────────────────────────────
@@ -1760,7 +1820,7 @@ describe('docs.manifest', () => {
     expect(content).toBeNull();
   });
 
-  it('should handle missing docs/manifest.yml via handler', async () => {
+  it('should report that main does not exist yet in an empty managed repo', async () => {
     const project = new Project({
       projectRoot: tmpDir,
       projectId: 'test-project',
@@ -1770,7 +1830,7 @@ describe('docs.manifest', () => {
     await project.gitStore.init();
     await project.ensureEventLog();
 
-    // No files committed, so manifest should not exist
+    // No files committed, so the managed main branch does not exist yet
     const result = await handleManifest(project, {
       projectId: 'test-project',
       branch: 'main',
@@ -1778,8 +1838,8 @@ describe('docs.manifest', () => {
 
     expect(result.isError).toBe(true);
     const data = JSON.parse(result.content[0].text);
-    expect(data.error).toContain('not found');
-    expect(data.hint).toContain('init');
+    expect(data.error).toContain('Managed docs branch "main" does not exist');
+    expect(data.hint).toContain('docs.create_branch');
   });
 
   it('should handle invalid YAML clearly', async () => {
@@ -1876,6 +1936,24 @@ describe('docs.manifest', () => {
     expect(data.entrypoints[0].path).toBe('STATUS.md');
     expect(data.entrypoints[0].role).toBe('front-page');
   });
+
+  it('should report a missing managed branch clearly', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleManifest(project, {
+      projectId: 'test-project',
+      branch: 'v0.2-daemon',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Managed docs branch "v0.2-daemon" does not exist');
+  });
 });
 
 // ── Existing tests (updated for managed storage) ─────────────────────
@@ -1909,6 +1987,25 @@ describe('reading docs', () => {
 });
 
 describe('bounded docs.read via handler', () => {
+  it('should report a missing managed branch clearly', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'STATUS.md',
+      branch: 'v0.2-daemon',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Managed docs branch "v0.2-daemon" does not exist');
+  });
+
   it('should be backward-compatible without maxChars', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
@@ -2380,6 +2477,24 @@ Child body.
 
 Next body.
 `;
+
+  it('should report a missing managed branch clearly', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'v0.2-daemon',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Managed docs branch "v0.2-daemon" does not exist');
+  });
 
   it('should include STATUS.md, AGENTS.md, and manifest data by default', async () => {
     const project = await Project.init({
@@ -3007,6 +3122,83 @@ describe('exporting documentation', () => {
       const stat = await fs.promises.stat(fullPath);
       expect(stat.isFile()).toBe(true);
     }
+  });
+
+  it('should refuse exporting a managed branch into a different checked-out source branch', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const sourceGit = await initSourceRepo('v0.2-daemon');
+    const statusPath = path.join(tmpDir, 'STATUS.md');
+    const originalStatus = await fs.promises.readFile(statusPath, 'utf-8');
+
+    await project.gitStore.applyAndCommit(
+      'main',
+      'STATUS.md',
+      `${originalStatus}\nManaged main branch update.\n`,
+      'Update status on managed main',
+    );
+    await project.gitStore.applyAndCommit(
+      'main',
+      'docs/spec/managed-main-drift.md',
+      '# Managed Main Drift\n',
+      'Add managed main drift document',
+    );
+
+    const result = await callTool(project, 'docs.export', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Refusing to export managed docs branch "main"');
+    expect(data.error).toContain('source branch "v0.2-daemon"');
+
+    expect(await fs.promises.readFile(statusPath, 'utf-8')).toBe(originalStatus);
+    await expect(
+      fs.promises.stat(path.join(tmpDir, 'docs/spec/managed-main-drift.md')),
+    ).rejects.toThrow();
+
+    const status = await sourceGit.status();
+    expect(status.files).toHaveLength(0);
+  });
+
+  it('should export when the checked-out source branch matches the managed branch', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    await initSourceRepo('main');
+
+    const statusPath = path.join(tmpDir, 'STATUS.md');
+    const originalStatus = await fs.promises.readFile(statusPath, 'utf-8');
+    const updatedStatus = `${originalStatus}\nManaged main branch update.\n`;
+
+    await project.gitStore.applyAndCommit(
+      'main',
+      'STATUS.md',
+      updatedStatus,
+      'Update status on managed main',
+    );
+
+    const result = await callTool(project, 'docs.export', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.exported).toBe(true);
+    expect(data.branch).toBe('main');
+    expect(await fs.promises.readFile(statusPath, 'utf-8')).toBe(updatedStatus);
   });
 });
 
