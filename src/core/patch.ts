@@ -1,5 +1,6 @@
 import { Policy } from './policy.js';
 import { GitStore } from './git-store.js';
+import { isPathOwned } from './ownership.js';
 import { assessPatchRisk, RiskAssessment } from './risk.js';
 
 export interface PatchProposal {
@@ -74,16 +75,6 @@ export async function validatePatch(
     };
   }
 
-  // Validate the path is tracked documentation
-  if (!policy.isPathProtected(path)) {
-    return {
-      valid: false,
-      failureType: 'invalid',
-      applyable: false,
-      error: `Path "${path}" is not in the list of tracked documentation paths`,
-    };
-  }
-
   // Validate the branch exists
   const branchExists = await gitStore.branchExists(branch);
   if (!branchExists) {
@@ -95,8 +86,27 @@ export async function validatePatch(
     };
   }
 
+  // Validate the path is an Atlas-owned managed document on this branch.
+  if (!(await isPathOwned(gitStore, branch, path))) {
+    return {
+      valid: false,
+      failureType: 'invalid',
+      applyable: false,
+      error: `Path "${path}" is not in the list of Atlas-owned managed documents`,
+    };
+  }
+
   // Validate baseRevision matches current file revision on the selected branch
   const currentRevision = await gitStore.getFileRevision(branch, path);
+  if (!currentRevision) {
+    return {
+      valid: false,
+      failureType: 'invalid',
+      applyable: false,
+      error: `File "${path}" not found on branch "${branch}"`,
+    };
+  }
+
   if (currentRevision && currentRevision !== baseRevision) {
     return {
       valid: false,
