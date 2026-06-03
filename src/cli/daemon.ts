@@ -472,7 +472,7 @@ async function removeStalePidFile(
   }
 }
 
-function getDaemonLogPath(pidFile: string): string {
+export function getDaemonLogPath(pidFile: string): string {
   return path.join(path.dirname(pidFile), 'xurgo-atlas-daemon.log');
 }
 

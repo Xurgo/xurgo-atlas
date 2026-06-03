@@ -8,6 +8,37 @@ let tmpDir: string;
 let configDir: string;
 let dataDir: string;
 
+async function withXdgRoots<T>(
+  run: (roots: { root: string; configHome: string; dataHome: string }) => Promise<T>,
+): Promise<T> {
+  const prevConfigHome = process.env.XDG_CONFIG_HOME;
+  const prevDataHome = process.env.XDG_DATA_HOME;
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-reg-xdg-'));
+  const configHome = path.join(root, 'config-home');
+  const dataHome = path.join(root, 'data-home');
+
+  process.env.XDG_CONFIG_HOME = configHome;
+  process.env.XDG_DATA_HOME = dataHome;
+
+  try {
+    return await run({ root, configHome, dataHome });
+  } finally {
+    if (prevConfigHome === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = prevConfigHome;
+    }
+
+    if (prevDataHome === undefined) {
+      delete process.env.XDG_DATA_HOME;
+    } else {
+      process.env.XDG_DATA_HOME = prevDataHome;
+    }
+
+    await fs.promises.rm(root, { recursive: true, force: true });
+  }
+}
+
 function projDir(id: string): string {
   return path.join(tmpDir, id);
 }
@@ -330,6 +361,107 @@ describe('Registry Persistence', () => {
     );
     const saved = JSON.parse(raw);
     expect(saved.dataDir).toBe(explicitDataDir);
+  });
+
+  it('should persist registry writes to legacy-discovered roots when only legacy storage exists', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+
+      await fs.promises.mkdir(legacyConfigDir, { recursive: true });
+      await fs.promises.mkdir(path.join(legacyDataDir, 'projects', 'legacy-seed'), {
+        recursive: true,
+      });
+      await fs.promises.writeFile(
+        path.join(legacyConfigDir, 'projects.json'),
+        JSON.stringify({
+          version: 2,
+          configDir: legacyConfigDir,
+          dataDir: legacyDataDir,
+          defaultProjectId: null,
+          projects: {},
+        }, null, 2),
+        'utf-8',
+      );
+
+      const registry = await Registry.load();
+      expect(registry.configDir).toBe(legacyConfigDir);
+      expect(registry.dataDir).toBe(legacyDataDir);
+
+      await registry.addProject('legacy-project', projDir('legacy'));
+
+      const saved = JSON.parse(
+        await fs.promises.readFile(path.join(legacyConfigDir, 'projects.json'), 'utf-8'),
+      );
+      expect(saved.projects['legacy-project'].projectRoot).toBe(projDir('legacy'));
+
+      const reloaded = await Registry.load();
+      expect(reloaded.getProject('legacy-project')?.projectRoot).toBe(projDir('legacy'));
+    });
+  });
+
+  it('should prefer atlas-discovered roots and leave legacy registry untouched when both installs exist', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const atlasConfigDir = path.join(configHome, 'xurgo-atlas');
+      const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+
+      await fs.promises.mkdir(atlasConfigDir, { recursive: true });
+      await fs.promises.mkdir(legacyConfigDir, { recursive: true });
+      await fs.promises.mkdir(path.join(atlasDataDir, 'projects', 'atlas-seed'), {
+        recursive: true,
+      });
+      await fs.promises.mkdir(path.join(legacyDataDir, 'projects', 'legacy-seed'), {
+        recursive: true,
+      });
+      await fs.promises.writeFile(
+        path.join(atlasConfigDir, 'projects.json'),
+        JSON.stringify({
+          version: 2,
+          configDir: atlasConfigDir,
+          dataDir: atlasDataDir,
+          defaultProjectId: null,
+          projects: {},
+        }, null, 2),
+        'utf-8',
+      );
+      await fs.promises.writeFile(
+        path.join(legacyConfigDir, 'projects.json'),
+        JSON.stringify({
+          version: 2,
+          configDir: legacyConfigDir,
+          dataDir: legacyDataDir,
+          defaultProjectId: null,
+          projects: {
+            untouched: {
+              projectId: 'untouched',
+              projectRoot: projDir('untouched'),
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+            },
+          },
+        }, null, 2),
+        'utf-8',
+      );
+
+      const registry = await Registry.load();
+      expect(registry.configDir).toBe(atlasConfigDir);
+      expect(registry.dataDir).toBe(atlasDataDir);
+
+      await registry.addProject('atlas-project', projDir('atlas'));
+
+      const atlasSaved = JSON.parse(
+        await fs.promises.readFile(path.join(atlasConfigDir, 'projects.json'), 'utf-8'),
+      );
+      const legacySaved = JSON.parse(
+        await fs.promises.readFile(path.join(legacyConfigDir, 'projects.json'), 'utf-8'),
+      );
+
+      expect(atlasSaved.projects['atlas-project'].projectRoot).toBe(projDir('atlas'));
+      expect(legacySaved.projects['atlas-project']).toBeUndefined();
+      expect(legacySaved.projects.untouched.projectRoot).toBe(projDir('untouched'));
+    });
   });
 });
 

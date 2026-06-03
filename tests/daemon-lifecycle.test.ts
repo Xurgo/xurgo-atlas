@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import {
   buildBackgroundDaemonArgs,
   daemonCommand,
+  getDaemonLogPath,
   getDaemonPidFilePath,
   resolveDaemonAction,
 } from '../src/cli/daemon.js';
@@ -12,6 +13,37 @@ import { StoragePaths } from '../src/core/storage.js';
 
 function makeTempRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'xurgo-atlas-daemon-life-'));
+}
+
+async function withXdgRoots<T>(
+  run: (roots: { root: string; configHome: string; dataHome: string }) => Promise<T>,
+): Promise<T> {
+  const prevConfigHome = process.env.XDG_CONFIG_HOME;
+  const prevDataHome = process.env.XDG_DATA_HOME;
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-daemon-xdg-'));
+  const configHome = path.join(root, 'config-home');
+  const dataHome = path.join(root, 'data-home');
+
+  process.env.XDG_CONFIG_HOME = configHome;
+  process.env.XDG_DATA_HOME = dataHome;
+
+  try {
+    return await run({ root, configHome, dataHome });
+  } finally {
+    if (prevConfigHome === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = prevConfigHome;
+    }
+
+    if (prevDataHome === undefined) {
+      delete process.env.XDG_DATA_HOME;
+    } else {
+      process.env.XDG_DATA_HOME = prevDataHome;
+    }
+
+    await fs.promises.rm(root, { recursive: true, force: true });
+  }
 }
 
 async function writePidFile(
@@ -79,6 +111,53 @@ describe('daemon lifecycle helpers', () => {
     expect(getDaemonPidFilePath(storage)).toBe(
       path.join('/tmp/data', 'runtime', 'xurgo-atlas-daemon.json'),
     );
+  });
+
+  it('uses atlas runtime paths for fresh installs', async () => {
+    await withXdgRoots(async ({ dataHome }) => {
+      const storage = new StoragePaths();
+      const pidFile = getDaemonPidFilePath(storage);
+
+      expect(pidFile).toBe(
+        path.join(dataHome, 'xurgo-atlas', 'runtime', 'xurgo-atlas-daemon.json'),
+      );
+      expect(getDaemonLogPath(pidFile)).toBe(
+        path.join(dataHome, 'xurgo-atlas', 'runtime', 'xurgo-atlas-daemon.log'),
+      );
+    });
+  });
+
+  it('uses legacy runtime paths when legacy storage is discovered', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+
+      await fs.promises.mkdir(legacyConfigDir, { recursive: true });
+      await fs.promises.mkdir(path.join(legacyDataDir, 'projects', 'legacy-project'), {
+        recursive: true,
+      });
+      await fs.promises.writeFile(
+        path.join(legacyConfigDir, 'projects.json'),
+        JSON.stringify({
+          version: 2,
+          configDir: legacyConfigDir,
+          dataDir: legacyDataDir,
+          defaultProjectId: null,
+          projects: {},
+        }, null, 2),
+        'utf-8',
+      );
+
+      const storage = new StoragePaths();
+      const pidFile = getDaemonPidFilePath(storage);
+
+      expect(pidFile).toBe(
+        path.join(legacyDataDir, 'runtime', 'xurgo-atlas-daemon.json'),
+      );
+      expect(getDaemonLogPath(pidFile)).toBe(
+        path.join(legacyDataDir, 'runtime', 'xurgo-atlas-daemon.log'),
+      );
+    });
   });
 });
 

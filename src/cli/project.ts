@@ -1,6 +1,5 @@
 import * as path from 'node:path';
 import { Registry } from '../core/registry.js';
-import { getDefaultConfigDir } from '../core/storage.js';
 
 /**
  * Parse command-line args for `xurgo-atlas project <subcommand> [options]`.
@@ -32,8 +31,8 @@ export function parseProjectArgs(argv: string[]): {
 /**
  * Print usage for `xurgo-atlas project` subcommands.
  */
-export function printProjectUsage(): void {
-  console.log(`
+export function getProjectUsageText(): string {
+  return `
 Manage registered Xurgo Atlas projects.
 Legacy alias: docu-guard (temporary)
 
@@ -44,7 +43,7 @@ SUBCOMMANDS:
   add       Register a new project
     --project-id <id>     Unique identifier for the project
     --project-root <path> Path to the project root
-    --config-dir <path>   Config directory (default: ~/.config/docu-guard)
+    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
 
   remove    Remove a project from the registry
     --project-id <id>     Project identifier
@@ -65,7 +64,11 @@ EXAMPLES:
   xurgo-atlas project default --project-id my-app
 
 Legacy compatibility alias remains: docu-guard project <subcommand>
-`);
+`;
+}
+
+export function printProjectUsage(): void {
+  console.log(getProjectUsageText());
 }
 
 // ── Subcommand handlers ────────────────────────────────────────────────
