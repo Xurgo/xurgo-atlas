@@ -20,6 +20,40 @@ export interface HistoryEntry {
   message: string;
 }
 
+export interface PatchApplyCheckResult {
+  applyable: boolean;
+  error?: string;
+}
+
+function looksLikeUnifiedDiff(patchContent: string): boolean {
+  const lines = patchContent.split('\n');
+  let sawFileHeader = false;
+  let sawHunk = false;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!sawFileHeader) {
+      const nextLine = lines[index + 1] ?? '';
+      const hasValidOldHeader =
+        line.startsWith('--- a/') || line === '--- /dev/null';
+      const hasValidNewHeader = nextLine.startsWith('+++ b/');
+
+      if (hasValidOldHeader && hasValidNewHeader) {
+        sawFileHeader = true;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (line.startsWith('@@ ')) {
+      sawHunk = true;
+      break;
+    }
+  }
+
+  return sawFileHeader && sawHunk;
+}
+
 export class GitStore {
   private repoPath: string;
   private workDir: string;
@@ -138,6 +172,16 @@ export class GitStore {
           // Already has commits
         }
       }
+    }
+
+    // Ensure clean working directory before each operation.
+    // This prevents stale files from a previous failed or interrupted
+    // operation from leaking into the current one.
+    try {
+      await git.raw(['reset', '--hard', 'HEAD']);
+      await git.raw(['clean', '-fd']);
+    } catch {
+      // No commits yet — nothing to reset or clean
     }
 
     const result = await fn(git, this.workDir);
@@ -348,30 +392,111 @@ export class GitStore {
     message: string,
     baseRevision?: string,
   ): Promise<CommitResult> {
-    return this.withWorkDir(branch, async (git: SimpleGit, workDir: string) => {
-      const fullPath = path.join(workDir, filePath);
+    return this.applyMultiFilePatchAndCommit(
+      branch,
+      patchContent,
+      message,
+      [filePath],
+      baseRevision ? { [filePath]: baseRevision } : undefined,
+    );
+  }
 
-      // Verify base revision
-      if (baseRevision) {
-        const currentRevision = await this.getFileRevision(branch, filePath);
-        if (currentRevision && currentRevision !== baseRevision) {
-          throw new Error(
-            `Base revision mismatch: expected ${baseRevision}, but current revision is ${currentRevision}. The file has been modified since you read it.`,
-          );
+  /**
+   * Validate whether a unified diff can be applied cleanly on a branch without committing.
+   */
+  async validatePatchApplyability(
+    branch: string,
+    patchContent: string,
+    changedFiles: string[],
+  ): Promise<PatchApplyCheckResult> {
+    return this.withWorkDir(branch, async (git: SimpleGit, workDir: string) => {
+      if (changedFiles.length === 0) {
+        return {
+          applyable: false,
+          error: 'Patch does not name any changed files',
+        };
+      }
+
+      // Reject prose or apply_patch-style payloads before handing them to git apply.
+      if (!looksLikeUnifiedDiff(patchContent)) {
+        return {
+          applyable: false,
+          error: 'error: No valid patches in input (allow with "--allow-empty")',
+        };
+      }
+
+      for (const filePath of changedFiles) {
+        const fullPath = path.join(workDir, filePath);
+        await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
+      }
+
+      const patchFile = path.join(workDir, '.docu-guard-patch-check.tmp');
+      await fs.promises.writeFile(patchFile, patchContent, 'utf-8');
+
+      try {
+        const applyResult = await git.raw([
+          'apply',
+          '--check',
+          '--unidiff-zero',
+          '--whitespace=nowarn',
+          patchFile,
+        ]);
+
+        if (applyResult && applyResult.includes('error:')) {
+          return {
+            applyable: false,
+            error: applyResult.trim(),
+          };
+        }
+
+        return { applyable: true };
+      } catch (err: unknown) {
+        return {
+          applyable: false,
+          error: (err as Error).message,
+        };
+      } finally {
+        try {
+          await fs.promises.unlink(patchFile);
+        } catch { /* ignore */ }
+      }
+    });
+  }
+
+  /**
+   * Apply a unified diff patch that can touch multiple files and commit atomically.
+   */
+  async applyMultiFilePatchAndCommit(
+    branch: string,
+    patchContent: string,
+    message: string,
+    changedFiles: string[],
+    baseRevisions?: Record<string, string>,
+  ): Promise<CommitResult> {
+    return this.withWorkDir(branch, async (git: SimpleGit, workDir: string) => {
+      if (changedFiles.length === 0) {
+        throw new Error('Patch does not name any changed files');
+      }
+
+      if (baseRevisions) {
+        for (const [filePath, expectedRevision] of Object.entries(baseRevisions)) {
+          const currentRevision = await this.getFileRevision(branch, filePath);
+          if (currentRevision && currentRevision !== expectedRevision) {
+            throw new Error(
+              `Base revision mismatch: expected ${expectedRevision}, but current revision is ${currentRevision}. The file has been modified since you read it.`,
+            );
+          }
         }
       }
 
-      // Write the patch to a temp file
+      for (const filePath of changedFiles) {
+        const fullPath = path.join(workDir, filePath);
+        await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
+      }
+
       const patchFile = path.join(workDir, '.docu-guard-patch.tmp');
       await fs.promises.writeFile(patchFile, patchContent, 'utf-8');
 
-      // Ensure the file exists (even if patch creates it)
-      await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
-      if (!fs.existsSync(fullPath)) {
-        await fs.promises.writeFile(fullPath, '', 'utf-8');
-      }
-
-      // Apply the patch using git apply
       try {
         const applyResult = await git.raw([
           'apply',
@@ -379,12 +504,12 @@ export class GitStore {
           '--whitespace=nowarn',
           patchFile,
         ]);
-        // Check if apply produced output (error)
         if (applyResult && applyResult.includes('error:')) {
-          throw new Error(`Patch application failed: ${applyResult}`);
+          throw new Error(
+            `Patch application failed: ${applyResult}`,
+          );
         }
       } catch (err: unknown) {
-        // Clean up patch file
         try {
           await fs.promises.unlink(patchFile);
         } catch { /* ignore */ }
@@ -398,8 +523,7 @@ export class GitStore {
         await fs.promises.unlink(patchFile);
       } catch { /* ignore */ }
 
-      // Stage and commit
-      await git.add(filePath);
+      await git.add(changedFiles);
       const result = await git.commit(message);
       await git.push('origin', branch);
 

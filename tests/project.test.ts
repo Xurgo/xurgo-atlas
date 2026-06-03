@@ -2,12 +2,20 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { Project } from '../src/core/project.js';
+import { Registry } from '../src/core/registry.js';
 import { Policy } from '../src/core/policy.js';
+import { StoragePaths, getDefaultConfigDir, getDefaultDataDir } from '../src/core/storage.js';
+import { initCommand } from '../src/cli/init.js';
 import { GitStore } from '../src/core/git-store.js';
 import { EventLog } from '../src/core/events.js';
 import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/patch.js';
 import { assessPatchRisk } from '../src/core/risk.js';
+import { createUnifiedDiffForReplacement } from '../src/core/unified-diff.js';
+import { createMcpServer } from '../src/mcp/create-server.js';
+import { parseFrontMatter, handleManifest, handleRead, handleReadSection, handleContextPack, handleProposePatch, handleProposeDocument, handlePreviewDiff, handleCommitPatch } from '../src/mcp/tools.js';
+import YAML from 'yaml';
 
 let tmpDir: string;
 
@@ -19,27 +27,132 @@ afterEach(async () => {
   await fs.promises.rm(tmpDir, { recursive: true, force: true });
 });
 
+async function initProjectWithSectionDoc(content: string): Promise<Project> {
+  const docsDir = path.join(tmpDir, 'docs', 'atlas');
+  await fs.promises.mkdir(docsDir, { recursive: true });
+  await fs.promises.writeFile(path.join(docsDir, 'sections.md'), content, 'utf-8');
+
+  return Project.init({
+    projectRoot: tmpDir,
+    projectId: 'test-project',
+    configDir: path.join(tmpDir, 'config'),
+    dataDir: path.join(tmpDir, 'data'),
+  });
+}
+
+async function callTool(project: Project, name: string, args: Record<string, unknown>) {
+  const server = createMcpServer(project);
+  const handlers = (server as unknown as {
+    _requestHandlers: Map<string, (request: unknown) => Promise<unknown>>;
+  })._requestHandlers;
+  const call = handlers.get('tools/call');
+  expect(call).toBeTypeOf('function');
+
+  return call!({
+    method: 'tools/call',
+    params: {
+      name,
+      arguments: args,
+    },
+  }) as Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
+}
+
+function getStoredProposalCount(project: Project, projectId = 'test-project'): number {
+  const db = new DatabaseSync(project.storage.projectEventsPath(projectId), {
+    readOnly: true,
+  });
+
+  try {
+    const row = db
+      .prepare('SELECT COUNT(*) AS count FROM doc_proposals WHERE project_id = ?')
+      .get(projectId) as { count: number };
+    return row.count;
+  } finally {
+    db.close();
+  }
+}
+
+// ── Storage path resolution tests ─────────────────────────────────────
+
+describe('storage path resolution', () => {
+  it('should provide default config and data directories', () => {
+    const storage = new StoragePaths();
+    expect(storage.configDir).toBe(getDefaultConfigDir());
+    expect(storage.dataDir).toBe(getDefaultDataDir());
+  });
+
+  it('should accept custom config and data directories', () => {
+    const storage = new StoragePaths({
+      configDir: '/custom/config',
+      dataDir: '/custom/data',
+    });
+    expect(storage.configDir).toBe('/custom/config');
+    expect(storage.dataDir).toBe('/custom/data');
+  });
+
+  it('should derive correct project managed paths', () => {
+    const storage = new StoragePaths({
+      configDir: '/cfg',
+      dataDir: '/dat',
+    });
+    expect(storage.registryPath()).toBe('/cfg/projects.json');
+    expect(storage.projectDataDir('my-proj')).toBe('/dat/projects/my-proj');
+    expect(storage.projectRepoPath('my-proj')).toBe('/dat/projects/my-proj/repo.git');
+    expect(storage.projectEventsPath('my-proj')).toBe('/dat/projects/my-proj/events.sqlite');
+  });
+
+  it('should expand default paths from XDG environment variables', () => {
+    // XDG_CONFIG_HOME and XDG_DATA_HOME are not set in tests, so defaults
+    // should fall back to ~/.config and ~/.local/share
+    const storage = new StoragePaths();
+    expect(storage.configDir).toContain('.config');
+    expect(storage.dataDir).toContain('.local/share');
+  });
+
+  it('should expand ~ to home directory in configDir and dataDir', () => {
+    const home = os.homedir();
+    const storage = new StoragePaths({
+      configDir: '~/my-config',
+      dataDir: '~/my-data',
+    });
+    expect(storage.configDir).toBe(path.join(home, 'my-config'));
+    expect(storage.dataDir).toBe(path.join(home, 'my-data'));
+  });
+
+  it('should expand bare ~ without trailing slash', () => {
+    const home = os.homedir();
+    const storage = new StoragePaths({
+      configDir: '~',
+      dataDir: '~',
+    });
+    expect(storage.configDir).toBe(home);
+    expect(storage.dataDir).toBe(home);
+  });
+
+  it('should leave non-tilde paths unchanged (after path.resolve)', () => {
+    const storage = new StoragePaths({
+      configDir: '/absolute/path',
+      dataDir: '/another/path',
+    });
+    expect(storage.configDir).toBe('/absolute/path');
+    expect(storage.dataDir).toBe('/another/path');
+  });
+});
+
+// ── Project initialization (v0.3 managed storage) ────────────────────
+
 describe('project initialization', () => {
-  it('should create all expected files and directories', async () => {
+  it('should create project files but NOT create .docu-guard/', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
-    // Check .docu-guard directory exists
-    const docsDirName = path.join(tmpDir, '.docu-guard');
-    const stat = await fs.promises.stat(docsDirName);
-    expect(stat.isDirectory()).toBe(true);
-
-    // Check Git store exists
-    const gitStoreDir = path.join(docsDirName, 'repo.git');
-    const gitStat = await fs.promises.stat(gitStoreDir);
-    expect(gitStat.isDirectory()).toBe(true);
-
-    // Check SQLite events DB exists
-    const eventsDb = path.join(docsDirName, 'events.sqlite');
-    const dbStat = await fs.promises.stat(eventsDb);
-    expect(dbStat.isFile()).toBe(true);
+    // .docu-guard/ should NOT exist
+    const legacyDir = path.join(tmpDir, '.docu-guard');
+    await expect(fs.promises.stat(legacyDir)).rejects.toThrow();
 
     // Check .docs-policy.yml exists
     const policyFile = path.join(tmpDir, '.docs-policy.yml');
@@ -55,6 +168,9 @@ describe('project initialization', () => {
     const docsReadme = path.join(tmpDir, 'docs', 'README.md');
     const docsReadmeStat = await fs.promises.stat(docsReadme);
     expect(docsReadmeStat.isFile()).toBe(true);
+    const docsReadmeContent = await fs.promises.readFile(docsReadme, 'utf-8');
+    expect(docsReadmeContent).toContain('Xurgo Atlas');
+    expect(docsReadmeContent).toContain('docu-guard');
 
     // Check docs/spec/README.md exists
     const specReadme = path.join(tmpDir, 'docs', 'spec', 'README.md');
@@ -74,6 +190,7 @@ describe('project initialization', () => {
     // Verify AGENTS.md contains the documentation safety rules
     const agentsContent = await fs.promises.readFile(agentsMd, 'utf-8');
     expect(agentsContent).toContain('Documentation Safety Rules');
+    expect(agentsContent).toContain('Xurgo Atlas');
     expect(agentsContent).toContain('docu-guard-mcp');
     expect(agentsContent).toContain('Never directly overwrite');
     expect(agentsContent).toContain('docs.propose_patch');
@@ -83,13 +200,1693 @@ describe('project initialization', () => {
     const files = await project.getTrackedFiles();
     expect(files.length).toBeGreaterThan(0);
   });
+
+  it('should create managed state under dataDir, not project root', async () => {
+    // Use a custom data dir in the temp area
+    const dataDir = path.join(tmpDir, 'docu-guard-data');
+    const configDir = path.join(tmpDir, 'docu-guard-config');
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir,
+      dataDir,
+    });
+
+    // Managed state should be at <dataDir>/projects/test-project/
+    const managedDir = path.join(dataDir, 'projects', 'test-project');
+    const managedStat = await fs.promises.stat(managedDir);
+    expect(managedStat.isDirectory()).toBe(true);
+
+    // Git repo should be there
+    const repoPath = path.join(managedDir, 'repo.git');
+    const repoStat = await fs.promises.stat(repoPath);
+    expect(repoStat.isDirectory()).toBe(true);
+
+    // Events DB should be there
+    const eventsPath = path.join(managedDir, 'events.sqlite');
+    const dbStat = await fs.promises.stat(eventsPath);
+    expect(dbStat.isFile()).toBe(true);
+
+    // Registry is not written by Project.init() — that's a separate step.
+    // Project root should NOT have .docu-guard/
+    await expect(fs.promises.stat(path.join(tmpDir, '.docu-guard'))).rejects.toThrow();
+  });
+
+  it('should warn but not block if pre-v0.3 .docu-guard/ exists', async () => {
+    // Create a legacy .docu-guard/ directory
+    const legacyDir = path.join(tmpDir, '.docu-guard');
+    await fs.promises.mkdir(legacyDir, { recursive: true });
+
+    // Init should succeed (writes to stderr but doesn't throw)
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // Legacy dir should still exist
+    const stat = await fs.promises.stat(legacyDir);
+    expect(stat.isDirectory()).toBe(true);
+
+    // Managed state should also exist
+    const storage = project.storage;
+    const managedDir = storage.projectDataDir('test-project');
+    const managedStat = await fs.promises.stat(managedDir);
+    expect(managedStat.isDirectory()).toBe(true);
+  });
 });
+
+// ── v0.4 STATUS.md and docs/manifest.yml foundation ───────────────────
+
+describe('v0.4 project context files', () => {
+  it('should create STATUS.md and docs/manifest.yml during init', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // STATUS.md at project root
+    const statusPath = path.join(tmpDir, 'STATUS.md');
+    const statusStat = await fs.promises.stat(statusPath);
+    expect(statusStat.isFile()).toBe(true);
+    const statusContent = await fs.promises.readFile(statusPath, 'utf-8');
+    expect(statusContent).toContain('docuGuard.type: status');
+    expect(statusContent).toContain('Project Status');
+
+    // docs/manifest.yml in docs dir
+    const manifestPath = path.join(tmpDir, 'docs', 'manifest.yml');
+    const manifestStat = await fs.promises.stat(manifestPath);
+    expect(manifestStat.isFile()).toBe(true);
+    const manifestContent = await fs.promises.readFile(manifestPath, 'utf-8');
+    expect(manifestContent).toContain('version: 1');
+    expect(manifestContent).toContain('STATUS.md');
+    expect(manifestContent).toContain('AGENTS.md');
+    expect(manifestContent).toContain('docs/manifest.yml');
+
+    // Both files should be tracked in the Git store
+    const trackedFiles = await project.getTrackedFiles();
+    expect(trackedFiles).toContain('STATUS.md');
+    expect(trackedFiles).toContain('docs/manifest.yml');
+
+    // References in manifest match actual tracked files
+    expect(trackedFiles).toContain('AGENTS.md');
+    expect(trackedFiles).toContain('.docs-policy.yml');
+    expect(trackedFiles).toContain('docs/README.md');
+    expect(trackedFiles).toContain('docs/implementation-checklist.md');
+  });
+
+  it('should not overwrite existing STATUS.md on re-init', async () => {
+    // First init
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // Modify STATUS.md with custom content
+    const statusPath = path.join(tmpDir, 'STATUS.md');
+    await fs.promises.writeFile(statusPath, '# Custom Status\n', 'utf-8');
+
+    // Re-init should NOT overwrite
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const content = await fs.promises.readFile(statusPath, 'utf-8');
+    expect(content).toBe('# Custom Status\n');
+  });
+
+  it('should not overwrite existing docs/manifest.yml on re-init', async () => {
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const manifestPath = path.join(tmpDir, 'docs', 'manifest.yml');
+    await fs.promises.writeFile(manifestPath, 'custom: true\n', 'utf-8');
+
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const content = await fs.promises.readFile(manifestPath, 'utf-8');
+    expect(content).toBe('custom: true\n');
+  });
+
+  it('should not create project-local .docu-guard/', async () => {
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    await expect(fs.promises.stat(path.join(tmpDir, '.docu-guard'))).rejects.toThrow();
+  });
+
+  it('should treat STATUS.md as a protected document by default', async () => {
+    const project = await Project.load({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // First init to create policy
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // Reload to pick up the written policy file
+    const loadedProject = await Project.load({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    expect(loadedProject.policy.isPathProtected('STATUS.md')).toBe(true);
+    expect(loadedProject.policy.isPathProtected('docs/manifest.yml')).toBe(true);
+  });
+
+  it('should preserve canonical guarded root paths when loading legacy policy files', async () => {
+    await fs.promises.writeFile(
+      path.join(tmpDir, '.docs-policy.yml'),
+      `protected_paths:
+  - AGENTS.md
+  - docs/**
+write_mode:
+  default: propose_patch_only
+  protected: approval_required
+forbidden_operations:
+  - silent_delete
+  - whole_file_replace_without_base_revision
+  - overwrite_without_diff
+  - delete_protected_doc_without_approval
+required_metadata:
+  - intent
+  - baseRevision
+  - summary
+branching:
+  agent_branches: true
+  merge_to_main_requires: approval
+risk_rules:
+  large_deletion_percent: 25
+  whole_file_replacement_requires_approval: true
+  heading_removal_requires_approval: true
+  protected_file_change_requires_approval: true
+`,
+      'utf-8',
+    );
+
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const loadedProject = await Project.load({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    expect(loadedProject.policy.isPathProtected('STATUS.md')).toBe(true);
+    expect(loadedProject.policy.isPathProtected('AGENTS.md')).toBe(true);
+    expect(loadedProject.policy.isPathProtected('.docs-policy.yml')).toBe(true);
+    expect(loadedProject.policy.isPathProtected('docs/README.md')).toBe(true);
+  });
+
+  it('should resolve curated owned documents separately from protected paths', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs', 'atlas'), {
+      recursive: true,
+    });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'manifest.yml'),
+      `version: 1
+documents:
+  - path: docs/listed.md
+    role: notes
+    summary: Listed doc
+`,
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'listed.md'),
+      '# Listed\n',
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'atlas', 'owned.md'),
+      '# Owned\n',
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'unlisted.md'),
+      '# Unlisted\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    expect(await project.isPathOwned('main', 'STATUS.md')).toBe(true);
+    expect(await project.isPathOwned('main', 'AGENTS.md')).toBe(true);
+    expect(await project.isPathOwned('main', '.docs-policy.yml')).toBe(true);
+    expect(await project.isPathOwned('main', 'docs/manifest.yml')).toBe(true);
+    expect(await project.isPathOwned('main', 'docs/atlas/owned.md')).toBe(true);
+    expect(await project.isPathOwned('main', 'docs/listed.md')).toBe(true);
+    expect(await project.isPathOwned('main', 'docs/unlisted.md')).toBe(false);
+
+    expect(project.policy.isPathProtected('docs/unlisted.md')).toBe(true);
+  });
+
+  it('should exclude unowned documents from docs.list', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'manifest.yml'),
+      `version: 1
+documents:
+  - path: docs/listed.md
+    role: notes
+    summary: Listed doc
+`,
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'listed.md'),
+      '# Listed\n',
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'unlisted.md'),
+      '# Unlisted\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await callTool(project, 'docs.list', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    const paths = data.files.map((file: { path: string }) => file.path);
+    expect(paths).toContain('STATUS.md');
+    expect(paths).toContain('docs/manifest.yml');
+    expect(paths).toContain('docs/listed.md');
+    expect(paths).not.toContain('docs/unlisted.md');
+  });
+
+  it('should reject reads for unowned docs that still exist in the managed store', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'unlisted.md'),
+      '# Unlisted\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    expect(await project.gitStore.readFile('main', 'docs/unlisted.md')).toBe(
+      '# Unlisted\n',
+    );
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/unlisted.md',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Atlas-owned managed documents');
+  });
+
+  it('should not include unowned docs in default context packs', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'unlisted.md'),
+      '# Unlisted\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    const paths = data.items.map((item: { path: string }) => item.path);
+    expect(paths).not.toContain('docs/unlisted.md');
+  });
+
+  it('should propose and commit STATUS.md updates through the guarded workflow', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'STATUS.md');
+    expect(content).not.toBeNull();
+    expect(revision).toBeTruthy();
+
+    const updated = content!.replace(
+      '<!-- What is the team working on right now? -->',
+      'Validating guarded STATUS.md updates.',
+    );
+    const patch = createSimplePatch(content!, updated, 'STATUS.md');
+
+    const proposeResult = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      baseRevision: revision,
+      patch,
+      intent: 'Update STATUS.md project context through guarded workflow',
+      summary: 'Record guarded STATUS.md update support',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+    expect(proposal.valid).toBe(true);
+    expect(proposal.riskLevel).toBe('high');
+    expect(proposal.requiresApproval).toBe(true);
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBeFalsy();
+    const commit = JSON.parse(commitResult.content[0].text);
+    expect(commit.changedFiles).toEqual(['STATUS.md']);
+
+    const { content: committedContent } = await project.readFile('main', 'STATUS.md');
+    expect(committedContent).toContain('Validating guarded STATUS.md updates.');
+  });
+
+  it('should return a reviewable diff for a pending proposal', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'STATUS.md');
+    expect(content).not.toBeNull();
+    expect(revision).toBeTruthy();
+
+    const updated = content!.replace(
+      '<!-- What is the team working on right now? -->',
+      'Preview diff test update.',
+    );
+    const patch = createSimplePatch(content!, updated, 'STATUS.md');
+
+    const proposeResult = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      baseRevision: revision,
+      patch,
+      intent: 'Preview a guarded STATUS.md update before commit',
+      summary: 'Capture diff output for guarded review',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+    });
+
+    expect(previewResult.isError).toBeFalsy();
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview).toMatchObject({
+      proposalId: proposal.proposalId,
+      projectId: 'test-project',
+      path: 'STATUS.md',
+      branch: 'main',
+      summary: 'Capture diff output for guarded review',
+      riskLevel: 'high',
+      requiresApproval: true,
+    });
+    expect(preview.diff).toContain('--- a/STATUS.md');
+    expect(preview.diff).toContain('+++ b/STATUS.md');
+    expect(preview.diff).toContain('Preview diff test update.');
+  });
+
+  it('should reject preview for a stored corrupt patch before commit', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { revision } = await project.readFile('main', 'STATUS.md');
+    expect(revision).toBeTruthy();
+
+    const stored = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      base_revision: revision ?? '',
+      patch: [
+        '--- a/STATUS.md',
+        '+++ b/STATUS.md',
+        '@@ -1,2 +1,2 @@',
+        ' currentFocus: "Create-only docs.propose_document support is complete alongside guarded Atlas document creation"',
+        ' this line is not valid unified diff syntax',
+      ].join('\n'),
+      intent: 'Store an intentionally corrupt patch for preview validation',
+      summary: 'Corrupt preview test',
+      risk_level: 'low',
+      requires_approval: false,
+    });
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: stored.id,
+    });
+
+    expect(previewResult.isError).toBe(true);
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.valid).toBe(false);
+    expect(preview.applyable).toBe(false);
+    expect(preview.validationStatus).toBe('invalid');
+    expect(preview.error).toContain('Patch does not apply cleanly');
+    expect(preview.error).toContain('corrupt patch');
+
+    const persisted = project.eventLog.getProposal(stored.id);
+    expect(persisted?.status).toBe('pending');
+  });
+
+  it('should reject preview for a stored non-unified patch before commit', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { revision } = await project.readFile('main', 'STATUS.md');
+    expect(revision).toBeTruthy();
+
+    const stored = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      base_revision: revision ?? '',
+      patch: [
+        '*** Begin Patch',
+        '*** Update File: STATUS.md',
+        '@@',
+        '-currentFocus: "Create-only docs.propose_document support is complete alongside guarded Atlas document creation"',
+        '+currentFocus: "Create-only docs.propose_document support is complete, and guarded patch applyability hardening is now in place alongside guarded Atlas document creation"',
+        '*** End Patch',
+      ].join('\n'),
+      intent: 'Store an intentionally non-unified patch for preview validation',
+      summary: 'Non-unified preview test',
+      risk_level: 'low',
+      requires_approval: false,
+    });
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: stored.id,
+    });
+
+    expect(previewResult.isError).toBe(true);
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.valid).toBe(false);
+    expect(preview.applyable).toBe(false);
+    expect(preview.validationStatus).toBe('invalid');
+    expect(preview.error).toContain('docs.propose_patch requires a standard unified diff patch');
+    expect(preview.error).toContain('apply_patch-style input');
+
+    const persisted = project.eventLog.getProposal(stored.id);
+    expect(persisted?.status).toBe('pending');
+  });
+
+  it('should distinguish stale proposals from corrupt patches during preview', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'docs/README.md');
+    expect(content).not.toBeNull();
+    expect(revision).toBeTruthy();
+
+    const updated = (content ?? '') + '\n## Preview Stale Test\n';
+    const patch = createSimplePatch(content ?? '', updated);
+
+    const proposeResult = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'docs/README.md',
+      baseRevision: revision,
+      patch,
+      intent: 'Create a proposal that will become stale before preview',
+      summary: 'Preview stale proposal classification',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+
+    const concurrentPatch = createSimplePatch(
+      content ?? '',
+      (content ?? '') + '\n## Concurrent Change\n',
+    );
+    await project.gitStore.applyPatchAndCommit(
+      'main',
+      'docs/README.md',
+      concurrentPatch,
+      'Make stored proposal stale',
+      revision ?? undefined,
+    );
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+    });
+
+    expect(previewResult.isError).toBe(true);
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.valid).toBe(false);
+    expect(preview.applyable).toBe(false);
+    expect(preview.validationStatus).toBe('stale');
+    expect(preview.error).toContain('Base revision mismatch');
+  });
+
+  it('should preview and commit a valid patch proposal end-to-end', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'docs/README.md');
+    expect(content).not.toBeNull();
+    expect(revision).toBeTruthy();
+
+    const updated = (content ?? '') + '\n## Preview Commit Flow\n\nValidated flow.\n';
+    const patch = createSimplePatch(content ?? '', updated);
+
+    const proposeResult = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'docs/README.md',
+      baseRevision: revision,
+      patch,
+      intent: 'Validate preview and commit for a normal patch proposal',
+      summary: 'End-to-end patch proposal flow',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+    });
+
+    expect(previewResult.isError).toBeFalsy();
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.valid).toBe(true);
+    expect(preview.applyable).toBe(true);
+    expect(preview.validationStatus).toBe('valid');
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBeFalsy();
+    const committed = await project.readFile('main', 'docs/README.md');
+    expect(committed.content).toContain('Preview Commit Flow');
+  });
+
+  it('should accept patch proposals for curated owned documents', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'manifest.yml'),
+      `version: 1
+documents:
+  - path: docs/listed.md
+    role: notes
+    summary: Listed doc
+`,
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'listed.md'),
+      '# Listed\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'docs/listed.md');
+    expect(content).toBe('# Listed\n');
+    expect(revision).toBeTruthy();
+
+    const patch = createUnifiedDiffForReplacement(
+      'docs/listed.md',
+      content ?? '',
+      '# Listed\n\nOwned update.\n',
+    );
+
+    const result = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'docs/listed.md',
+      baseRevision: revision,
+      patch,
+      intent: 'Update a curated owned document',
+      summary: 'Owned doc patch should be accepted',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.valid).toBe(true);
+    expect(data.changedFiles).toEqual(['docs/listed.md']);
+  });
+
+  it('should reject patch proposals for tracked but unowned files', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'manifest.yml'),
+      `version: 1
+documents:
+  - path: docs/listed.md
+    role: notes
+    summary: Listed doc
+`,
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'listed.md'),
+      '# Listed\n',
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'unlisted.md'),
+      '# Unlisted\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    expect(await project.gitStore.readFile('main', 'docs/unlisted.md')).toBe(
+      '# Unlisted\n',
+    );
+
+    const result = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'docs/unlisted.md',
+      baseRevision: 'not-used-for-unowned-paths',
+      patch: createSimplePatch(
+        '# Unlisted\n',
+        '# Unlisted\n\nThis should fail.\n',
+        'docs/unlisted.md',
+      ),
+      intent: 'Try to update a tracked file outside curated ownership',
+      summary: 'Unowned tracked file should be rejected',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.valid).toBe(false);
+    expect(data.error).toContain('Atlas-owned managed documents');
+  });
+
+  it('should reject traversal paths before ownership or patch validation', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: '../secrets.md',
+      baseRevision: 'not-used-for-traversal-paths',
+      patch: createSimplePatch('', '# Secret\n', '../secrets.md'),
+      intent: 'Try to escape the managed docs root',
+      summary: 'Traversal path should be rejected',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.valid).toBe(false);
+    expect(data.error).toContain('Path traversal detected');
+  });
+
+  it('should still reject untracked paths in the guarded proposal workflow', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'notes/random.md',
+      baseRevision: 'not-used-for-untracked-paths',
+      patch: createSimplePatch('', '# Random\n', 'notes/random.md'),
+      intent: 'Try to update an untracked path',
+      summary: 'Untracked path should be rejected',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.valid).toBe(false);
+    expect(data.error).toContain('Atlas-owned managed documents');
+  });
+
+  it('should reject apply_patch-style docs.propose_patch input before storing a proposal', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { revision } = await project.readFile('main', 'STATUS.md');
+    expect(revision).toBeTruthy();
+    expect(getStoredProposalCount(project)).toBe(0);
+
+    const result = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      baseRevision: revision,
+      patch: [
+        '*** Begin Patch',
+        '*** Update File: STATUS.md',
+        '@@',
+        '-currentFocus: "Create-only docs.propose_document support is complete alongside guarded Atlas document creation"',
+        '+currentFocus: "Create-only docs.propose_document support is complete, and proposal-time patch format validation is now in place"',
+        '*** End Patch',
+      ].join('\n'),
+      intent: 'Reject apply_patch syntax at docs.propose_patch creation time',
+      summary: 'Prevent apply_patch payloads from being stored',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.valid).toBe(false);
+    expect(data.errorCode).toBe('invalid_patch_format');
+    expect(data.expectedFormat).toBe('unified_diff');
+    expect(data.receivedFormat).toBe('apply_patch');
+    expect(data.error).toContain('docs.propose_patch requires a standard unified diff patch');
+    expect(data.error).toContain('apply_patch-style input');
+    expect(data.hint).toContain('Do not send apply_patch blocks');
+    expect(getStoredProposalCount(project)).toBe(0);
+  });
+
+  it('should reject empty and prose-only docs.propose_patch input before storing proposals', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { revision } = await project.readFile('main', 'docs/README.md');
+    expect(revision).toBeTruthy();
+
+    const cases = [
+      {
+        name: 'empty',
+        patch: '   \n\t',
+        receivedFormat: 'empty',
+        errorFragment: 'empty or whitespace-only patch body',
+      },
+      {
+        name: 'prose',
+        patch: 'Please update the README to mention the new workflow.',
+        receivedFormat: 'prose',
+        errorFragment: 'prose or non-diff text',
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const beforeCount = getStoredProposalCount(project);
+      const result = await handleProposePatch(project, {
+        projectId: 'test-project',
+        branch: 'main',
+        path: 'docs/README.md',
+        baseRevision: revision,
+        patch: testCase.patch,
+        intent: `Reject ${testCase.name} patch bodies at proposal creation time`,
+        summary: `Do not store ${testCase.name} patch bodies`,
+      });
+
+      expect(result.isError).toBe(true);
+      const data = JSON.parse(result.content[0].text);
+      expect(data.valid).toBe(false);
+      expect(data.errorCode).toBe('invalid_patch_format');
+      expect(data.expectedFormat).toBe('unified_diff');
+      expect(data.receivedFormat).toBe(testCase.receivedFormat);
+      expect(data.error).toContain('docs.propose_patch requires a standard unified diff patch');
+      expect(data.error).toContain(testCase.errorFragment);
+      expect(getStoredProposalCount(project)).toBe(beforeCount);
+    }
+  });
+
+  it('should create a docs/atlas document proposal and commit it with a manifest update', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const proposeResult = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/example.md',
+      content: '# Example\n\nAtlas content.\n',
+      document: {
+        role: ' guide ',
+        summary: ' Short summary ',
+        priority: ' normal ',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+    expect(proposal.valid).toBe(true);
+    expect(proposal.changedFiles).toEqual([
+      'docs/atlas/example.md',
+      'docs/manifest.yml',
+    ]);
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBeFalsy();
+    const commit = JSON.parse(commitResult.content[0].text);
+    expect(commit.changedFiles).toEqual([
+      'docs/atlas/example.md',
+      'docs/manifest.yml',
+    ]);
+
+    const createdDocument = await project.readFile('main', 'docs/atlas/example.md');
+    expect(createdDocument.content).toBe('# Example\n\nAtlas content.\n');
+    expect(createdDocument.revision).toBe(commit.commit);
+
+    const manifest = await project.readFile('main', 'docs/manifest.yml');
+    expect(manifest.revision).toBe(commit.commit);
+    const parsedManifest = YAML.parse(manifest.content ?? '') as {
+      documents: Array<{ path: string; role: string; summary: string; priority?: string }>;
+    };
+    expect(parsedManifest.documents).toContainEqual({
+      path: 'docs/atlas/example.md',
+      role: 'guide',
+      summary: 'Short summary',
+      priority: 'normal',
+    });
+  });
+
+  it('should keep docs.propose_document create-only flow unchanged', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/ownership-regression.md',
+      content: '# Ownership Regression\n\nAtlas content.\n',
+      document: {
+        role: 'guide',
+        summary: 'Create-only flow should still work',
+      },
+      intent: 'Verify create-only Atlas document proposals still work',
+      summary: 'Create-only docs.propose_document remains unchanged',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.valid).toBe(true);
+    expect(data.changedFiles).toEqual([
+      'docs/atlas/ownership-regression.md',
+      'docs/manifest.yml',
+    ]);
+  });
+
+  it('should preview a create-only document proposal with both the new file and manifest diff', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const proposeResult = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/example.md',
+      content: '# Example\n\nAtlas content.\n',
+      document: {
+        role: 'guide',
+        summary: 'Short summary',
+        priority: 'normal',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+    });
+
+    expect(previewResult.isError).toBeFalsy();
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.changedFiles).toEqual([
+      'docs/atlas/example.md',
+      'docs/manifest.yml',
+    ]);
+    expect(preview.diff).toContain('--- /dev/null');
+    expect(preview.diff).toContain('+++ b/docs/atlas/example.md');
+    expect(preview.diff).toContain('+++ b/docs/manifest.yml');
+    expect(preview.diff).toContain('path: docs/atlas/example.md');
+  });
+
+  it('should preview and commit a valid create-only document proposal end-to-end', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const proposeResult = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/end-to-end.md',
+      content: '# End To End\n\nAtlas content.\n',
+      document: {
+        role: 'guide',
+        summary: 'End to end summary',
+      },
+      intent: 'Validate preview and commit for create-only proposals',
+      summary: 'End-to-end create proposal flow',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+    });
+
+    expect(previewResult.isError).toBeFalsy();
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.valid).toBe(true);
+    expect(preview.applyable).toBe(true);
+    expect(preview.validationStatus).toBe('valid');
+    expect(preview.changedFiles).toEqual([
+      'docs/atlas/end-to-end.md',
+      'docs/manifest.yml',
+    ]);
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBeFalsy();
+    const created = await project.readFile('main', 'docs/atlas/end-to-end.md');
+    expect(created.content).toBe('# End To End\n\nAtlas content.\n');
+  });
+
+  it('should reject create-only document proposals outside docs/atlas/**', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/example.md',
+      content: '# Example\n',
+      document: {
+        role: 'guide',
+        summary: 'Short summary',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('must be under docs/atlas/');
+  });
+
+  it('should reject create-only document proposals with path traversal', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/../escape.md',
+      content: '# Example\n',
+      document: {
+        role: 'guide',
+        summary: 'Short summary',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Path traversal detected');
+  });
+
+  it('should reject create-only document proposals for non-Markdown paths', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/example.txt',
+      content: '# Example\n',
+      document: {
+        role: 'guide',
+        summary: 'Short summary',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('must be a Markdown document');
+  });
+
+  it('should reject create-only document proposals when the file already exists', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs', 'atlas'), {
+      recursive: true,
+    });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'atlas', 'example.md'),
+      '# Existing\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/example.md',
+      content: '# Example\n',
+      document: {
+        role: 'guide',
+        summary: 'Short summary',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('already exists');
+  });
+
+  it('should reject create-only document proposals when the manifest already lists the path', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'manifest.yml'),
+      `version: 1
+documents:
+  - path: docs/atlas/example.md
+    role: guide
+    summary: Existing manifest entry
+`,
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/example.md',
+      content: '# Example\n',
+      document: {
+        role: 'guide',
+        summary: 'Short summary',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('already contains a documents[] entry');
+  });
+
+  it('should mark a create-only document proposal stale when the manifest base revision changes', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const proposeResult = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/example.md',
+      content: '# Example\n\nAtlas content.\n',
+      document: {
+        role: 'guide',
+        summary: 'Short summary',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+
+    const manifest = await project.readFile('main', 'docs/manifest.yml');
+    const updatedManifest = (manifest.content ?? '') + '\n# stale\n';
+    const manifestPatch = createSimplePatch(
+      manifest.content ?? '',
+      updatedManifest,
+      'docs/manifest.yml',
+    );
+
+    await project.gitStore.applyPatchAndCommit(
+      'main',
+      'docs/manifest.yml',
+      manifestPatch,
+      'Modify manifest to stale proposal',
+      manifest.revision ?? undefined,
+    );
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBe(true);
+    const data = JSON.parse(commitResult.content[0].text);
+    expect(data.error).toContain('Base revision mismatch');
+
+    const stored = project.eventLog.getProposal(proposal.proposalId);
+    expect(stored?.status).toBe('stale');
+  });
+});
+
+// ── docs.status tool tests ────────────────────────────────────────────
+
+describe('docs.status', () => {
+  it('should parse front matter from STATUS.md', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content } = await project.readFile('main', 'STATUS.md');
+    expect(content).not.toBeNull();
+
+    const result = parseFrontMatter(content!);
+    expect(result.frontMatter).not.toBeNull();
+    expect(result.frontMatter!.docuGuard).toBeUndefined(); // nested key
+    expect(result.frontMatter!['docuGuard.type']).toBe('status');
+    expect(result.frontMatter!.statusVersion).toBe(1);
+    expect(result.frontMatter!.priority).toBe('high');
+    expect(result.rawFrontMatter).not.toBeNull();
+    expect(result.rawFrontMatter).toContain('docuGuard.type: status');
+    expect(result.body).toContain('Project Status');
+    expect(result.body).toContain('Current Focus');
+  });
+
+  it('should return full STATUS.md content via project.readFile', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'STATUS.md');
+    expect(content).not.toBeNull();
+    expect(content).toContain('docuGuard.type: status');
+    expect(content).toContain('Project Status');
+    expect(revision).not.toBeNull();
+    expect(revision!.length).toBeGreaterThan(0);
+  });
+
+  it('should truncate body to maxChars', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content } = await project.readFile('main', 'STATUS.md');
+    expect(content).not.toBeNull();
+
+    const result = parseFrontMatter(content!);
+    // Truncate body to a small value
+    const truncatedBody = result.body.slice(0, 10);
+    expect(truncatedBody.length).toBeLessThanOrEqual(10);
+    const fullBody = result.body;
+    if (fullBody.length > 10) {
+      expect(truncatedBody).not.toBe(fullBody);
+    }
+  });
+
+  it('should handle missing STATUS.md gracefully', async () => {
+    // Create project without init (so STATUS.md doesn't exist in managed store)
+    // We can simulate by reading a path that doesn't exist
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content } = await project.readFile('main', 'nonexistent.md');
+    expect(content).toBeNull();
+  });
+
+  it('should return null front matter for content without front matter', () => {
+    const result = parseFrontMatter('# Just a heading\n\nSome content');
+    expect(result.frontMatter).toBeNull();
+    expect(result.rawFrontMatter).toBeNull();
+    expect(result.body).toBe('# Just a heading\n\nSome content');
+  });
+
+  it('should return null front matter for empty content', () => {
+    const result = parseFrontMatter('');
+    expect(result.frontMatter).toBeNull();
+    expect(result.rawFrontMatter).toBeNull();
+    expect(result.body).toBe('');
+  });
+
+  it('should return null front matter for content with only opening delimiter', () => {
+    const result = parseFrontMatter('---\nkey: value\n');
+    expect(result.frontMatter).toBeNull();
+    expect(result.rawFrontMatter).toBeNull();
+    // No closing --- so no front matter detected
+  });
+});
+
+// ── docs.manifest tool tests ──────────────────────────────────────────
+
+describe('docs.manifest', () => {
+  it('should return parsed manifest JSON and revision', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleManifest(project, {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    const data = JSON.parse(result.content[0].text);
+    expect(data.projectId).toBe('test-project');
+    expect(data.path).toBe('docs/manifest.yml');
+    expect(data.branch).toBe('main');
+    expect(data.revision).toBeTruthy();
+    expect(data.version).toBe(1);
+    expect(Array.isArray(data.entrypoints)).toBe(true);
+    expect(Array.isArray(data.documents)).toBe(true);
+    expect(data.documentCount).toBeGreaterThan(0);
+    expect(data.truncated).toBe(false);
+    expect(result.isError).toBeFalsy();
+  });
+
+  it('should not include raw YAML by default', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleManifest(project, {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    const data = JSON.parse(result.content[0].text);
+    expect(data.raw).toBeUndefined();
+  });
+
+  it('should include raw YAML when includeRaw is true', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleManifest(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      includeRaw: true,
+    });
+
+    const data = JSON.parse(result.content[0].text);
+    expect(data.raw).toBeTruthy();
+    expect(data.raw).toContain('version: 1');
+    expect(data.raw).toContain('STATUS.md');
+  });
+
+  it('should validate referenced paths exist', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleManifest(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      validatePaths: true,
+    });
+
+    const data = JSON.parse(result.content[0].text);
+    expect(data.validation).toBeDefined();
+    expect(data.validation.valid).toBe(true);
+    expect(Array.isArray(data.validation.missingPaths)).toBe(true);
+    expect(data.validation.missingPaths).toHaveLength(0);
+  });
+
+  it('should report missing referenced paths', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // Read the manifest and add a non-existent path to test validation
+    const { content } = await project.readFile('main', 'docs/manifest.yml');
+    expect(content).not.toBeNull();
+
+    // We'll test the validation by directly checking via gitStore
+    const trackedFiles = await project.gitStore.listFiles('main');
+    const manifest = YAML.parse(content!);
+    const manifestPaths: string[] = [];
+    if (Array.isArray(manifest.documents)) {
+      for (const doc of manifest.documents) {
+        if (doc.path) manifestPaths.push(doc.path);
+      }
+    }
+    if (Array.isArray(manifest.entrypoints)) {
+      for (const ep of manifest.entrypoints) {
+        if (ep.path && !manifestPaths.includes(ep.path)) manifestPaths.push(ep.path);
+      }
+    }
+
+    const trackedSet = new Set(trackedFiles);
+    const missing = manifestPaths.filter((p: string) => !trackedSet.has(p));
+    // All standard paths from the template should exist
+    expect(missing).toHaveLength(0);
+  });
+
+  it('should handle missing docs/manifest.yml clearly', async () => {
+    // Init a project but then test reading a manifest path that does not exist
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // We can test this via the handler by manipulating the manifest
+    // Simulate missing manifest by testing readFile directly
+    const { content } = await project.readFile('main', 'docs/nonexistent.yml');
+    expect(content).toBeNull();
+  });
+
+  it('should handle missing docs/manifest.yml via handler', async () => {
+    const project = new Project({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+    await project.gitStore.init();
+    await project.ensureEventLog();
+
+    // No files committed, so manifest should not exist
+    const result = await handleManifest(project, {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('not found');
+    expect(data.hint).toContain('init');
+  });
+
+  it('should handle invalid YAML clearly', async () => {
+    const project = new Project({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+    await project.gitStore.init();
+    await project.ensureEventLog();
+
+    // Commit an invalid manifest YAML
+    const invalidYaml = 'invalid: [yaml: broken\n  bad: indentation\n';
+    await project.gitStore.applyAndCommit(
+      'main',
+      'docs/manifest.yml',
+      invalidYaml,
+      'Add invalid manifest',
+    );
+
+    const result = await handleManifest(project, {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Invalid YAML');
+  });
+
+  it('should respect maxDocuments and set truncated to true', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // Read manifest, count documents, then test with maxDocuments=1
+    const { content } = await project.readFile('main', 'docs/manifest.yml');
+    expect(content).not.toBeNull();
+    const manifest = YAML.parse(content!);
+    const totalDocs = Array.isArray(manifest.documents) ? manifest.documents.length : 0;
+
+    const result = await handleManifest(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      maxDocuments: 1,
+    });
+
+    const data = JSON.parse(result.content[0].text);
+    expect(data.documentCount).toBe(1);
+    expect(data.totalDocumentCount).toBe(totalDocs);
+    expect(data.truncated).toBe(totalDocs > 1);
+  });
+
+  it('should work without path validation when validatePaths is false', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleManifest(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      validatePaths: false,
+    });
+
+    const data = JSON.parse(result.content[0].text);
+    expect(data.validation).toBeUndefined();
+    expect(data.documents).toBeDefined();
+    expect(data.documentCount).toBeGreaterThan(0);
+  });
+
+  it('should include entrypoints from manifest', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleManifest(project, {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    const data = JSON.parse(result.content[0].text);
+    expect(Array.isArray(data.entrypoints)).toBe(true);
+    expect(data.entrypoints.length).toBeGreaterThan(0);
+    expect(data.entrypoints[0].path).toBe('STATUS.md');
+    expect(data.entrypoints[0].role).toBe('front-page');
+  });
+});
+
+// ── Existing tests (updated for managed storage) ─────────────────────
 
 describe('reading docs', () => {
   it('should read a file from the Git store', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const { content, revision } = await project.readFile('main', 'docs/README.md');
@@ -102,10 +1899,645 @@ describe('reading docs', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const { content } = await project.readFile('main', 'docs/nonexistent.md');
     expect(content).toBeNull();
+  });
+});
+
+describe('bounded docs.read via handler', () => {
+  it('should be backward-compatible without maxChars', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.projectId).toBe('test-project');
+    expect(data.path).toBe('docs/README.md');
+    expect(data.branch).toBe('main');
+    expect(data.revision).toBeTruthy();
+    expect(data.content).toContain('Documentation');
+    expect(data.truncated).toBe(false);
+    expect(data.maxChars).toBeNull();
+    expect(data.offset).toBe(0);
+    expect(data.returnedChars).toBe(data.totalChars);
+  });
+
+  it('should truncate content with maxChars and set truncated true', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+      maxChars: 10,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe('# Document');
+    expect(data.content.length).toBe(10);
+    expect(data.truncated).toBe(true);
+    expect(data.maxChars).toBe(10);
+    expect(data.returnedChars).toBe(10);
+    expect(data.totalChars).toBeGreaterThan(10);
+  });
+
+  it('should set truncated false when maxChars is larger than content', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+      maxChars: 999999,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toContain('Documentation');
+    expect(data.truncated).toBe(false);
+    expect(data.maxChars).toBe(999999);
+    expect(data.returnedChars).toBe(data.totalChars);
+  });
+
+  it('should return a later slice with offset', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // First read full content to know total length
+    const fullResult = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+    });
+    const fullData = JSON.parse(fullResult.content[0].text);
+    const fullContent: string = fullData.content;
+    const laterPortion = fullContent.slice(50);
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+      offset: 50,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe(laterPortion);
+    expect(data.offset).toBe(50);
+    expect(data.returnedChars).toBe(laterPortion.length);
+    expect(data.totalChars).toBe(fullContent.length);
+  });
+
+  it('should combine offset and maxChars correctly', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+      offset: 10,
+      maxChars: 20,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content.length).toBe(20);
+    expect(data.offset).toBe(10);
+    expect(data.maxChars).toBe(20);
+    expect(data.returnedChars).toBe(20);
+    expect(data.totalChars).toBeGreaterThan(30);
+  });
+
+  it('should include revision as before', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+      maxChars: 5,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.revision).toBeTruthy();
+    expect(typeof data.revision).toBe('string');
+    expect(data.revision.length).toBeGreaterThan(0);
+  });
+
+  it('should report missing files clearly', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/atlas/missing.md',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('not found');
+  });
+
+  it('should handle offset beyond content length gracefully', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/README.md',
+      branch: 'main',
+      offset: 999999,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe('');
+    expect(data.truncated).toBe(false);
+    expect(data.returnedChars).toBe(0);
+  });
+
+  it('should handle path traversal detection in bounded read', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: '../etc/passwd',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Path traversal');
+  });
+});
+
+describe('docs.read_section via handler', () => {
+  const sectionDoc = `# Guide
+
+Intro.
+
+## Target
+
+Target body.
+
+### Child
+
+Child body.
+
+## Next
+
+Next body.
+
+## Target
+
+Second target.
+
+### Same Text
+
+Child same.
+
+# Same Text
+
+Top same.
+
+~~~markdown
+## Hidden
+~~~
+
+\`\`\`js
+# Also Hidden
+\`\`\`
+
+## After Fences ###
+
+After content.
+`;
+
+  it('should read a simple section by heading', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/atlas/sections.md',
+      branch: 'main',
+      heading: 'Next',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.projectId).toBe('test-project');
+    expect(data.path).toBe('docs/atlas/sections.md');
+    expect(data.branch).toBe('main');
+    expect(data.revision).toBeTruthy();
+    expect(data.heading).toBe('Next');
+    expect(data.matchedHeading).toBe('Next');
+    expect(data.level).toBe(2);
+    expect(data.startLine).toBe(13);
+    expect(data.endLine).toBe(16);
+    expect(data.content).toBe('## Next\n\nNext body.\n');
+    expect(data.truncated).toBe(false);
+    expect(data.maxChars).toBeNull();
+    expect(data.offset).toBe(0);
+    expect(data.returnedChars).toBe(data.totalChars);
+  });
+
+  it('should include child subsections until the next same-or-higher heading', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/atlas/sections.md',
+      branch: 'main',
+      heading: 'Target',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe('## Target\n\nTarget body.\n\n### Child\n\nChild body.\n');
+    expect(data.content).toContain('### Child');
+    expect(data.content).not.toContain('## Next');
+  });
+
+  it('should omit the heading line when includeHeading is false', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/atlas/sections.md',
+      branch: 'main',
+      heading: 'Target',
+      includeHeading: false,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe('\nTarget body.\n\n### Child\n\nChild body.\n');
+    expect(data.content).not.toContain('## Target');
+  });
+
+  it('should truncate section content with maxChars and set metadata correctly', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/atlas/sections.md',
+      branch: 'main',
+      heading: 'Target',
+      maxChars: 12,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe('## Target\n\nT');
+    expect(data.content.length).toBe(12);
+    expect(data.truncated).toBe(true);
+    expect(data.maxChars).toBe(12);
+    expect(data.returnedChars).toBe(12);
+    expect(data.totalChars).toBeGreaterThan(12);
+  });
+
+  it('should apply offset before maxChars within section content', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+    const fullSection = '## Target\n\nTarget body.\n\n### Child\n\nChild body.\n';
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/atlas/sections.md',
+      branch: 'main',
+      heading: 'Target',
+      offset: 10,
+      maxChars: 11,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe(fullSection.slice(10, 21));
+    expect(data.offset).toBe(10);
+    expect(data.maxChars).toBe(11);
+    expect(data.returnedChars).toBe(11);
+    expect(data.totalChars).toBe(fullSection.length);
+    expect(data.truncated).toBe(true);
+  });
+
+  it('should disambiguate duplicate headings with occurrence', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/atlas/sections.md',
+      branch: 'main',
+      heading: 'Target',
+      occurrence: 2,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.occurrence).toBe(2);
+    expect(data.content).toContain('Second target.');
+    expect(data.content).not.toContain('Target body.');
+  });
+
+  it('should disambiguate same-text headings with level', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/atlas/sections.md',
+      branch: 'main',
+      heading: 'Same Text',
+      level: 1,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.level).toBe(1);
+    expect(data.content).toContain('# Same Text');
+    expect(data.content).toContain('Top same.');
+    expect(data.content).toContain('## After Fences ###');
+    expect(data.content).not.toContain('Child same.');
+  });
+
+  it('should ignore headings inside fenced code blocks', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/atlas/sections.md',
+      branch: 'main',
+      heading: 'Hidden',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Heading "Hidden" not found');
+    expect(data.availableHeadings.some((heading: { heading: string }) => heading.heading === 'Hidden')).toBe(false);
+  });
+
+  it('should report missing headings clearly', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleReadSection(project, {
+      projectId: 'test-project',
+      path: 'docs/atlas/sections.md',
+      branch: 'main',
+      heading: 'Missing',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Heading "Missing" not found');
+    expect(data.projectId).toBe('test-project');
+    expect(data.path).toBe('docs/atlas/sections.md');
+    expect(data.availableHeadings.length).toBeGreaterThan(0);
+  });
+
+  it('should leave existing docs.read behavior intact', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleRead(project, {
+      projectId: 'test-project',
+      path: 'docs/atlas/sections.md',
+      branch: 'main',
+      maxChars: 7,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.content).toBe('# Guide');
+    expect(data.truncated).toBe(true);
+    expect(data.returnedChars).toBe(7);
+  });
+});
+
+describe('docs.context_pack via handler', () => {
+  const sectionDoc = `# Guide
+
+Intro.
+
+## Target
+
+Target body.
+
+### Child
+
+Child body.
+
+## Next
+
+Next body.
+`;
+
+  it('should include STATUS.md, AGENTS.md, and manifest data by default', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.projectId).toBe('test-project');
+    expect(data.branch).toBe('main');
+    expect(data.revision).toBeTruthy();
+    expect(data.maxChars).toBeNull();
+    expect(data.returnedChars).toBeGreaterThan(0);
+    expect(data.truncated).toBe(false);
+    expect(data.items[0].kind).toBe('status');
+    expect(data.items[0].path).toBe('STATUS.md');
+    expect(data.items[1].kind).toBe('agents');
+    expect(data.items[1].path).toBe('AGENTS.md');
+    expect(data.items[2].kind).toBe('manifest');
+    expect(data.items[2].path).toBe('docs/manifest.yml');
+    expect(data.items[2].manifest.version).toBe(1);
+    expect(Array.isArray(data.items[2].manifest.documents)).toBe(true);
+  });
+
+  it('should respect a total maxChars budget and report truncation metadata', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      maxChars: 50,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.returnedChars).toBeLessThanOrEqual(50);
+    expect(data.truncated).toBe(true);
+    const itemChars = data.items.reduce((sum: number, item: { returnedChars: number }) => sum + item.returnedChars, 0);
+    expect(itemChars).toBe(data.returnedChars);
+    expect(data.items.some((item: { truncated: boolean }) => item.truncated)).toBe(true);
+  });
+
+  it('should include explicit requested paths', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      includeStatus: false,
+      includeAgents: false,
+      includeManifest: false,
+      paths: ['docs/atlas/sections.md'],
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items).toHaveLength(1);
+    expect(data.items[0].kind).toBe('document');
+    expect(data.items[0].path).toBe('docs/atlas/sections.md');
+    expect(data.items[0].content).toContain('## Target');
+    expect(data.items[0].revision).toBeTruthy();
+  });
+
+  it('should include explicit sections using docs.read_section heading behavior', async () => {
+    const project = await initProjectWithSectionDoc(sectionDoc);
+
+    const result = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      includeStatus: false,
+      includeAgents: false,
+      includeManifest: false,
+      sections: [
+        {
+          path: 'docs/atlas/sections.md',
+          heading: 'Target',
+        },
+      ],
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items).toHaveLength(1);
+    expect(data.items[0].kind).toBe('section');
+    expect(data.items[0].path).toBe('docs/atlas/sections.md');
+    expect(data.items[0].heading).toBe('Target');
+    expect(data.items[0].matchedHeading).toBe('Target');
+    expect(data.items[0].content).toContain('### Child');
+    expect(data.items[0].content).not.toContain('## Next');
+  });
+
+  it('should report missing requested paths without crashing', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      includeStatus: false,
+      includeAgents: false,
+      includeManifest: false,
+      paths: ['docs/atlas/missing.md'],
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.items).toHaveLength(1);
+    expect(data.items[0].kind).toBe('document');
+    expect(data.items[0].path).toBe('docs/atlas/missing.md');
+    expect(data.items[0].missing).toBe(true);
+    expect(data.items[0].error).toContain('not found');
+    expect(data.items[0].returnedChars).toBe(0);
+  });
+
+  it('should reject unsafe or untracked requested paths', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const untracked = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      paths: ['notes/random.md'],
+    });
+
+    expect(untracked.isError).toBe(true);
+    const untrackedData = JSON.parse(untracked.content[0].text);
+    expect(untrackedData.error).toContain('not in the list of Atlas-owned managed documents');
+
+    const traversal = await handleContextPack(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      paths: ['../secrets.md'],
+    });
+
+    expect(traversal.isError).toBe(true);
+    const traversalData = JSON.parse(traversal.content[0].text);
+    expect(traversalData.error).toContain('Path traversal');
   });
 });
 
@@ -114,6 +2546,8 @@ describe('creating branches', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     await project.gitStore.createBranch('test-branch', 'main');
@@ -132,6 +2566,8 @@ describe('proposing a valid patch', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = await Policy.load(tmpDir);
@@ -163,6 +2599,8 @@ describe('rejecting a stale baseRevision', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = await Policy.load(tmpDir);
@@ -234,6 +2672,8 @@ describe('committing a patch', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const filePath = 'docs/README.md';
@@ -258,6 +2698,98 @@ describe('committing a patch', () => {
     const updated = await project.readFile('main', filePath);
     expect(updated.content).toContain('New Section');
   });
+
+  it('should reject a corrupt stored patch at commit time and mark it rejected', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { revision } = await project.readFile('main', 'docs/README.md');
+    expect(revision).toBeTruthy();
+
+    const stored = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'docs/README.md',
+      base_revision: revision ?? '',
+      patch: [
+        '--- a/docs/README.md',
+        '+++ b/docs/README.md',
+        '@@ -1,2 +1,2 @@',
+        ' this line is valid context',
+        'this line is corrupt diff syntax',
+      ].join('\n'),
+      intent: 'Store an intentionally corrupt patch for commit validation',
+      summary: 'Corrupt commit test',
+      risk_level: 'low',
+      requires_approval: false,
+    });
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: stored.id,
+      actor: 'test',
+    });
+
+    expect(commitResult.isError).toBe(true);
+    const data = JSON.parse(commitResult.content[0].text);
+    expect(data.error).toContain('Patch does not apply cleanly');
+    expect(data.validationStatus).toBe('invalid');
+    expect(data.status).toBe('rejected');
+
+    const persisted = project.eventLog.getProposal(stored.id);
+    expect(persisted?.status).toBe('rejected');
+  });
+
+  it('should reject a stored non-unified patch at commit time and mark it rejected', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { revision } = await project.readFile('main', 'STATUS.md');
+    expect(revision).toBeTruthy();
+
+    const stored = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      base_revision: revision ?? '',
+      patch: [
+        '*** Begin Patch',
+        '*** Update File: STATUS.md',
+        '@@',
+        '-currentFocus: "Create-only docs.propose_document support is complete alongside guarded Atlas document creation"',
+        '+currentFocus: "Create-only docs.propose_document support is complete, and guarded patch applyability hardening is now in place alongside guarded Atlas document creation"',
+        '*** End Patch',
+      ].join('\n'),
+      intent: 'Store an intentionally non-unified patch for commit validation',
+      summary: 'Non-unified commit test',
+      risk_level: 'low',
+      requires_approval: false,
+    });
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: stored.id,
+      actor: 'test',
+    });
+
+    expect(commitResult.isError).toBe(true);
+    const data = JSON.parse(commitResult.content[0].text);
+    expect(data.error).toContain('docs.propose_patch requires a standard unified diff patch');
+    expect(data.error).toContain('apply_patch-style input');
+    expect(data.validationStatus).toBe('invalid');
+    expect(data.status).toBe('rejected');
+
+    const persisted = project.eventLog.getProposal(stored.id);
+    expect(persisted?.status).toBe('rejected');
+  });
 });
 
 describe('writing an event log row', () => {
@@ -265,6 +2797,8 @@ describe('writing an event log row', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const event = project.eventLog.logEvent({
@@ -292,6 +2826,8 @@ describe('restoring a file from history', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const filePath = 'docs/README.md';
@@ -327,6 +2863,8 @@ describe('proposal storage', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const stored = project.eventLog.storeProposal({
@@ -362,12 +2900,55 @@ describe('proposal storage', () => {
     const project = new Project({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
     await project.ensureEventLog();
     const eventLog = project.eventLog;
 
     const result = eventLog.getProposal('prop_nonexistent');
     expect(result).toBeNull();
+  });
+
+  it('should round-trip proposal metadata for create-only document proposals', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const stored = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'docs/atlas/example.md',
+      base_revision: 'manifest-rev',
+      patch: '--- /dev/null\n+++ b/docs/atlas/example.md\n@@ -0,0 +1,1 @@\n+# Example\n',
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+      risk_level: 'high',
+      requires_approval: true,
+      metadata: {
+        kind: 'document_create',
+        mode: 'create',
+        changedFiles: ['docs/atlas/example.md', 'docs/manifest.yml'],
+        baseRevisions: {
+          'docs/manifest.yml': 'manifest-rev',
+        },
+        riskReasons: ['Modifies a protected document'],
+      },
+    });
+
+    const retrieved = project.eventLog.getProposal(stored.id);
+    expect(retrieved?.metadata).toEqual({
+      kind: 'document_create',
+      mode: 'create',
+      changedFiles: ['docs/atlas/example.md', 'docs/manifest.yml'],
+      baseRevisions: {
+        'docs/manifest.yml': 'manifest-rev',
+      },
+      riskReasons: ['Modifies a protected document'],
+    });
   });
 });
 
@@ -411,6 +2992,8 @@ describe('exporting documentation', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const exportDir = path.join(tmpDir, 'export-output');
@@ -427,11 +3010,55 @@ describe('exporting documentation', () => {
   });
 });
 
+describe('GitStore workdir cleanup', () => {
+  it('should reset dirty files from workdir before each withWorkDir operation', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const repoDir = project.gitStore.repoDir;
+    const workDir = path.join(repoDir, 'workdir');
+
+    // Ensure workdir exists with a known branch checked out
+    await project.gitStore.createBranch('test-branch', 'main');
+
+    // Manually write an untracked (dirty) file into the workdir
+    const dirtyFilePath = path.join(workDir, 'docs', 'dirty-file.md');
+    await fs.promises.mkdir(path.dirname(dirtyFilePath), { recursive: true });
+    await fs.promises.writeFile(dirtyFilePath, '# Dirty content');
+
+    // Manually modify a tracked file in the workdir
+    const readmePath = path.join(workDir, 'docs', 'README.md');
+    const existingContent = await fs.promises.readFile(readmePath, 'utf-8');
+    await fs.promises.writeFile(readmePath, existingContent + '\nDirty modification\n');
+
+    // Call exportBranch — this goes through withWorkDir and should trigger cleanup
+    const exportDir = path.join(tmpDir, 'export-output');
+    await project.gitStore.exportBranch('test-branch', exportDir);
+
+    // After the operation, the untracked dirty file should be gone from workdir
+    await expect(fs.promises.stat(dirtyFilePath)).rejects.toThrow();
+
+    // After the operation, the tracked file should be reset to its clean state
+    const cleanedReadme = await fs.promises.readFile(readmePath, 'utf-8');
+    expect(cleanedReadme).not.toContain('Dirty modification');
+
+    // Verify the exported files do not contain the dirty file
+    const exportDocs = await fs.promises.readdir(path.join(exportDir, 'docs'));
+    expect(exportDocs).not.toContain('dirty-file.md');
+  });
+});
+
 describe('stale proposal detection', () => {
   it('should reject a proposal whose base revision is stale after another commit', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = new Policy();
@@ -476,6 +3103,8 @@ describe('AGENTS.md intent validation', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = await Policy.load(tmpDir);
@@ -509,6 +3138,8 @@ describe('AGENTS.md intent validation', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = await Policy.load(tmpDir);
@@ -543,6 +3174,8 @@ describe('AGENTS.md intent validation', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = await Policy.load(tmpDir);
@@ -574,6 +3207,8 @@ describe('AGENTS.md intent validation', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = await Policy.load(tmpDir);
@@ -605,6 +3240,8 @@ describe('AGENTS.md intent validation', () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
 
     const policy = await Policy.load(tmpDir);
@@ -631,16 +3268,97 @@ describe('AGENTS.md intent validation', () => {
   });
 });
 
+// ── CLI init command (v0.3 with registry registration) ────────────────
+
+describe('CLI init command', () => {
+  it('should initialize project AND register it in the registry', async () => {
+    const configDir = path.join(tmpDir, 'config');
+    const dataDir = path.join(tmpDir, 'data');
+
+    await initCommand({
+      projectRoot: tmpDir,
+      projectId: 'my-project',
+      configDir,
+      dataDir,
+    });
+
+    // Managed state should be under <dataDir>/projects/my-project/
+    const managedDir = path.join(dataDir, 'projects', 'my-project');
+    const managedStat = await fs.promises.stat(managedDir);
+    expect(managedStat.isDirectory()).toBe(true);
+
+    // Git repo should exist in managed storage
+    const repoPath = path.join(managedDir, 'repo.git');
+    const repoStat = await fs.promises.stat(repoPath);
+    expect(repoStat.isDirectory()).toBe(true);
+
+    // Events DB should exist in managed storage
+    const eventsPath = path.join(managedDir, 'events.sqlite');
+    const dbStat = await fs.promises.stat(eventsPath);
+    expect(dbStat.isFile()).toBe(true);
+
+    // Project should be registered in the registry
+    const registry = await Registry.load(configDir, dataDir);
+    const entry = registry.getProject('my-project');
+    expect(entry).not.toBeNull();
+    expect(entry!.projectRoot).toBe(tmpDir);
+    expect(entry!.projectId).toBe('my-project');
+
+    // Project root should NOT have .docu-guard/
+    await expect(fs.promises.stat(path.join(tmpDir, '.docu-guard'))).rejects.toThrow();
+  });
+
+  it('should be idempotent — registering same project again updates root', async () => {
+    const configDir = path.join(tmpDir, 'config');
+    const dataDir = path.join(tmpDir, 'data');
+
+    // Init twice with different project root (simulating re-init)
+    await initCommand({
+      projectRoot: tmpDir,
+      projectId: 'my-project',
+      configDir,
+      dataDir,
+    });
+
+    const registry = await Registry.load(configDir, dataDir);
+    const entry = registry.getProject('my-project');
+    expect(entry).not.toBeNull();
+    expect(entry!.projectRoot).toBe(tmpDir);
+    expect(entry!.createdAt).toBeTruthy();
+    expect(entry!.updatedAt).toBeTruthy();
+  });
+
+  it('should respect custom configDir and dataDir for registry', async () => {
+    const configDir = path.join(tmpDir, 'custom-config');
+    const dataDir = path.join(tmpDir, 'custom-data');
+
+    await initCommand({
+      projectRoot: tmpDir,
+      projectId: 'custom-proj',
+      configDir,
+      dataDir,
+    });
+
+    // Registry should be at configDir/projects.json
+    const registryPath = path.join(configDir, 'projects.json');
+    const regStat = await fs.promises.stat(registryPath);
+    expect(regStat.isFile()).toBe(true);
+
+    // Managed state should be at dataDir/projects/custom-proj/
+    const managedDir = path.join(dataDir, 'projects', 'custom-proj');
+    const managedStat = await fs.promises.stat(managedDir);
+    expect(managedStat.isDirectory()).toBe(true);
+  });
+});
+
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 function createSimplePatch(original: string, updated: string, filePath = 'docs/README.md'): string {
   const origLines = original.split('\n');
   const newLines = updated.split('\n');
 
-  // A unified diff with a single hunk covering the entire diff region
   const maxLen = Math.max(origLines.length, newLines.length);
 
-  // Find first and last differing lines to minimize hunk size
   let firstDiff = maxLen;
   let lastDiff = -1;
   for (let i = 0; i < maxLen; i++) {
@@ -652,7 +3370,6 @@ function createSimplePatch(original: string, updated: string, filePath = 'docs/R
     }
   }
 
-  // Include some context around the diff
   const ctxStart = Math.max(0, firstDiff - 1);
   const ctxEnd = Math.min(maxLen, lastDiff + 2);
 

@@ -16,26 +16,26 @@ export function zodToJsonSchema(schema: z.ZodType): Record<string, unknown> {
       }
     }
 
-    return {
+    return withDescription(schema, {
       type: 'object',
       properties,
       required: required.length > 0 ? required : undefined,
-    };
+    });
   }
 
   // Fallback
-  return { type: 'object' };
+  return withDescription(schema, { type: 'object' });
 }
 
 function zodTypeToJsonSchema(schema: z.ZodType): Record<string, unknown> {
   if (schema instanceof z.ZodString) {
-    return { type: 'string' };
+    return withDescription(schema, { type: 'string' });
   }
   if (schema instanceof z.ZodNumber) {
-    return { type: 'number' };
+    return withDescription(schema, { type: 'number' });
   }
   if (schema instanceof z.ZodBoolean) {
-    return { type: 'boolean' };
+    return withDescription(schema, { type: 'boolean' });
   }
   if (schema instanceof z.ZodOptional) {
     return zodTypeToJsonSchema(schema.unwrap());
@@ -44,20 +44,35 @@ function zodTypeToJsonSchema(schema: z.ZodType): Record<string, unknown> {
     return zodTypeToJsonSchema(schema.removeDefault());
   }
   if (schema instanceof z.ZodArray) {
-    return {
+    return withDescription(schema, {
       type: 'array',
       items: zodTypeToJsonSchema(schema.element),
-    };
+    });
   }
   if (schema instanceof z.ZodEnum) {
-    return {
+    return withDescription(schema, {
       type: 'string',
       enum: schema._def.values as string[],
-    };
+    });
   }
   if (schema instanceof z.ZodObject) {
     return zodToJsonSchema(schema);
   }
 
-  return { type: 'string' };
+  return withDescription(schema, { type: 'string' });
+}
+
+function withDescription(
+  schema: z.ZodType,
+  jsonSchema: Record<string, unknown>,
+): Record<string, unknown> {
+  const description = (schema as z.ZodType & { description?: string }).description;
+  if (!description) {
+    return jsonSchema;
+  }
+
+  return {
+    ...jsonSchema,
+    description,
+  };
 }

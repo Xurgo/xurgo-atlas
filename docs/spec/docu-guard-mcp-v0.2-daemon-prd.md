@@ -50,9 +50,28 @@ The following are explicitly out of scope for v0.2:
 
 ---
 
-## 4. Architecture
+## 4. User Stories
 
-### 4.1 High-Level Design
+The following user stories describe the primary use cases driving the v0.2 design:
+
+| # | Story | Priority |
+|---|-------|----------|
+| 1 | As a developer working on multiple projects, I want to run one daemon that serves all my projects so that I don't need to start and manage separate server processes for each project. | P0 |
+| 2 | As an MCP client user, I want to connect via HTTP instead of stdio so that the server can stay running independently of the client's lifecycle and I can restart my editor without losing the server's state. | P0 |
+| 3 | As a developer adopting docu-guard, I want to register projects in a central registry so that the daemon knows which projects under my control exist and where they live on disk. | P0 |
+| 4 | As a daily user, I want to set a default project so that I don't need to specify `projectId` on every tool call when I'm primarily working on one project. | P1 |
+| 5 | As an MCP client that supports Streamable HTTP, I want a standard `POST /mcp` endpoint so that I can use the SDK's built-in HTTP transport without custom configuration. | P0 |
+| 6 | As a security-conscious user, I want the daemon to bind only to localhost by default so that it is not accessible from other machines on the network without explicit configuration. | P0 |
+| 7 | As someone evaluating docu-guard, I want to add or remove projects from the registry without restarting the daemon so that I can manage projects dynamically. | P1 |
+| 8 | As a developer migrating from v0.1, I want all existing stdio commands and MCP tools to work identically so that I can migrate to daemon mode at my own pace with zero disruption. | P0 |
+
+These stories are addressed by the architecture, CLI commands, and registry design described in the following sections.
+
+---
+
+## 5. Architecture
+
+### 5.1 High-Level Design
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -83,7 +102,7 @@ The following are explicitly out of scope for v0.2:
 └─────────────────────────────────────────────────┘
 ```
 
-### 4.2 Transport Separation
+### 5.2 Transport Separation
 
 The existing `server.ts` creates an MCP `Server` instance, registers tools and resources, and connects to a `StdioServerTransport`. In v0.2:
 
@@ -91,7 +110,7 @@ The existing `server.ts` creates an MCP `Server` instance, registers tools and r
 2. **`stdio.ts`** wraps the stdio transport (existing behavior, unchanged).
 3. **`http.ts`** wraps the Streamable HTTP transport using Node.js built-in `http` module (no Express dependency).
 
-### 4.3 Project Resolution Flow (Daemon Mode)
+### 5.3 Project Resolution Flow (Daemon Mode)
 
 ```
 Request arrives with projectId (or uses default)
@@ -114,9 +133,9 @@ Registry.lookup(projectId)
 
 ---
 
-## 5. CLI Commands
+## 6. CLI Commands
 
-### 5.1 New Daemon Command
+### 6.1 New Daemon Command
 
 ```
 docu-guard daemon [options]
@@ -144,7 +163,7 @@ docu-guard daemon --port 3737
 docu-guard daemon --host 0.0.0.0 --port 3737
 ```
 
-### 5.2 New Project Registry Commands
+### 6.2 New Project Registry Commands
 
 ```
 docu-guard project add --project-id <id> --project-root <path>
@@ -173,7 +192,7 @@ docu-guard project show --project-id my-app
 docu-guard project default --project-id my-app
 ```
 
-### 5.3 Updated Stdio Command (Unchanged)
+### 6.3 Updated Stdio Command (Unchanged)
 
 ```
 docu-guard server --project-root <path> --project-id <id>
@@ -183,9 +202,9 @@ The `server` command remains identical to v0.1. No changes to its behavior or in
 
 ---
 
-## 6. Project Registry Design
+## 7. Project Registry Design
 
-### 6.1 Storage Location
+### 7.1 Storage Location
 
 ```
 ~/.config/docu-guard/projects.json
@@ -193,7 +212,7 @@ The `server` command remains identical to v0.1. No changes to its behavior or in
 
 The directory `~/.config/docu-guard/` is created automatically when the first project is added.
 
-### 6.2 Schema
+### 7.2 Schema
 
 ```json
 {
@@ -216,7 +235,7 @@ The directory `~/.config/docu-guard/` is created automatically when the first pr
 }
 ```
 
-### 6.3 Registry Operations
+### 7.3 Registry Operations
 
 | Operation | Method | Description |
 |-----------|--------|-------------|
@@ -227,11 +246,11 @@ The directory `~/.config/docu-guard/` is created automatically when the first pr
 | Set default | `setDefault(id)` | Sets `defaultProjectId`; must reference an existing project |
 | Resolve | `resolve(id)` | Returns `{ projectId, projectRoot }` or throws a descriptive error |
 
-### 6.4 Thread Safety
+### 7.4 Thread Safety
 
 Since Node.js is single-threaded and all MCP tool calls are async/await, there is no concurrent write contention for the registry JSON file. A simple read-write pattern with `fs.promises` is sufficient for v0.2.
 
-### 6.5 Relationship to Per-Project Stores
+### 7.5 Relationship to Per-Project Stores
 
 The registry does **not** replace per-project `.docu-guard/` stores. Each project remains self-contained:
 
@@ -243,9 +262,9 @@ The registry simply maps `projectId` → `projectRoot` so the daemon can load th
 
 ---
 
-## 7. Streamable HTTP Transport Design
+## 8. Streamable HTTP Transport Design
 
-### 7.1 Specification
+### 8.1 Specification
 
 The Streamable HTTP transport follows the [MCP Streamable HTTP Specification](https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/). Key properties:
 
@@ -255,14 +274,14 @@ The Streamable HTTP transport follows the [MCP Streamable HTTP Specification](ht
 - **Streaming support:** The server can return `text/event-stream` for responses that include notifications or multiple messages.
 - **CORS headers:** The server returns appropriate CORS headers for browser-originated requests.
 
-### 7.2 Endpoint
+### 8.2 Endpoint
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/mcp` | MCP JSON-RPC endpoint |
 | `GET` | `/health` | Health check (returns `{ "status": "ok" }`) |
 
-### 7.3 Request Flow
+### 8.3 Request Flow
 
 ```
 POST /mcp
@@ -284,7 +303,7 @@ Accept: application/json, text/event-stream
 }
 ```
 
-### 7.4 Response Flow
+### 8.4 Response Flow
 
 For simple request-response patterns:
 
@@ -314,7 +333,7 @@ event: message
 data: {"jsonrpc":"2.0","id":1,"result":{"content":[]}}
 ```
 
-### 7.5 CORS Configuration
+### 8.5 CORS Configuration
 
 ```
 Access-Control-Allow-Origin: *        (or configurable origin for browser clients)
@@ -325,7 +344,7 @@ Access-Control-Max-Age: 86400
 
 Preflight `OPTIONS` requests are handled automatically.
 
-### 7.6 Server-Sent Events (SSE)
+### 8.6 Server-Sent Events (SSE)
 
 The transport returns `text/event-stream` when:
 
@@ -335,7 +354,7 @@ The transport returns `text/event-stream` when:
 
 For simple request-response without streaming, the transport returns `application/json`.
 
-### 7.7 Error Handling
+### 8.7 Error Handling
 
 | HTTP Status | When |
 |-------------|------|
@@ -346,13 +365,13 @@ For simple request-response without streaming, the transport returns `applicatio
 
 ---
 
-## 8. Security Model
+## 9. Security Model
 
-### 8.1 Default Binding
+### 9.1 Default Binding
 
 The daemon binds to `127.0.0.1` (localhost only) by default. This ensures the daemon is not accessible from other machines on the network.
 
-### 8.2 Explicit Binding to All Interfaces
+### 9.2 Explicit Binding to All Interfaces
 
 Binding to `0.0.0.0` requires the explicit `--host 0.0.0.0` flag. The daemon prints a warning when binding to a non-loopback address:
 
@@ -361,7 +380,7 @@ WARNING: Binding to 0.0.0.0 makes the MCP server accessible to all
 machines on the network. This is unsafe without authentication.
 ```
 
-### 8.3 Origin Header Validation
+### 9.3 Origin Header Validation
 
 The daemon checks the `Origin` header on incoming requests:
 
@@ -370,7 +389,7 @@ The daemon checks the `Origin` header on incoming requests:
 - By default, allowed origins include `null` and any origin matching `http://127.0.0.1:*` or `http://localhost:*`.
 - Custom allowed origins can be added via `--allow-origin` flag.
 
-### 8.4 Authentication (Not in v0.2)
+### 9.4 Authentication (Not in v0.2)
 
 No authentication is required in v0.2 because:
 
@@ -380,15 +399,15 @@ No authentication is required in v0.2 because:
 
 Authentication (e.g., bearer token) will be added in a future version when remote access or multi-user support is introduced.
 
-### 8.5 Host Validation
+### 9.5 Host Validation
 
 The `--host` flag validates that the provided value is a valid IP address or hostname. Invalid values are rejected at startup with a clear error message.
 
 ---
 
-## 9. Compatibility with Stdio Mode
+## 10. Compatibility with Stdio Mode
 
-### 9.1 Guarantees
+### 10.1 Guarantees
 
 1. **All v0.1 CLI commands work identically.** `docu-guard server`, `docu-guard init`, `docu-guard list`, `docu-guard history`, `docu-guard export` — none of these change.
 2. **All MCP tools work identically.** `docs.read`, `docs.list`, `docs.create_branch`, `docs.propose_patch`, `docs.preview_diff`, `docs.commit_patch`, `docs.history`, `docs.restore_file`, `docs.export` — all behavior, inputs, and outputs are preserved.
@@ -396,13 +415,13 @@ The `--host` flag validates that the provided value is a valid IP address or hos
 4. **Per-project `.docu-guard/` stores are unchanged.** No migration is required.
 5. **Stdio and HTTP serve the same tools/resources.** The registration is shared; both transports expose the same interface.
 
-### 9.2 What Changes
+### 10.2 What Changes
 
 1. `src/mcp/server.ts` is refactored into `src/mcp/create-server.ts` (shared registration) + `src/mcp/stdio.ts` (transport wrapper).
 2. The `Project` class gets a static cache or the daemon creates `Project` instances per request (lazy-loaded, cached in memory for the daemon lifetime).
 3. A new `Registry` class is introduced.
 
-### 9.3 Migration Path
+### 10.3 Migration Path
 
 Users of v0.1 do not need to change anything. They can continue using `docu-guard server --project-root .` as before. The v0.2 daemon mode is purely additive.
 
@@ -415,7 +434,7 @@ To migrate from a single stdio server to the daemon:
 
 ---
 
-## 10. Acceptance Criteria
+## 11. Acceptance Criteria
 
 v0.2 is complete when:
 
@@ -459,7 +478,7 @@ v0.2 is complete when:
 
 ---
 
-## 11. Test Plan
+## 12. Test Plan
 
 ### Unit Tests
 
@@ -483,7 +502,7 @@ All 25 v0.1 tests must pass with no changes.
 
 ---
 
-## 12. Error Messages
+## 13. Error Messages
 
 All error messages should follow the existing v0.1 style: clear, actionable, and specific.
 
@@ -498,7 +517,7 @@ All error messages should follow the existing v0.1 style: clear, actionable, and
 
 ---
 
-## 13. Future Considerations (Post-v0.2)
+## 14. Future Considerations (Post-v0.2)
 
 1. **Bearer token authentication** for non-localhost binding.
 2. **TLS/HTTPS support** for secure remote access.
@@ -511,7 +530,7 @@ All error messages should follow the existing v0.1 style: clear, actionable, and
 
 ---
 
-## 14. Summary
+## 15. Summary
 
 v0.2 transforms `docu-guard-mcp` from a single-project stdio server into a multi-project daemon with Streamable HTTP transport, while preserving full backward compatibility. The key additions are:
 

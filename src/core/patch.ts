@@ -1,5 +1,6 @@
 import { Policy } from './policy.js';
 import { GitStore } from './git-store.js';
+import { isPathOwned } from './ownership.js';
 import { assessPatchRisk, RiskAssessment } from './risk.js';
 
 export interface PatchProposal {
@@ -14,8 +15,18 @@ export interface PatchProposal {
 
 export interface PatchValidation {
   valid: boolean;
+  failureType?: 'stale' | 'invalid';
+  applyable?: boolean;
   error?: string;
   risk?: RiskAssessment;
+  formatError?: PatchFormatError;
+}
+
+export interface PatchFormatError {
+  code: 'invalid_patch_format';
+  expectedFormat: 'unified_diff';
+  receivedFormat: 'apply_patch' | 'empty' | 'prose' | 'unknown';
+  hint: string;
 }
 
 /**
@@ -37,7 +48,20 @@ export async function validatePatch(
   if (missingMetadata.length > 0) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: false,
       error: `Missing required metadata: ${missingMetadata.join(', ')}`,
+    };
+  }
+
+  const formatError = getPatchFormatError(patch);
+  if (formatError) {
+    return {
+      valid: false,
+      failureType: 'invalid',
+      applyable: false,
+      error: buildUnifiedDiffRequirementMessage(formatError),
+      formatError,
     };
   }
 
@@ -45,15 +69,9 @@ export async function validatePatch(
   if (isPathTraversal(path)) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: false,
       error: `Path traversal detected: "${path}" is outside the project scope`,
-    };
-  }
-
-  // Validate the path is tracked documentation
-  if (!policy.isPathProtected(path)) {
-    return {
-      valid: false,
-      error: `Path "${path}" is not in the list of tracked documentation paths`,
     };
   }
 
@@ -62,21 +80,54 @@ export async function validatePatch(
   if (!branchExists) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: false,
       error: `Branch "${branch}" does not exist. Create it with docs.create_branch first.`,
+    };
+  }
+
+  // Validate the path is an Atlas-owned managed document on this branch.
+  if (!(await isPathOwned(gitStore, branch, path))) {
+    return {
+      valid: false,
+      failureType: 'invalid',
+      applyable: false,
+      error: `Path "${path}" is not in the list of Atlas-owned managed documents`,
     };
   }
 
   // Validate baseRevision matches current file revision on the selected branch
   const currentRevision = await gitStore.getFileRevision(branch, path);
+  if (!currentRevision) {
+    return {
+      valid: false,
+      failureType: 'invalid',
+      applyable: false,
+      error: `File "${path}" not found on branch "${branch}"`,
+    };
+  }
+
   if (currentRevision && currentRevision !== baseRevision) {
     return {
       valid: false,
+      failureType: 'stale',
+      applyable: false,
       error: `Base revision mismatch for "${path}" on branch "${branch}": expected ${baseRevision}, but current revision is ${currentRevision}. The file has been modified since you read it. Re-read the file and re-create your patch.`,
     };
   }
 
   // Read the current file content for patch testing
   const originalContent = (await gitStore.readFile(branch, path)) ?? '';
+
+  const applyCheck = await gitStore.validatePatchApplyability(branch, patch, [path]);
+  if (!applyCheck.applyable) {
+    return {
+      valid: false,
+      failureType: 'invalid',
+      applyable: false,
+      error: `Patch does not apply cleanly: ${applyCheck.error ?? 'Unknown git apply error'}`,
+    };
+  }
 
   // Attempt to apply the patch to validate it applies cleanly
   let newContent: string;
@@ -85,6 +136,8 @@ export async function validatePatch(
   } catch (err: unknown) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: false,
       error: `Patch does not apply cleanly: ${(err as Error).message}`,
     };
   }
@@ -93,6 +146,8 @@ export async function validatePatch(
   if (policy.isOperationForbidden('silent_delete') && newContent.trim().length === 0 && originalContent.trim().length > 0) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: true,
       error: 'Patch results in an empty file. Silent deletion is forbidden without approval.',
     };
   }
@@ -100,6 +155,8 @@ export async function validatePatch(
   if (policy.isOperationForbidden('delete_protected_doc_without_approval') && newContent.trim().length === 0 && policy.isPathProtected(path)) {
     return {
       valid: false,
+      failureType: 'invalid',
+      applyable: true,
       error: 'Deleting a protected document requires special approval.',
     };
   }
@@ -122,6 +179,8 @@ export async function validatePatch(
     if (!hasValidReference) {
       return {
         valid: false,
+        failureType: 'invalid',
+        applyable: true,
         error:
           'Changes to AGENTS.md require an intent or summary that explicitly references one of: ' +
           'AGENTS.md, agent instructions, documentation safety, docs safety, ' +
@@ -136,8 +195,67 @@ export async function validatePatch(
 
   return {
     valid: true,
+    applyable: true,
     risk,
   };
+}
+
+export function getPatchFormatError(patch: string): PatchFormatError | null {
+  const trimmedPatch = patch.trim();
+
+  if (trimmedPatch.length === 0) {
+    return {
+      code: 'invalid_patch_format',
+      expectedFormat: 'unified_diff',
+      receivedFormat: 'empty',
+      hint: 'Provide a standard unified diff with ---/+++ file headers and at least one @@ hunk.',
+    };
+  }
+
+  if (
+    /^\*\*\* Begin Patch$/m.test(patch) ||
+    /^\*\*\* Update File:/m.test(patch)
+  ) {
+    return {
+      code: 'invalid_patch_format',
+      expectedFormat: 'unified_diff',
+      receivedFormat: 'apply_patch',
+      hint: 'docs.propose_patch accepts standard unified diffs only. Do not send apply_patch blocks such as *** Begin Patch or *** Update File:.',
+    };
+  }
+
+  const hasOldFileHeader = /^--- .+/m.test(patch);
+  const hasNewFileHeader = /^\+\+\+ .+/m.test(patch);
+  const hasHunkHeader = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/m.test(patch);
+
+  if (hasOldFileHeader && hasNewFileHeader && hasHunkHeader) {
+    return null;
+  }
+
+  const receivedFormat = /^[A-Za-z0-9"'`]/.test(trimmedPatch)
+    ? 'prose'
+    : 'unknown';
+
+  return {
+    code: 'invalid_patch_format',
+    expectedFormat: 'unified_diff',
+    receivedFormat,
+    hint: 'Use unified diff syntax with ---/+++ file headers and @@ hunks that describe line-level additions and removals.',
+  };
+}
+
+export function buildUnifiedDiffRequirementMessage(
+  formatError: PatchFormatError,
+): string {
+  const reasons: Record<PatchFormatError['receivedFormat'], string> = {
+    apply_patch:
+      'Received apply_patch-style input instead of a unified diff.',
+    empty: 'Received an empty or whitespace-only patch body.',
+    prose: 'Received prose or non-diff text instead of patch content.',
+    unknown: 'Received patch content that does not match unified diff syntax.',
+  };
+
+  return `docs.propose_patch requires a standard unified diff patch. ${reasons[formatError.receivedFormat]} ${formatError.hint}`;
 }
 
 /**
