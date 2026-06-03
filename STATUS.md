@@ -2,10 +2,9 @@
 docuGuard.type: status
 statusVersion: 1
 priority: high
-currentFocus: "Create-only document creation remains complete, and guarded patch preview/commit validation now rejects non-applyable proposals before commit"
+currentFocus: "Packaging now ships a minimal allowlisted runtime package, and guarded patch writes are narrowed to curated-owned docs while prior validation protections remain intact"
 nextActions:
   - "Plan the remaining CLI/internal/config-storage migration work without changing the docs.* namespace"
-  - "Decide when curated Atlas ownership should also narrow docs.propose_patch write scope"
   - "Evaluate whether future document write modes should expand beyond create-only without adding adopt/update/delete prematurely"
 blockers:
 doNotDo:
@@ -21,14 +20,18 @@ lastUpdated: "2026-06-03"
 # Project Status
 
 ## Project
-Xurgo Atlas is the project-context and documentation-safety MCP. Package metadata now uses `xurgo-atlas`, daemon lifecycle commands and curated Atlas document ownership are implemented, guarded create-only document proposals now support adding new Atlas Markdown docs, and guarded patch previews now validate stored proposal applyability before commit.
+Xurgo Atlas is the project-context and documentation-safety MCP. Package metadata now uses `xurgo-atlas`, published npm contents are explicitly allowlisted, daemon lifecycle commands and curated Atlas document ownership are implemented, guarded create-only document proposals support adding new Atlas Markdown docs, and guarded patch preview/commit validation rejects malformed or non-applyable proposals before commit.
 
 ## Current Focus
-The v0.4 context tools, minimal read-only REST API, and hardened read-only web UI remain stabilized as a private milestone. Guarded document creation now also supports `docs.propose_document` in create-only mode: proposals may create new Markdown files only under `docs/atlas/**`, must update `docs/manifest.yml` in the same proposal, preview both file changes together, and commit both managed-store changes atomically. Guarded patch previews now dry-run check applyability with `git apply --check --unidiff-zero` against the managed branch/worktree state, reject empty or non-unified patch bodies during preview, and return structured preview errors that distinguish invalid patches from stale base revisions. `docs.commit_patch` rejects corrupt or non-applyable patches and marks them rejected instead of stale. Validation still rejects traversal, paths outside `docs/atlas/**`, non-Markdown targets, existing files, duplicate manifest entries, and missing or invalid `docs/manifest.yml`. Proposal metadata now supports narrow `document_create` proposals, internal unified diff generation is used instead of shelling out to an external diff tool, `docs.propose_patch` remains backward-compatible, and no adopt/update/delete document tools were added.
+The v0.4 context tools, minimal read-only REST API, and hardened read-only web UI remain stabilized as a private milestone. The latest completed packaging change now defines `package.json` `files` so published output is a minimal runtime package of `README.md`, `package.json`, and `dist/**`, and `npm pack` no longer falls back to `.gitignore`. The latest guarded write-scope change now uses curated ownership through `isPathOwned(...)` when evaluating `docs.propose_patch` eligibility, so tracked but unowned files are rejected. Existing protections remain intact: traversal, malformed/prose/`apply_patch` input, stale base revisions, and non-applyable patch validation are still enforced, `.docs-policy.yml` protected-path risk and approval behavior still layers on top, and the `docs.propose_document` create-only flow is unchanged.
+
+## Recently Completed
+- `ac61527 chore: define npm package contents` explicitly allowlists published package contents through `package.json` `files`, keeping the runtime package limited to `README.md`, `package.json`, and `dist/**`.
+- `041aa28 fix: align guarded patch scope with curated ownership` narrows `docs.propose_patch` write eligibility to curated-owned docs via `isPathOwned(...)` and rejects patches to tracked but unowned files.
+- Validation passed for both changes with `npm test`, `npm run build`, and `npm_config_cache=/tmp/xurgo-atlas-npm-cache npm pack --dry-run`.
 
 ## Next Actions
 - Plan the remaining CLI/internal/config-storage migration work after the package metadata rename
-- Decide when curated Atlas ownership should also narrow `docs.propose_patch` write scope beyond current policy-protected behavior
 - Evaluate whether any future guarded document write modes should extend beyond create-only without adding adopt/update/delete prematurely
 - Continue to defer proposal/approval UI and `docs.merge_branch` until separately planned
 
