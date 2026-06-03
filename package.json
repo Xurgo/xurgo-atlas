@@ -12,6 +12,9 @@
     ".": "./dist/index.js",
     "./package.json": "./package.json"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
