@@ -2,11 +2,11 @@
 docuGuard.type: status
 statusVersion: 1
 priority: high
-currentFocus: "Daemon lifecycle commands and curated Atlas document ownership are complete"
+currentFocus: "Create-only docs.propose_document support is complete alongside guarded Atlas document creation"
 nextActions:
   - "Plan the remaining CLI/internal/config-storage migration work without changing the docs.* namespace"
   - "Decide when curated Atlas ownership should also narrow docs.propose_patch write scope"
-  - "Keep docs.list compact/role support as a smaller follow-up if needed for orientation"
+  - "Evaluate whether future document write modes should expand beyond create-only without adding adopt/update/delete prematurely"
 blockers:
 doNotDo:
   - "Do not edit STATUS.md, manifest.yml, or .docs-policy.yml directly"
@@ -15,21 +15,21 @@ relatedDocs:
   - docs/manifest.yml
   - docs/implementation-checklist.md
   - docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md
-lastUpdated: "2026-06-02"
+lastUpdated: "2026-06-03"
 ---
 
 # Project Status
 
 ## Project
-Xurgo Atlas is the project-context and documentation-safety MCP. Package metadata now uses `xurgo-atlas`, daemon lifecycle commands and curated Atlas document ownership are implemented, and transitional CLI/internal naming remains where compatibility still matters.
+Xurgo Atlas is the project-context and documentation-safety MCP. Package metadata now uses `xurgo-atlas`, daemon lifecycle commands and curated Atlas document ownership are implemented, and guarded create-only document proposals now support adding new Atlas Markdown docs without broadening the existing patch workflow.
 
 ## Current Focus
-The v0.4 context tools, minimal read-only REST API, and hardened read-only web UI are implemented and stabilized as a private milestone. The daemon now supports `xurgo-atlas daemon start`, `xurgo-atlas daemon stop`, and `xurgo-atlas daemon status` while preserving the original foreground `xurgo-atlas daemon` behavior, and its PID file lives under managed runtime data outside the repo working tree. Curated Atlas document ownership is also implemented separately from `.docs-policy.yml` `protected_paths`: read-oriented surfaces now use canonical Atlas-owned paths plus `docs/atlas/**` and explicit `documents[].path` manifest entries for `docs.list`, `docs.read`, `docs.read_section`, `docs.context_pack`, MCP resources, REST reads, and the CLI list command. The package metadata rename remains complete: the package name is `xurgo-atlas`, the bins are `xurgo-atlas` and temporary legacy alias `docu-guard`, the MCP namespace remains `docs.*`, and config/storage paths remain unchanged.
+The v0.4 context tools, minimal read-only REST API, and hardened read-only web UI remain stabilized as a private milestone. Guarded document creation now also supports `docs.propose_document` in create-only mode: proposals may create new Markdown files only under `docs/atlas/**`, must update `docs/manifest.yml` in the same proposal, preview both file changes together, and commit both managed-store changes atomically. Validation rejects traversal, paths outside `docs/atlas/**`, non-Markdown targets, existing files, duplicate manifest entries, and missing or invalid `docs/manifest.yml`. Proposal metadata now supports narrow `document_create` proposals, internal unified diff generation is used instead of shelling out to an external diff tool, `docs.propose_patch` remains backward-compatible, and no adopt/update/delete document tools were added.
 
 ## Next Actions
 - Plan the remaining CLI/internal/config-storage migration work after the package metadata rename
 - Decide when curated Atlas ownership should also narrow `docs.propose_patch` write scope beyond current policy-protected behavior
-- Keep `docs.list` compact/role support as a smaller follow-up if needed for orientation
+- Evaluate whether any future guarded document write modes should extend beyond create-only without adding adopt/update/delete prematurely
 - Continue to defer proposal/approval UI and `docs.merge_branch` until separately planned
 
 ## Blockers

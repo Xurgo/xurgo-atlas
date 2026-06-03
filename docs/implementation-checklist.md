@@ -1,7 +1,7 @@
 # docu-guard-mcp — Implementation Checklist
 
-> Last updated: 2026-06-02 (daemon lifecycle and curated ownership documented)
-> Status: **v0.4 private milestone stabilized; daemon lifecycle and curated ownership updates landed**
+> Last updated: 2026-06-03 (create-only `docs.propose_document` complete)
+> Status: **v0.4 context surfaces are stabilized, and guarded Atlas document creation now supports create-only proposals**
 
 ---
 
@@ -37,6 +37,7 @@
 | `docs.context_pack` | ✅ Complete | Assembles STATUS.md, AGENTS.md, manifest data, requested sections/paths, and manifest-guided owned docs within a total `maxChars` budget |
 | `docs.create_branch` | ✅ Complete | `from` parameter, returns `created: true` |
 | `docs.propose_patch` | ✅ Complete | Stores proposal, returns `proposalId` |
+| `docs.propose_document` | ✅ Complete | Create-only mode (`"create"`) for new Markdown docs under `docs/atlas/**`; proposal also updates `docs/manifest.yml` |
 | `docs.preview_diff` | ✅ Complete | Looks up by `proposalId`, returns diff + risk |
 | `docs.commit_patch` | ✅ Complete | Commits by `proposalId`, accepts `actor`, `riskOverride` |
 | `docs.history` | ✅ Complete | Unified history array (git + events) |
