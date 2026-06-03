@@ -12,6 +12,7 @@ import { GitStore } from '../src/core/git-store.js';
 import { EventLog } from '../src/core/events.js';
 import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/patch.js';
 import { assessPatchRisk } from '../src/core/risk.js';
+import { createUnifiedDiffForReplacement } from '../src/core/unified-diff.js';
 import { createMcpServer } from '../src/mcp/create-server.js';
 import { parseFrontMatter, handleManifest, handleRead, handleReadSection, handleContextPack, handleProposePatch, handleProposeDocument, handlePreviewDiff, handleCommitPatch } from '../src/mcp/tools.js';
 import YAML from 'yaml';
@@ -880,6 +881,135 @@ documents:
     expect(committed.content).toContain('Preview Commit Flow');
   });
 
+  it('should accept patch proposals for curated owned documents', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'manifest.yml'),
+      `version: 1
+documents:
+  - path: docs/listed.md
+    role: notes
+    summary: Listed doc
+`,
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'listed.md'),
+      '# Listed\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'docs/listed.md');
+    expect(content).toBe('# Listed\n');
+    expect(revision).toBeTruthy();
+
+    const patch = createUnifiedDiffForReplacement(
+      'docs/listed.md',
+      content ?? '',
+      '# Listed\n\nOwned update.\n',
+    );
+
+    const result = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'docs/listed.md',
+      baseRevision: revision,
+      patch,
+      intent: 'Update a curated owned document',
+      summary: 'Owned doc patch should be accepted',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.valid).toBe(true);
+    expect(data.changedFiles).toEqual(['docs/listed.md']);
+  });
+
+  it('should reject patch proposals for tracked but unowned files', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'manifest.yml'),
+      `version: 1
+documents:
+  - path: docs/listed.md
+    role: notes
+    summary: Listed doc
+`,
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'listed.md'),
+      '# Listed\n',
+      'utf-8',
+    );
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'unlisted.md'),
+      '# Unlisted\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    expect(await project.gitStore.readFile('main', 'docs/unlisted.md')).toBe(
+      '# Unlisted\n',
+    );
+
+    const result = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'docs/unlisted.md',
+      baseRevision: 'not-used-for-unowned-paths',
+      patch: createSimplePatch(
+        '# Unlisted\n',
+        '# Unlisted\n\nThis should fail.\n',
+        'docs/unlisted.md',
+      ),
+      intent: 'Try to update a tracked file outside curated ownership',
+      summary: 'Unowned tracked file should be rejected',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.valid).toBe(false);
+    expect(data.error).toContain('Atlas-owned managed documents');
+  });
+
+  it('should reject traversal paths before ownership or patch validation', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: '../secrets.md',
+      baseRevision: 'not-used-for-traversal-paths',
+      patch: createSimplePatch('', '# Secret\n', '../secrets.md'),
+      intent: 'Try to escape the managed docs root',
+      summary: 'Traversal path should be rejected',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.valid).toBe(false);
+    expect(data.error).toContain('Path traversal detected');
+  });
+
   it('should still reject untracked paths in the guarded proposal workflow', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
@@ -901,7 +1031,7 @@ documents:
     expect(result.isError).toBe(true);
     const data = JSON.parse(result.content[0].text);
     expect(data.valid).toBe(false);
-    expect(data.error).toContain('not in the list of tracked documentation paths');
+    expect(data.error).toContain('Atlas-owned managed documents');
   });
 
   it('should reject apply_patch-style docs.propose_patch input before storing a proposal', async () => {
@@ -1055,6 +1185,37 @@ documents:
       summary: 'Short summary',
       priority: 'normal',
     });
+  });
+
+  it('should keep docs.propose_document create-only flow unchanged', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/ownership-regression.md',
+      content: '# Ownership Regression\n\nAtlas content.\n',
+      document: {
+        role: 'guide',
+        summary: 'Create-only flow should still work',
+      },
+      intent: 'Verify create-only Atlas document proposals still work',
+      summary: 'Create-only docs.propose_document remains unchanged',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.valid).toBe(true);
+    expect(data.changedFiles).toEqual([
+      'docs/atlas/ownership-regression.md',
+      'docs/manifest.yml',
+    ]);
   });
 
   it('should preview a create-only document proposal with both the new file and manifest diff', async () => {
