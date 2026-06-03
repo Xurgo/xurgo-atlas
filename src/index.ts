@@ -39,13 +39,17 @@ COMMANDS:
     --config-dir <path>     Config directory (default: ~/.config/docu-guard)
     --data-dir <path>       Data directory (default: ~/.local/share/docu-guard)
 
-  daemon     Start the daemon (HTTP MCP server)
+  daemon     Manage the daemon (HTTP MCP server)
+    start                   Start the daemon in the background
+    stop                    Stop the background daemon
+    status                  Show background daemon status
     --host <host>           Host to bind to (default: 127.0.0.1)
     --port <port>           Port to listen on (default: 3737)
     --config-dir <path>     Config directory (default: ~/.config/docu-guard)
     --data-dir <path>       Data directory (default: ~/.local/share/docu-guard)
     --project-id <id>       Optional: register a project on startup
     --project-root <path>   Optional: project root (used with --project-id)
+    Without a subcommand, starts the foreground daemon exactly as before.
 
   project    Manage registered projects
     add --project-id <id> --project-root <path>
@@ -70,6 +74,8 @@ EXAMPLES:
   xurgo-atlas init --project-root . --project-id my-project
   xurgo-atlas server --project-root .
   xurgo-atlas daemon
+  xurgo-atlas daemon start
+  xurgo-atlas daemon status
   xurgo-atlas project add --project-id my-app --project-root /path/to/my-app
   xurgo-atlas project list
   xurgo-atlas list
@@ -80,41 +86,44 @@ Legacy compatibility alias remains: docu-guard
 `);
 }
 
-function parseArgv(): Record<string, string> {
-  const args: Record<string, string> = {};
-  let i = 2; // skip "node" and "script"
+function parseArgv(argv: string[]): Record<string, string | string[]> {
+  const args: Record<string, string | string[]> = { _: [] };
+  let i = 0;
 
-  while (i < process.argv.length) {
-    const arg = process.argv[i];
+  while (i < argv.length) {
+    const arg = argv[i];
 
-    if (arg === '--project-root' && i + 1 < process.argv.length) {
-      args['project-root'] = process.argv[i + 1];
+    if (arg === '--project-root' && i + 1 < argv.length) {
+      args['project-root'] = argv[i + 1];
       i += 2;
-    } else if (arg === '--project-id' && i + 1 < process.argv.length) {
-      args['project-id'] = process.argv[i + 1];
+    } else if (arg === '--project-id' && i + 1 < argv.length) {
+      args['project-id'] = argv[i + 1];
       i += 2;
-    } else if (arg === '--branch' && i + 1 < process.argv.length) {
-      args['branch'] = process.argv[i + 1];
+    } else if (arg === '--branch' && i + 1 < argv.length) {
+      args['branch'] = argv[i + 1];
       i += 2;
-    } else if (arg === '--target-dir' && i + 1 < process.argv.length) {
-      args['target-dir'] = process.argv[i + 1];
+    } else if (arg === '--target-dir' && i + 1 < argv.length) {
+      args['target-dir'] = argv[i + 1];
       i += 2;
-    } else if (arg === '--host' && i + 1 < process.argv.length) {
-      args['host'] = process.argv[i + 1];
+    } else if (arg === '--host' && i + 1 < argv.length) {
+      args['host'] = argv[i + 1];
       i += 2;
-    } else if (arg === '--port' && i + 1 < process.argv.length) {
-      args['port'] = process.argv[i + 1];
+    } else if (arg === '--port' && i + 1 < argv.length) {
+      args['port'] = argv[i + 1];
       i += 2;
-    } else if (arg === '--config-dir' && i + 1 < process.argv.length) {
-      args['config-dir'] = process.argv[i + 1];
+    } else if (arg === '--config-dir' && i + 1 < argv.length) {
+      args['config-dir'] = argv[i + 1];
       i += 2;
-    } else if (arg === '--data-dir' && i + 1 < process.argv.length) {
-      args['data-dir'] = process.argv[i + 1];
+    } else if (arg === '--data-dir' && i + 1 < argv.length) {
+      args['data-dir'] = argv[i + 1];
+      i += 2;
+    } else if (arg === '--pid-file' && i + 1 < argv.length) {
+      args['pid-file'] = argv[i + 1];
       i += 2;
     } else if (arg.startsWith('--')) {
       i++;
     } else {
-      args['_default'] = arg;
+      (args._ as string[]).push(arg);
       i++;
     }
   }
@@ -131,13 +140,14 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const args = parseArgv();
-  const projectRoot = args['project-root'] || process.cwd();
-  const projectId = args['project-id'] || '';
-  const branch = args['branch'] || 'main';
-  const targetDir = args['target-dir'];
-  const configDir = args['config-dir'];
-  const dataDir = args['data-dir'];
+  const args = parseArgv(process.argv.slice(3));
+  const positionals = (args._ as string[]) ?? [];
+  const projectRoot = (args['project-root'] as string | undefined) || process.cwd();
+  const projectId = (args['project-id'] as string | undefined) || '';
+  const branch = (args['branch'] as string | undefined) || 'main';
+  const targetDir = args['target-dir'] as string | undefined;
+  const configDir = args['config-dir'] as string | undefined;
+  const dataDir = args['data-dir'] as string | undefined;
 
   switch (command) {
     case 'init': {
@@ -161,12 +171,14 @@ async function main(): Promise<void> {
 
     case 'daemon': {
       await daemonCommand({
-        host: args['host'] || '127.0.0.1',
-        port: parseInt(args['port'] || '3737', 10),
+        action: positionals[0],
+        host: (args['host'] as string | undefined) || '127.0.0.1',
+        port: parseInt((args['port'] as string | undefined) || '3737', 10),
         configDir,
         dataDir,
-        projectId: args['project-id'],
-        projectRoot: args['project-root'],
+        projectId: args['project-id'] as string | undefined,
+        projectRoot: args['project-root'] as string | undefined,
+        pidFile: args['pid-file'] as string | undefined,
       });
       break;
     }
@@ -236,7 +248,7 @@ async function main(): Promise<void> {
     }
 
     case 'history': {
-      const filePath = args['_default'];
+      const filePath = positionals[0];
       if (!filePath) {
         console.error('Error: path argument is required for history');
         console.log('Usage: xurgo-atlas history <path>');
