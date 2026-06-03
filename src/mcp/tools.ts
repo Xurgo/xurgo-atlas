@@ -860,7 +860,7 @@ export async function handleProposePatch(
   };
 }
 
-async function handlePreviewDiff(
+export async function handlePreviewDiff(
   project: Project,
   rawArgs: Record<string, unknown>,
 ) {

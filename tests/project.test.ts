@@ -11,7 +11,7 @@ import { GitStore } from '../src/core/git-store.js';
 import { EventLog } from '../src/core/events.js';
 import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/patch.js';
 import { assessPatchRisk } from '../src/core/risk.js';
-import { parseFrontMatter, handleManifest, handleRead, handleReadSection, handleContextPack, handleProposePatch, handleCommitPatch } from '../src/mcp/tools.js';
+import { parseFrontMatter, handleManifest, handleRead, handleReadSection, handleContextPack, handleProposePatch, handlePreviewDiff, handleCommitPatch } from '../src/mcp/tools.js';
 import YAML from 'yaml';
 
 let tmpDir: string;
@@ -447,6 +447,58 @@ risk_rules:
 
     const { content: committedContent } = await project.readFile('main', 'STATUS.md');
     expect(committedContent).toContain('Validating guarded STATUS.md updates.');
+  });
+
+  it('should return a reviewable diff for a pending proposal', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'STATUS.md');
+    expect(content).not.toBeNull();
+    expect(revision).toBeTruthy();
+
+    const updated = content!.replace(
+      '<!-- What is the team working on right now? -->',
+      'Preview diff test update.',
+    );
+    const patch = createSimplePatch(content!, updated, 'STATUS.md');
+
+    const proposeResult = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      baseRevision: revision,
+      patch,
+      intent: 'Preview a guarded STATUS.md update before commit',
+      summary: 'Capture diff output for guarded review',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+    });
+
+    expect(previewResult.isError).toBeFalsy();
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview).toMatchObject({
+      proposalId: proposal.proposalId,
+      projectId: 'test-project',
+      path: 'STATUS.md',
+      branch: 'main',
+      summary: 'Capture diff output for guarded review',
+      riskLevel: 'high',
+      requiresApproval: true,
+    });
+    expect(preview.diff).toContain('--- a/STATUS.md');
+    expect(preview.diff).toContain('+++ b/STATUS.md');
+    expect(preview.diff).toContain('Preview diff test update.');
   });
 
   it('should still reject untracked paths in the guarded proposal workflow', async () => {
