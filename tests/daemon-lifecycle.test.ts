@@ -69,6 +69,17 @@ describe('daemon lifecycle helpers', () => {
       '/tmp/project',
     ]);
   });
+
+  it('keeps daemon runtime files under the effective data root', () => {
+    const storage = new StoragePaths({
+      configDir: '/tmp/config',
+      dataDir: '/tmp/data',
+    });
+
+    expect(getDaemonPidFilePath(storage)).toBe(
+      path.join('/tmp/data', 'runtime', 'xurgo-atlas-daemon.json'),
+    );
+  });
 });
 
 describe('daemon lifecycle commands', () => {

@@ -25,6 +25,92 @@ export interface StorageConfig {
   dataDir?: string;
 }
 
+export interface StorageRootCandidates {
+  atlasConfigDir: string;
+  atlasDataDir: string;
+  legacyConfigDir: string;
+  legacyDataDir: string;
+}
+
+export interface ResolvedStorageRoots {
+  configDir: string;
+  dataDir: string;
+  configSource: 'explicit' | 'legacy-default';
+  dataSource: 'explicit' | 'legacy-default';
+  candidates: StorageRootCandidates;
+}
+
+/**
+ * Normalize a storage root from CLI/config input into an absolute path.
+ */
+export function normalizeStorageRoot(root: string): string {
+  return path.resolve(expandTilde(root));
+}
+
+function resolveXdgAppRoot(
+  xdgHome: string | undefined,
+  fallbackSegments: string[],
+  appName: string,
+): string {
+  if (xdgHome) {
+    return path.join(xdgHome, appName);
+  }
+  return path.join(os.homedir(), ...fallbackSegments, appName);
+}
+
+/**
+ * Return the atlas and legacy storage-root candidates without choosing
+ * between them. The current slice still selects legacy defaults unless
+ * explicit overrides are supplied.
+ */
+export function getStorageRootCandidates(): StorageRootCandidates {
+  return {
+    atlasConfigDir: resolveXdgAppRoot(
+      process.env.XDG_CONFIG_HOME,
+      ['.config'],
+      'xurgo-atlas',
+    ),
+    atlasDataDir: resolveXdgAppRoot(
+      process.env.XDG_DATA_HOME,
+      ['.local', 'share'],
+      'xurgo-atlas',
+    ),
+    legacyConfigDir: resolveXdgAppRoot(
+      process.env.XDG_CONFIG_HOME,
+      ['.config'],
+      'docu-guard',
+    ),
+    legacyDataDir: resolveXdgAppRoot(
+      process.env.XDG_DATA_HOME,
+      ['.local', 'share'],
+      'docu-guard',
+    ),
+  };
+}
+
+/**
+ * Resolve the effective config/data roots for the current process.
+ *
+ * This slice preserves the current legacy defaults. Atlas-named roots are
+ * exposed as candidates for a later migration step, but are not selected
+ * automatically yet.
+ */
+export function resolveStorageRoots(config: StorageConfig = {}): ResolvedStorageRoots {
+  const candidates = getStorageRootCandidates();
+
+  return {
+    configDir: config.configDir != null
+      ? normalizeStorageRoot(config.configDir)
+      : candidates.legacyConfigDir,
+    dataDir: config.dataDir != null
+      ? normalizeStorageRoot(config.dataDir)
+      : candidates.legacyDataDir,
+    configSource: config.configDir != null ? 'explicit' : 'legacy-default',
+    dataSource: config.dataDir != null ? 'explicit' : 'legacy-default',
+    candidates,
+  };
+}
+
 /**
  * Centralised path resolution for docu-guard managed storage.
  *
@@ -36,12 +122,9 @@ export class StoragePaths {
   public readonly dataDir: string;
 
   constructor(config?: StorageConfig) {
-    this.configDir = config?.configDir != null
-      ? path.resolve(expandTilde(config.configDir))
-      : getDefaultConfigDir();
-    this.dataDir = config?.dataDir != null
-      ? path.resolve(expandTilde(config.dataDir))
-      : getDefaultDataDir();
+    const roots = resolveStorageRoots(config);
+    this.configDir = roots.configDir;
+    this.dataDir = roots.dataDir;
   }
 
   /** Path to the project registry file. */
@@ -70,11 +153,7 @@ export class StoragePaths {
  * ~/.config/docu-guard.
  */
 export function getDefaultConfigDir(): string {
-  const xdg = process.env.XDG_CONFIG_HOME;
-  if (xdg) {
-    return path.join(xdg, 'docu-guard');
-  }
-  return path.join(os.homedir(), '.config', 'docu-guard');
+  return resolveStorageRoots().configDir;
 }
 
 /**
@@ -82,9 +161,5 @@ export function getDefaultConfigDir(): string {
  * ~/.local/share/docu-guard.
  */
 export function getDefaultDataDir(): string {
-  const xdg = process.env.XDG_DATA_HOME;
-  if (xdg) {
-    return path.join(xdg, 'docu-guard');
-  }
-  return path.join(os.homedir(), '.local', 'share', 'docu-guard');
+  return resolveStorageRoots().dataDir;
 }
