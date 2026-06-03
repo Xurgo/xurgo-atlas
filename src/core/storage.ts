@@ -246,7 +246,7 @@ export function resolveStorageRoots(config: StorageConfig = {}): ResolvedStorage
 }
 
 /**
- * Centralised path resolution for docu-guard managed storage.
+ * Centralised path resolution for Atlas-managed storage.
  *
  * All daemon-managed state lives under the configured data directory.
  * Configuration (registry) lives under the configured config directory.
