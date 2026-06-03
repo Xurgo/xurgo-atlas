@@ -1,5 +1,7 @@
 protected_paths:
+  - STATUS.md
   - AGENTS.md
+  - .docs-policy.yml
   - docs/**
   - docs/spec/**
   - docs/implementation-checklist.md

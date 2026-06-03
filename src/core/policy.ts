@@ -7,7 +7,9 @@ import YAML from 'yaml';
  */
 export const DEFAULT_POLICY: PolicyConfig = {
   protected_paths: [
+    'STATUS.md',
     'AGENTS.md',
+    '.docs-policy.yml',
     'docs/**',
     'docs/spec/**',
     'docs/implementation-checklist.md',
@@ -37,6 +39,12 @@ export const DEFAULT_POLICY: PolicyConfig = {
   },
 };
 
+const REQUIRED_PROTECTED_PATHS = [
+  'STATUS.md',
+  'AGENTS.md',
+  '.docs-policy.yml',
+];
+
 export interface PolicyConfig {
   protected_paths: string[];
   write_mode: {
@@ -61,7 +69,11 @@ export class Policy {
   private config: PolicyConfig;
 
   constructor(config?: Partial<PolicyConfig>) {
-    this.config = { ...DEFAULT_POLICY, ...config };
+    this.config = {
+      ...DEFAULT_POLICY,
+      ...config,
+      protected_paths: mergeProtectedPaths(config?.protected_paths),
+    };
   }
 
   static async load(projectRoot: string): Promise<Policy> {
@@ -121,4 +133,12 @@ export class Policy {
     const regex = new RegExp(`^${regexStr}$`);
     return regex.test(filePath);
   }
+}
+
+function mergeProtectedPaths(configuredPaths?: string[]): string[] {
+  const merged = [
+    ...REQUIRED_PROTECTED_PATHS,
+    ...(configuredPaths ?? DEFAULT_POLICY.protected_paths),
+  ];
+  return [...new Set(merged)];
 }

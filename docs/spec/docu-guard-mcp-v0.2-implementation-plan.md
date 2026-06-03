@@ -778,6 +778,48 @@ Add tests, update README, update implementation checklist, dogfood     │
 
 ---
 
+## Rollback Plan
+
+Each phase of the v0.2 implementation is designed to be independently reversible. The following table describes the rollback strategy for each phase and the overall release.
+
+| Phase | Rollback Action | Risk Level | Notes |
+|-------|----------------|------------|-------|
+| **Phase 1** (create-server.ts extraction) | Revert `src/mcp/server.ts` to the v0.1 implementation; delete `src/mcp/create-server.ts`. All tests pass as before. | Low | Pure refactor — no new behavior. Rollback is safe at any point. |
+| **Phase 2** (Registry) | Delete `src/core/registry.ts`. The registry is only referenced by Phase 3+ code, so no existing v0.1 code depends on it. | Low | Registry is additive; nothing in v0.1 references it. |
+| **Phase 3** (Project CLI) | Revert changes to `src/index.ts`; delete `src/cli/project.ts`. CLI simply won't have `project` subcommand. | Low | CLI commands are additive. No v0.1 behavior changes. |
+| **Phase 4** (HTTP daemon) | Revert changes to `src/index.ts`; delete `src/mcp/http.ts` and `src/cli/daemon.ts`. Stdio mode is unaffected. | Medium | The daemon is a new entry point. Stdio continues to work even if HTTP has bugs. |
+| **Phase 5** (Multi-project resolution) | Revert changes to `src/mcp/tools.ts` and `src/mcp/resources.ts`; restore the single-`Project` registration pattern. | Medium | This is the riskiest phase because it touches existing tool handlers. Each change is test-gated. |
+| **Phase 6** (Tests/docs) | Revert test files and README changes. No production code impact. | Low | Pure documentation and test additions. |
+
+### Overall Release Rollback
+
+If v0.2 is deployed and a critical issue is discovered:
+
+1. **Stdio users:** No action needed. The stdio code path is unchanged. Users simply continue using v0.1 commands.
+2. **Daemon users:** Stop the daemon process. Remove or rename `~/.config/docu-guard/projects.json` if registry corruption is suspected. Switch back to stdio mode.
+3. **Git revert:** The entire v0.2 feature set can be reverted with a single `git revert` of the v0.2 merge commit, restoring the v0.1 tag state.
+4. **Rollback window:** The decision to roll back should be made within 48 hours of a v0.2 release. After that, forward fixes are preferred over rollback.
+
+### Hotfix Strategy
+
+For bugs that don't warrant a full rollback:
+
+- **Registry bugs:** Fix in-place; the registry file format is forward-compatible (version field).
+- **HTTP server bugs:** Fix in-place; the HTTP transport is entirely new code with no integration with existing paths.
+- **Tool dispatch bugs:** Fix under test; the resolver pattern has a clear abstraction boundary (the `ProjectResolver` type).
+
+### Rollback Testing
+
+Each phase's test suite should be run against the **previous** phase's commit to verify that the rollback produces a working state. Specifically:
+
+- After Phase 1: `git stash && npm test` should show 25/25 pass (pure v0.1).
+- After Phase 2: `git revert HEAD~1 && npm test` should restore Phase 1 state.
+- After Phase 3: Dropping the `project` CLI should leave all Phase 2 registry code intact.
+- After Phase 4: Removing daemon code should leave all CLI + registry code intact.
+- After Phase 5: Reverting tools.ts changes should restore Phase 4 tool behavior.
+
+---
+
 ## Dependencies
 
 **No new npm dependencies.** The v0.2 work uses:
@@ -790,7 +832,9 @@ If `StreamableHTTPServerTransport` is not available in the current SDK version, 
 
 ---
 
-## Acceptance Checklist
+## Final Validation Checklist
+
+(Also serves as the Acceptance Criteria tracker — all items must be green before calling v0.2 complete.)
 
 - [ ] Phase 1: `create-server.ts` extracted, stdio still works, all tests pass
 - [ ] Phase 2: Registry CRUD + resolution works with tests

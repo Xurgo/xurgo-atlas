@@ -3,16 +3,89 @@ import * as path from 'node:path';
 import { GitStore, FileEntry } from './git-store.js';
 import { Policy } from './policy.js';
 import { EventLog } from './events.js';
+import { StoragePaths } from './storage.js';
+import { isPathOwned as resolveOwnedPath, listOwnedPaths } from './ownership.js';
 
-const AGENTS_MD_SAFETY_RULES = `# Agent Instructions for docu-guard-mcp
+const STATUS_MD_TEMPLATE = `---
+docuGuard.type: status
+statusVersion: 1
+priority: high
+currentFocus:
+nextActions:
+blockers:
+doNotDo:
+relatedDocs:
+lastUpdated: "2026-06-01"
+---
+
+# Project Status
+
+## Current Focus
+<!-- What is the team working on right now? -->
+
+## Next Actions
+<!-- What should be done next? -->
+
+## Blockers
+<!-- What is blocking progress? -->
+
+## Do Not Do
+<!-- What should agents avoid doing? -->
+`;
+
+const MANIFEST_YML_TEMPLATE = `# Xurgo Atlas manifest — machine-readable project document index
+version: 1
+entrypoints:
+  - path: STATUS.md
+    role: front-page
+    priority: highest
+
+documents:
+  - path: STATUS.md
+    role: front-page
+    priority: highest
+    summary: Project front page with current focus, next actions, and blockers
+
+  - path: AGENTS.md
+    role: agent-contract
+    priority: highest
+    summary: Agent safety rules and operating guidelines
+    related:
+      - .docs-policy.yml
+
+  - path: .docs-policy.yml
+    role: safety-policy
+    priority: highest
+    summary: Configurable risk detection and protected path rules
+    related:
+      - AGENTS.md
+
+  - path: docs/manifest.yml
+    role: project-map
+    priority: highest
+    summary: Machine-readable project document index
+
+  - path: docs/README.md
+    role: reference
+    priority: high
+    summary: Project documentation overview
+
+  - path: docs/implementation-checklist.md
+    role: roadmap
+    priority: high
+    summary: Implementation status for all features and milestones
+`;
+
+const AGENTS_MD_SAFETY_RULES = `# Agent Instructions for Xurgo Atlas
 
 ## Documentation Safety Rules
 
-This project uses **docu-guard-mcp** for safe, versioned, auditable documentation management.
+This project uses **Xurgo Atlas** for safe, versioned, auditable documentation management.
+The historical \`docu-guard-mcp\` name remains as a transitional package and CLI alias for now.
 
 ### Rules for AI Agents
 
-1. **Never directly overwrite documentation files.** All documentation changes must go through the docu-guard-mcp MCP server.
+1. **Never directly overwrite documentation files.** All documentation changes must go through the Xurgo Atlas MCP server.
 
 2. **Read before you write.** Always read the current version of a document before proposing changes.
 
@@ -32,8 +105,9 @@ This project uses **docu-guard-mcp** for safe, versioned, auditable documentatio
 
 ### Tracked Files
 
-The following files and directories are managed through docu-guard-mcp and must not be edited directly:
+The following files and directories are managed through Xurgo Atlas and must not be edited directly:
 
+- \`STATUS.md\`
 - \`AGENTS.md\`
 - \`docs/**\`
 - \`.docs-policy.yml\`
@@ -56,25 +130,39 @@ The following files and directories are managed through docu-guard-mcp and must 
 export interface ProjectConfig {
   projectRoot: string;
   projectId: string;
+  configDir?: string;
+  dataDir?: string;
 }
 
 export class Project {
   public readonly root: string;
   public readonly projectId: string;
-  public readonly docsMcpDir: string;
   public readonly gitStore: GitStore;
   private _eventLog: EventLog | null = null;
   public policy: Policy;
-  private _ensureDir: Promise<unknown>;
+  private _ensureDataDir: Promise<unknown>;
+  private _storage: StoragePaths;
 
   constructor(config: ProjectConfig) {
     this.root = config.projectRoot;
     this.projectId = config.projectId;
-    this.docsMcpDir = path.join(this.root, '.docu-guard');
-    this.gitStore = new GitStore(path.join(this.docsMcpDir, 'repo.git'));
+    this._storage = new StoragePaths({
+      configDir: config.configDir,
+      dataDir: config.dataDir,
+    });
+    const repoPath = this._storage.projectRepoPath(this.projectId);
+    this.gitStore = new GitStore(repoPath);
     this.policy = new Policy();
-    // Ensure the .docu-guard directory exists before EventLog is created
-    this._ensureDir = fs.promises.mkdir(this.docsMcpDir, { recursive: true });
+    // Ensure the managed data directory exists
+    this._ensureDataDir = fs.promises.mkdir(
+      this._storage.projectDataDir(this.projectId),
+      { recursive: true },
+    );
+  }
+
+  /** Convenient access to the storage paths used by this project. */
+  get storage(): StoragePaths {
+    return this._storage;
   }
 
   get eventLog(): EventLog {
@@ -88,8 +176,10 @@ export class Project {
 
   async ensureEventLog(): Promise<EventLog> {
     if (!this._eventLog) {
-      await this._ensureDir;
-      this._eventLog = new EventLog(path.join(this.docsMcpDir, 'events.sqlite'));
+      await this._ensureDataDir;
+      this._eventLog = new EventLog(
+        this._storage.projectEventsPath(this.projectId),
+      );
     }
     return this._eventLog;
   }
@@ -104,7 +194,23 @@ export class Project {
   static async init(config: ProjectConfig): Promise<Project> {
     const project = new Project(config);
 
-    // .docu-guard directory is being created in constructor via _ensureDir
+    // Warn if pre-v0.3 .docu-guard/ directory exists
+    const legacyDir = path.join(project.root, '.docu-guard');
+    try {
+      const legacyStat = await fs.promises.stat(legacyDir);
+      if (legacyStat.isDirectory()) {
+        console.error(
+          `Warning: Found pre-v0.3 .docu-guard/ directory at ${legacyDir}. ` +
+            'This is a development artifact from an earlier version. ' +
+            'Run migration or remove it manually. ' +
+            'The managed store will be created at the configured data directory instead.',
+        );
+      }
+    } catch {
+      // .docu-guard/ does not exist — good
+    }
+
+    // Managed data directory is created in the constructor via _ensureDataDir
 
     // Initialize the Git-backed docs store
     await project.gitStore.init();
@@ -129,6 +235,9 @@ export class Project {
     // Create default docs structure
     await ensureDocsStructure(project.root);
 
+    // Create STATUS.md (project front page)
+    await ensureStatusMd(project.root);
+
     // Create or update AGENTS.md
     await ensureAgentsMd(project.root);
 
@@ -143,7 +252,7 @@ export class Project {
       path: '.docu-guard/init',
       tool_name: 'init',
       intent: 'Project initialization',
-      summary: `Initialized docu-guard project "${project.projectId}" at ${project.root}`,
+      summary: `Initialized Xurgo Atlas project "${project.projectId}" at ${project.root}`,
       result_revision: 'main',
     });
 
@@ -152,6 +261,14 @@ export class Project {
 
   async getTrackedFiles(branch = 'main'): Promise<string[]> {
     return this.gitStore.listFiles(branch);
+  }
+
+  async getOwnedFiles(branch = 'main'): Promise<string[]> {
+    return listOwnedPaths(this.gitStore, branch);
+  }
+
+  async isPathOwned(branch: string, filePath: string): Promise<boolean> {
+    return resolveOwnedPath(this.gitStore, branch, filePath);
   }
 
   async readFile(branch: string, filePath: string): Promise<{
@@ -169,8 +286,9 @@ async function ensureDocsStructure(projectRoot: string): Promise<void> {
   await fs.promises.mkdir(docsDir, { recursive: true });
 
   const docsFiles: [string, string][] = [
-    ['README.md', '# Documentation\n\nThis directory contains project documentation managed by docu-guard-mcp.\n'],
+    ['README.md', '# Documentation\n\nThis directory contains project documentation managed by Xurgo Atlas (legacy CLI alias: docu-guard).\n'],
     ['spec/README.md', '# Specification\n\nThis directory contains project specifications.\n'],
+    ['manifest.yml', MANIFEST_YML_TEMPLATE],
   ];
 
   for (const [filePath, content] of docsFiles) {
@@ -204,6 +322,16 @@ async function ensureDocsStructure(projectRoot: string): Promise<void> {
   }
 }
 
+async function ensureStatusMd(projectRoot: string): Promise<void> {
+  const statusPath = path.join(projectRoot, 'STATUS.md');
+  try {
+    await fs.promises.access(statusPath);
+    // File exists — do not overwrite
+  } catch {
+    await fs.promises.writeFile(statusPath, STATUS_MD_TEMPLATE, 'utf-8');
+  }
+}
+
 async function ensureAgentsMd(projectRoot: string): Promise<void> {
   const agentsPath = path.join(projectRoot, 'AGENTS.md');
   try {
@@ -225,13 +353,20 @@ async function ensureAgentsMd(projectRoot: string): Promise<void> {
 async function collectTrackedFiles(projectRoot: string): Promise<FileEntry[]> {
   const files: FileEntry[] = [];
   const patterns = [
+    'STATUS.md',
     'AGENTS.md',
     'docs/**',
     '.docs-policy.yml',
   ];
 
   for (const pattern of patterns) {
-    if (pattern === 'AGENTS.md') {
+    if (pattern === 'STATUS.md') {
+      const fullPath = path.join(projectRoot, 'STATUS.md');
+      try {
+        const content = await fs.promises.readFile(fullPath, 'utf-8');
+        files.push({ path: 'STATUS.md', content });
+      } catch { /* skip */ }
+    } else if (pattern === 'AGENTS.md') {
       const fullPath = path.join(projectRoot, 'AGENTS.md');
       try {
         const content = await fs.promises.readFile(fullPath, 'utf-8');
