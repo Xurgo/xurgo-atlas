@@ -2,7 +2,7 @@
 docuGuard.type: status
 statusVersion: 1
 priority: high
-currentFocus: "Packaging now ships a minimal allowlisted runtime package, and guarded patch writes are narrowed to curated-owned docs while prior validation protections remain intact"
+currentFocus: "Packaging now ships a minimal allowlisted runtime package, and guarded patch writes are narrowed to curated-owned docs while managed docs export is now branch-safe and prior validation protections remain intact"
 nextActions:
   - "Plan the remaining CLI/internal/config-storage migration work without changing the docs.* namespace"
   - "Evaluate whether future document write modes should expand beyond create-only without adding adopt/update/delete prematurely"
@@ -20,15 +20,15 @@ lastUpdated: "2026-06-03"
 # Project Status
 
 ## Project
-Xurgo Atlas is the project-context and documentation-safety MCP. Package metadata now uses `xurgo-atlas`, published npm contents are explicitly allowlisted, daemon lifecycle commands and curated Atlas document ownership are implemented, guarded create-only document proposals support adding new Atlas Markdown docs, and guarded patch preview/commit validation rejects malformed or non-applyable proposals before commit.
+Xurgo Atlas is the project-context and documentation-safety MCP. Package metadata now uses `xurgo-atlas`, published npm contents are explicitly allowlisted, daemon lifecycle commands and curated Atlas document ownership are implemented, guarded create-only document proposals support adding new Atlas Markdown docs, and guarded patch preview/commit validation rejects malformed or non-applyable proposals before commit. Managed docs branches are intentionally independent from source repo branches, and export now refuses cross-branch sync drift instead of writing it silently.
 
 ## Current Focus
-The v0.4 context tools, minimal read-only REST API, and hardened read-only web UI remain stabilized as a private milestone. The latest completed packaging change now defines `package.json` `files` so published output is a minimal runtime package of `README.md`, `package.json`, and `dist/**`, and `npm pack` no longer falls back to `.gitignore`. The latest guarded write-scope change now uses curated ownership through `isPathOwned(...)` when evaluating `docs.propose_patch` eligibility, so tracked but unowned files are rejected. Existing protections remain intact: traversal, malformed/prose/`apply_patch` input, stale base revisions, and non-applyable patch validation are still enforced, `.docs-policy.yml` protected-path risk and approval behavior still layers on top, and the `docs.propose_document` create-only flow is unchanged.
+The v0.4 context tools, minimal read-only REST API, and hardened read-only web UI remain stabilized as a private milestone. The latest completed packaging change now defines `package.json` `files` so published output is a minimal runtime package of `README.md`, `package.json`, and `dist/**`, and `npm pack` no longer falls back to `.gitignore`. The latest guarded write-scope change now uses curated ownership through `isPathOwned(...)` when evaluating `docs.propose_patch` eligibility, so tracked but unowned files are rejected. The branch-safety update now makes missing managed branches explicit in `docs.list`, `docs.read`, `docs.read_section`, `docs.status`, `docs.manifest`, `docs.context_pack`, and `docs.export`, and `docs.export` refuses to write into an existing git worktree when the checked-out source branch does not match the managed branch being exported. Existing protections remain intact: traversal, malformed/prose/`apply_patch` input, stale base revisions, and non-applyable patch validation are still enforced, `.docs-policy.yml` protected-path risk and approval behavior still layers on top, and the `docs.propose_document` create-only flow is unchanged.
 
 ## Recently Completed
 - `ac61527 chore: define npm package contents` explicitly allowlists published package contents through `package.json` `files`, keeping the runtime package limited to `README.md`, `package.json`, and `dist/**`.
 - `041aa28 fix: align guarded patch scope with curated ownership` narrows `docs.propose_patch` write eligibility to curated-owned docs via `isPathOwned(...)` and rejects patches to tracked but unowned files.
-- Validation passed for both changes with `npm test`, `npm run build`, and `npm_config_cache=/tmp/xurgo-atlas-npm-cache npm pack --dry-run`.
+- `7846794 fix: make managed docs export branch-safe` makes managed branch independence explicit, adds clear missing-branch errors to `docs.list`, `docs.read`, `docs.read_section`, `docs.status`, `docs.manifest`, `docs.context_pack`, and `docs.export`, and refuses cross-branch exports into mismatched source worktrees. Validation passed with `npm test`, `npm run build`, and `npm_config_cache=/tmp/xurgo-atlas-npm-cache npm pack --dry-run`
 
 ## Next Actions
 - Plan the remaining CLI/internal/config-storage migration work after the package metadata rename
