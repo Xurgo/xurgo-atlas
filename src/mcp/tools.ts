@@ -362,6 +362,10 @@ async function resolveProjectForRequest(
 
 async function handleList(project: Project, rawArgs: Record<string, unknown>) {
   const args = ListDocsSchema.parse(rawArgs);
+  const missingBranch = await managedBranchMissingError(project, args.branch);
+  if (missingBranch) {
+    return missingBranch;
+  }
   const filePaths = await project.getOwnedFiles(args.branch);
   const branchRevision = await project.gitStore.getBranchHead(args.branch);
 
@@ -395,6 +399,10 @@ async function handleList(project: Project, rawArgs: Record<string, unknown>) {
 
 export async function handleRead(project: Project, rawArgs: Record<string, unknown>) {
   const args = ReadDocSchema.parse(rawArgs);
+  const missingBranch = await managedBranchMissingError(project, args.branch);
+  if (missingBranch) {
+    return missingBranch;
+  }
 
   // Validate path
   if (isPathTraversal(args.path)) {
@@ -481,6 +489,10 @@ export async function handleRead(project: Project, rawArgs: Record<string, unkno
 
 export async function handleReadSection(project: Project, rawArgs: Record<string, unknown>) {
   const args = ReadSectionSchema.parse(rawArgs);
+  const missingBranch = await managedBranchMissingError(project, args.branch);
+  if (missingBranch) {
+    return missingBranch;
+  }
 
   if (isPathTraversal(args.path)) {
     return {
@@ -1886,13 +1898,35 @@ async function handleExport(
   rawArgs: Record<string, unknown>,
 ) {
   const args = ExportSchema.parse(rawArgs);
+  const missingBranch = await managedBranchMissingError(project, args.branch);
+  if (missingBranch) {
+    return missingBranch;
+  }
 
   const targetDir = args.targetDir ?? project.root;
-
-  const exportedFiles = await project.gitStore.exportBranch(
-    args.branch,
-    targetDir,
-  );
+  let exportedFiles: string[];
+  try {
+    exportedFiles = await project.gitStore.exportBranch(
+      args.branch,
+      targetDir,
+    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            error: message,
+            projectId: project.projectId,
+            branch: args.branch,
+            targetDir,
+          }),
+        },
+      ],
+      isError: true,
+    };
+  }
 
   const revision = await project.gitStore.getBranchHead(args.branch);
 
@@ -1931,6 +1965,10 @@ async function handleExport(
 
 export async function handleStatus(project: Project, rawArgs: Record<string, unknown>) {
   const args = StatusSchema.parse(rawArgs);
+  const missingBranch = await managedBranchMissingError(project, args.branch);
+  if (missingBranch) {
+    return missingBranch;
+  }
 
   // Read STATUS.md
   const { content, revision } = await project.readFile(args.branch, 'STATUS.md');
@@ -2007,6 +2045,10 @@ export async function handleStatus(project: Project, rawArgs: Record<string, unk
 
 export async function handleManifest(project: Project, rawArgs: Record<string, unknown>) {
   const args = ManifestSchema.parse(rawArgs);
+  const missingBranch = await managedBranchMissingError(project, args.branch);
+  if (missingBranch) {
+    return missingBranch;
+  }
   const manifestPath = 'docs/manifest.yml';
 
   // Read docs/manifest.yml from the managed store
@@ -2164,6 +2206,10 @@ interface ContextReadResult {
 
 export async function handleContextPack(project: Project, rawArgs: Record<string, unknown>) {
   const args = ContextPackSchema.parse(rawArgs);
+  const missingBranch = await managedBranchMissingError(project, args.branch);
+  if (missingBranch) {
+    return missingBranch;
+  }
 
   const validationError = await validateContextPackPaths(
     project,
@@ -2412,6 +2458,28 @@ function ownedPathError(projectId: string, filePath: string, branch: string) {
           projectId,
           path: filePath,
           branch,
+        }),
+      },
+    ],
+    isError: true,
+  };
+}
+
+async function managedBranchMissingError(project: Project, branch: string) {
+  const branchExists = await project.gitStore.branchExists(branch);
+  if (branchExists) {
+    return null;
+  }
+
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify({
+          error: `Managed docs branch "${branch}" does not exist`,
+          projectId: project.projectId,
+          branch,
+          hint: `Managed docs branches are separate from the source repo branch. Create "${branch}" with docs.create_branch or use an existing managed branch.`,
         }),
       },
     ],
