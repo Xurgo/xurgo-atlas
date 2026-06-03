@@ -12,7 +12,7 @@ import { EventLog } from '../src/core/events.js';
 import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/patch.js';
 import { assessPatchRisk } from '../src/core/risk.js';
 import { createMcpServer } from '../src/mcp/create-server.js';
-import { parseFrontMatter, handleManifest, handleRead, handleReadSection, handleContextPack, handleProposePatch, handlePreviewDiff, handleCommitPatch } from '../src/mcp/tools.js';
+import { parseFrontMatter, handleManifest, handleRead, handleReadSection, handleContextPack, handleProposePatch, handleProposeDocument, handlePreviewDiff, handleCommitPatch } from '../src/mcp/tools.js';
 import YAML from 'yaml';
 
 let tmpDir: string;
@@ -689,6 +689,323 @@ documents:
     const data = JSON.parse(result.content[0].text);
     expect(data.valid).toBe(false);
     expect(data.error).toContain('not in the list of tracked documentation paths');
+  });
+
+  it('should create a docs/atlas document proposal and commit it with a manifest update', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const proposeResult = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/example.md',
+      content: '# Example\n\nAtlas content.\n',
+      document: {
+        role: ' guide ',
+        summary: ' Short summary ',
+        priority: ' normal ',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+    expect(proposal.valid).toBe(true);
+    expect(proposal.changedFiles).toEqual([
+      'docs/atlas/example.md',
+      'docs/manifest.yml',
+    ]);
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBeFalsy();
+    const commit = JSON.parse(commitResult.content[0].text);
+    expect(commit.changedFiles).toEqual([
+      'docs/atlas/example.md',
+      'docs/manifest.yml',
+    ]);
+
+    const createdDocument = await project.readFile('main', 'docs/atlas/example.md');
+    expect(createdDocument.content).toBe('# Example\n\nAtlas content.\n');
+    expect(createdDocument.revision).toBe(commit.commit);
+
+    const manifest = await project.readFile('main', 'docs/manifest.yml');
+    expect(manifest.revision).toBe(commit.commit);
+    const parsedManifest = YAML.parse(manifest.content ?? '') as {
+      documents: Array<{ path: string; role: string; summary: string; priority?: string }>;
+    };
+    expect(parsedManifest.documents).toContainEqual({
+      path: 'docs/atlas/example.md',
+      role: 'guide',
+      summary: 'Short summary',
+      priority: 'normal',
+    });
+  });
+
+  it('should preview a create-only document proposal with both the new file and manifest diff', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const proposeResult = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/example.md',
+      content: '# Example\n\nAtlas content.\n',
+      document: {
+        role: 'guide',
+        summary: 'Short summary',
+        priority: 'normal',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+    });
+
+    expect(previewResult.isError).toBeFalsy();
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.changedFiles).toEqual([
+      'docs/atlas/example.md',
+      'docs/manifest.yml',
+    ]);
+    expect(preview.diff).toContain('--- /dev/null');
+    expect(preview.diff).toContain('+++ b/docs/atlas/example.md');
+    expect(preview.diff).toContain('+++ b/docs/manifest.yml');
+    expect(preview.diff).toContain('path: docs/atlas/example.md');
+  });
+
+  it('should reject create-only document proposals outside docs/atlas/**', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/example.md',
+      content: '# Example\n',
+      document: {
+        role: 'guide',
+        summary: 'Short summary',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('must be under docs/atlas/');
+  });
+
+  it('should reject create-only document proposals with path traversal', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/../escape.md',
+      content: '# Example\n',
+      document: {
+        role: 'guide',
+        summary: 'Short summary',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('Path traversal detected');
+  });
+
+  it('should reject create-only document proposals for non-Markdown paths', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/example.txt',
+      content: '# Example\n',
+      document: {
+        role: 'guide',
+        summary: 'Short summary',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('must be a Markdown document');
+  });
+
+  it('should reject create-only document proposals when the file already exists', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs', 'atlas'), {
+      recursive: true,
+    });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'atlas', 'example.md'),
+      '# Existing\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/example.md',
+      content: '# Example\n',
+      document: {
+        role: 'guide',
+        summary: 'Short summary',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('already exists');
+  });
+
+  it('should reject create-only document proposals when the manifest already lists the path', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'manifest.yml'),
+      `version: 1
+documents:
+  - path: docs/atlas/example.md
+    role: guide
+    summary: Existing manifest entry
+`,
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/example.md',
+      content: '# Example\n',
+      document: {
+        role: 'guide',
+        summary: 'Short summary',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.error).toContain('already contains a documents[] entry');
+  });
+
+  it('should mark a create-only document proposal stale when the manifest base revision changes', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const proposeResult = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/example.md',
+      content: '# Example\n\nAtlas content.\n',
+      document: {
+        role: 'guide',
+        summary: 'Short summary',
+      },
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+
+    const manifest = await project.readFile('main', 'docs/manifest.yml');
+    const updatedManifest = (manifest.content ?? '') + '\n# stale\n';
+    const manifestPatch = createSimplePatch(
+      manifest.content ?? '',
+      updatedManifest,
+      'docs/manifest.yml',
+    );
+
+    await project.gitStore.applyPatchAndCommit(
+      'main',
+      'docs/manifest.yml',
+      manifestPatch,
+      'Modify manifest to stale proposal',
+      manifest.revision ?? undefined,
+    );
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBe(true);
+    const data = JSON.parse(commitResult.content[0].text);
+    expect(data.error).toContain('Base revision mismatch');
+
+    const stored = project.eventLog.getProposal(proposal.proposalId);
+    expect(stored?.status).toBe('stale');
   });
 });
 
@@ -1974,12 +2291,55 @@ describe('proposal storage', () => {
     const project = new Project({
       projectRoot: tmpDir,
       projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
     });
     await project.ensureEventLog();
     const eventLog = project.eventLog;
 
     const result = eventLog.getProposal('prop_nonexistent');
     expect(result).toBeNull();
+  });
+
+  it('should round-trip proposal metadata for create-only document proposals', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const stored = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'docs/atlas/example.md',
+      base_revision: 'manifest-rev',
+      patch: '--- /dev/null\n+++ b/docs/atlas/example.md\n@@ -0,0 +1,1 @@\n+# Example\n',
+      intent: 'Create a new Atlas-managed document',
+      summary: 'Add example Atlas doc',
+      risk_level: 'high',
+      requires_approval: true,
+      metadata: {
+        kind: 'document_create',
+        mode: 'create',
+        changedFiles: ['docs/atlas/example.md', 'docs/manifest.yml'],
+        baseRevisions: {
+          'docs/manifest.yml': 'manifest-rev',
+        },
+        riskReasons: ['Modifies a protected document'],
+      },
+    });
+
+    const retrieved = project.eventLog.getProposal(stored.id);
+    expect(retrieved?.metadata).toEqual({
+      kind: 'document_create',
+      mode: 'create',
+      changedFiles: ['docs/atlas/example.md', 'docs/manifest.yml'],
+      baseRevisions: {
+        'docs/manifest.yml': 'manifest-rev',
+      },
+      riskReasons: ['Modifies a protected document'],
+    });
   });
 });
 

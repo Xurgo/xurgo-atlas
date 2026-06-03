@@ -31,6 +31,15 @@ export interface StoredProposal {
   status: 'pending' | 'committed' | 'rejected' | 'stale';
   created_at: string;
   committed_at: string | null;
+  metadata: ProposalMetadata | null;
+}
+
+export interface ProposalMetadata {
+  kind: 'document_create';
+  mode: 'create';
+  changedFiles: string[];
+  baseRevisions: Record<string, string>;
+  riskReasons?: string[];
 }
 
 export class EventLog {
@@ -83,15 +92,27 @@ export class EventLog {
         requires_approval INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'pending',
         created_at TEXT NOT NULL,
-        committed_at TEXT
+        committed_at TEXT,
+        metadata_json TEXT
       )
     `);
+    this.ensureProposalColumns();
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_doc_proposals_status ON doc_proposals(status)
     `);
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_doc_proposals_project ON doc_proposals(project_id)
     `);
+  }
+
+  private ensureProposalColumns(): void {
+    const columns = this.db.prepare('PRAGMA table_info(doc_proposals)').all() as Array<{
+      name: string;
+    }>;
+
+    if (!columns.some((column) => column.name === 'metadata_json')) {
+      this.db.exec('ALTER TABLE doc_proposals ADD COLUMN metadata_json TEXT');
+    }
   }
 
   logEvent(event: DocEvent): DocEvent {
@@ -157,13 +178,14 @@ export class EventLog {
     summary: string;
     risk_level: string;
     requires_approval: boolean;
+    metadata?: ProposalMetadata;
   }): StoredProposal {
     const id = `prop_${crypto.randomUUID().slice(0, 8)}`;
     const createdAt = new Date().toISOString();
 
     const stmt = this.db.prepare(`
-      INSERT INTO doc_proposals (id, project_id, branch, path, base_revision, patch, intent, summary, risk_level, requires_approval, status, created_at, committed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL)
+      INSERT INTO doc_proposals (id, project_id, branch, path, base_revision, patch, intent, summary, risk_level, requires_approval, status, created_at, committed_at, metadata_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?)
     `);
 
     stmt.run(
@@ -178,6 +200,7 @@ export class EventLog {
       proposal.risk_level,
       proposal.requires_approval ? 1 : 0,
       createdAt,
+      proposal.metadata ? JSON.stringify(proposal.metadata) : null,
     );
 
     return {
@@ -187,6 +210,7 @@ export class EventLog {
       status: 'pending',
       created_at: createdAt,
       committed_at: null,
+      metadata: proposal.metadata ?? null,
     };
   }
 
@@ -212,6 +236,7 @@ export class EventLog {
       status: row.status as StoredProposal['status'],
       created_at: row.created_at as string,
       committed_at: (row.committed_at as string) ?? null,
+      metadata: parseProposalMetadata(row.metadata_json),
     };
   }
 
@@ -233,4 +258,28 @@ export class EventLog {
   close(): void {
     this.db.close();
   }
+}
+
+function parseProposalMetadata(raw: unknown): ProposalMetadata | null {
+  if (typeof raw !== 'string' || raw.length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as ProposalMetadata;
+    if (
+      parsed.kind === 'document_create' &&
+      parsed.mode === 'create' &&
+      Array.isArray(parsed.changedFiles) &&
+      parsed.changedFiles.every((filePath) => typeof filePath === 'string') &&
+      parsed.baseRevisions &&
+      typeof parsed.baseRevisions === 'object'
+    ) {
+      return parsed;
+    }
+  } catch {
+    // Ignore malformed metadata from older or partial rows.
+  }
+
+  return null;
 }
