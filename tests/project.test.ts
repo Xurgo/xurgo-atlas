@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
 import { Project } from '../src/core/project.js';
 import { Registry } from '../src/core/registry.js';
 import { Policy } from '../src/core/policy.js';
@@ -53,6 +54,21 @@ async function callTool(project: Project, name: string, args: Record<string, unk
       arguments: args,
     },
   }) as Promise<{ content: Array<{ text: string }>; isError?: boolean }>;
+}
+
+function getStoredProposalCount(project: Project, projectId = 'test-project'): number {
+  const db = new DatabaseSync(project.storage.projectEventsPath(projectId), {
+    readOnly: true,
+  });
+
+  try {
+    const row = db
+      .prepare('SELECT COUNT(*) AS count FROM doc_proposals WHERE project_id = ?')
+      .get(projectId) as { count: number };
+    return row.count;
+  } finally {
+    db.close();
+  }
 }
 
 // ── Storage path resolution tests ─────────────────────────────────────
@@ -753,8 +769,8 @@ documents:
     expect(preview.valid).toBe(false);
     expect(preview.applyable).toBe(false);
     expect(preview.validationStatus).toBe('invalid');
-    expect(preview.error).toContain('Patch does not apply cleanly');
-    expect(preview.error).toContain('No valid patches in input');
+    expect(preview.error).toContain('docs.propose_patch requires a standard unified diff patch');
+    expect(preview.error).toContain('apply_patch-style input');
 
     const persisted = project.eventLog.getProposal(stored.id);
     expect(persisted?.status).toBe('pending');
@@ -886,6 +902,97 @@ documents:
     const data = JSON.parse(result.content[0].text);
     expect(data.valid).toBe(false);
     expect(data.error).toContain('not in the list of tracked documentation paths');
+  });
+
+  it('should reject apply_patch-style docs.propose_patch input before storing a proposal', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { revision } = await project.readFile('main', 'STATUS.md');
+    expect(revision).toBeTruthy();
+    expect(getStoredProposalCount(project)).toBe(0);
+
+    const result = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      baseRevision: revision,
+      patch: [
+        '*** Begin Patch',
+        '*** Update File: STATUS.md',
+        '@@',
+        '-currentFocus: "Create-only docs.propose_document support is complete alongside guarded Atlas document creation"',
+        '+currentFocus: "Create-only docs.propose_document support is complete, and proposal-time patch format validation is now in place"',
+        '*** End Patch',
+      ].join('\n'),
+      intent: 'Reject apply_patch syntax at docs.propose_patch creation time',
+      summary: 'Prevent apply_patch payloads from being stored',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.valid).toBe(false);
+    expect(data.errorCode).toBe('invalid_patch_format');
+    expect(data.expectedFormat).toBe('unified_diff');
+    expect(data.receivedFormat).toBe('apply_patch');
+    expect(data.error).toContain('docs.propose_patch requires a standard unified diff patch');
+    expect(data.error).toContain('apply_patch-style input');
+    expect(data.hint).toContain('Do not send apply_patch blocks');
+    expect(getStoredProposalCount(project)).toBe(0);
+  });
+
+  it('should reject empty and prose-only docs.propose_patch input before storing proposals', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { revision } = await project.readFile('main', 'docs/README.md');
+    expect(revision).toBeTruthy();
+
+    const cases = [
+      {
+        name: 'empty',
+        patch: '   \n\t',
+        receivedFormat: 'empty',
+        errorFragment: 'empty or whitespace-only patch body',
+      },
+      {
+        name: 'prose',
+        patch: 'Please update the README to mention the new workflow.',
+        receivedFormat: 'prose',
+        errorFragment: 'prose or non-diff text',
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const beforeCount = getStoredProposalCount(project);
+      const result = await handleProposePatch(project, {
+        projectId: 'test-project',
+        branch: 'main',
+        path: 'docs/README.md',
+        baseRevision: revision,
+        patch: testCase.patch,
+        intent: `Reject ${testCase.name} patch bodies at proposal creation time`,
+        summary: `Do not store ${testCase.name} patch bodies`,
+      });
+
+      expect(result.isError).toBe(true);
+      const data = JSON.parse(result.content[0].text);
+      expect(data.valid).toBe(false);
+      expect(data.errorCode).toBe('invalid_patch_format');
+      expect(data.expectedFormat).toBe('unified_diff');
+      expect(data.receivedFormat).toBe(testCase.receivedFormat);
+      expect(data.error).toContain('docs.propose_patch requires a standard unified diff patch');
+      expect(data.error).toContain(testCase.errorFragment);
+      expect(getStoredProposalCount(project)).toBe(beforeCount);
+    }
   });
 
   it('should create a docs/atlas document proposal and commit it with a manifest update', async () => {
@@ -2514,8 +2621,8 @@ describe('committing a patch', () => {
 
     expect(commitResult.isError).toBe(true);
     const data = JSON.parse(commitResult.content[0].text);
-    expect(data.error).toContain('Patch does not apply cleanly');
-    expect(data.error).toContain('No valid patches in input');
+    expect(data.error).toContain('docs.propose_patch requires a standard unified diff patch');
+    expect(data.error).toContain('apply_patch-style input');
     expect(data.validationStatus).toBe('invalid');
     expect(data.status).toBe('rejected');
 

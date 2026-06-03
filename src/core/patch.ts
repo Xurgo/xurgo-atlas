@@ -18,6 +18,14 @@ export interface PatchValidation {
   applyable?: boolean;
   error?: string;
   risk?: RiskAssessment;
+  formatError?: PatchFormatError;
+}
+
+export interface PatchFormatError {
+  code: 'invalid_patch_format';
+  expectedFormat: 'unified_diff';
+  receivedFormat: 'apply_patch' | 'empty' | 'prose' | 'unknown';
+  hint: string;
 }
 
 /**
@@ -42,6 +50,17 @@ export async function validatePatch(
       failureType: 'invalid',
       applyable: false,
       error: `Missing required metadata: ${missingMetadata.join(', ')}`,
+    };
+  }
+
+  const formatError = getPatchFormatError(patch);
+  if (formatError) {
+    return {
+      valid: false,
+      failureType: 'invalid',
+      applyable: false,
+      error: buildUnifiedDiffRequirementMessage(formatError),
+      formatError,
     };
   }
 
@@ -169,6 +188,64 @@ export async function validatePatch(
     applyable: true,
     risk,
   };
+}
+
+export function getPatchFormatError(patch: string): PatchFormatError | null {
+  const trimmedPatch = patch.trim();
+
+  if (trimmedPatch.length === 0) {
+    return {
+      code: 'invalid_patch_format',
+      expectedFormat: 'unified_diff',
+      receivedFormat: 'empty',
+      hint: 'Provide a standard unified diff with ---/+++ file headers and at least one @@ hunk.',
+    };
+  }
+
+  if (
+    /^\*\*\* Begin Patch$/m.test(patch) ||
+    /^\*\*\* Update File:/m.test(patch)
+  ) {
+    return {
+      code: 'invalid_patch_format',
+      expectedFormat: 'unified_diff',
+      receivedFormat: 'apply_patch',
+      hint: 'docs.propose_patch accepts standard unified diffs only. Do not send apply_patch blocks such as *** Begin Patch or *** Update File:.',
+    };
+  }
+
+  const hasOldFileHeader = /^--- .+/m.test(patch);
+  const hasNewFileHeader = /^\+\+\+ .+/m.test(patch);
+  const hasHunkHeader = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/m.test(patch);
+
+  if (hasOldFileHeader && hasNewFileHeader && hasHunkHeader) {
+    return null;
+  }
+
+  const receivedFormat = /^[A-Za-z0-9"'`]/.test(trimmedPatch)
+    ? 'prose'
+    : 'unknown';
+
+  return {
+    code: 'invalid_patch_format',
+    expectedFormat: 'unified_diff',
+    receivedFormat,
+    hint: 'Use unified diff syntax with ---/+++ file headers and @@ hunks that describe line-level additions and removals.',
+  };
+}
+
+export function buildUnifiedDiffRequirementMessage(
+  formatError: PatchFormatError,
+): string {
+  const reasons: Record<PatchFormatError['receivedFormat'], string> = {
+    apply_patch:
+      'Received apply_patch-style input instead of a unified diff.',
+    empty: 'Received an empty or whitespace-only patch body.',
+    prose: 'Received prose or non-diff text instead of patch content.',
+    unknown: 'Received patch content that does not match unified diff syntax.',
+  };
+
+  return `docs.propose_patch requires a standard unified diff patch. ${reasons[formatError.receivedFormat]} ${formatError.hint}`;
 }
 
 /**
