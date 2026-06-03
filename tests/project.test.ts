@@ -667,6 +667,156 @@ documents:
     expect(preview.diff).toContain('Preview diff test update.');
   });
 
+  it('should reject preview for a stored corrupt patch before commit', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { revision } = await project.readFile('main', 'STATUS.md');
+    expect(revision).toBeTruthy();
+
+    const stored = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      base_revision: revision ?? '',
+      patch: [
+        '--- a/STATUS.md',
+        '+++ b/STATUS.md',
+        '@@ -1,2 +1,2 @@',
+        ' currentFocus: "Create-only docs.propose_document support is complete alongside guarded Atlas document creation"',
+        ' this line is not valid unified diff syntax',
+      ].join('\n'),
+      intent: 'Store an intentionally corrupt patch for preview validation',
+      summary: 'Corrupt preview test',
+      risk_level: 'low',
+      requires_approval: false,
+    });
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: stored.id,
+    });
+
+    expect(previewResult.isError).toBe(true);
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.valid).toBe(false);
+    expect(preview.applyable).toBe(false);
+    expect(preview.validationStatus).toBe('invalid');
+    expect(preview.error).toContain('Patch does not apply cleanly');
+    expect(preview.error).toContain('corrupt patch');
+
+    const persisted = project.eventLog.getProposal(stored.id);
+    expect(persisted?.status).toBe('pending');
+  });
+
+  it('should distinguish stale proposals from corrupt patches during preview', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'docs/README.md');
+    expect(content).not.toBeNull();
+    expect(revision).toBeTruthy();
+
+    const updated = (content ?? '') + '\n## Preview Stale Test\n';
+    const patch = createSimplePatch(content ?? '', updated);
+
+    const proposeResult = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'docs/README.md',
+      baseRevision: revision,
+      patch,
+      intent: 'Create a proposal that will become stale before preview',
+      summary: 'Preview stale proposal classification',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+
+    const concurrentPatch = createSimplePatch(
+      content ?? '',
+      (content ?? '') + '\n## Concurrent Change\n',
+    );
+    await project.gitStore.applyPatchAndCommit(
+      'main',
+      'docs/README.md',
+      concurrentPatch,
+      'Make stored proposal stale',
+      revision ?? undefined,
+    );
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+    });
+
+    expect(previewResult.isError).toBe(true);
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.valid).toBe(false);
+    expect(preview.applyable).toBe(false);
+    expect(preview.validationStatus).toBe('stale');
+    expect(preview.error).toContain('Base revision mismatch');
+  });
+
+  it('should preview and commit a valid patch proposal end-to-end', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'docs/README.md');
+    expect(content).not.toBeNull();
+    expect(revision).toBeTruthy();
+
+    const updated = (content ?? '') + '\n## Preview Commit Flow\n\nValidated flow.\n';
+    const patch = createSimplePatch(content ?? '', updated);
+
+    const proposeResult = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'docs/README.md',
+      baseRevision: revision,
+      patch,
+      intent: 'Validate preview and commit for a normal patch proposal',
+      summary: 'End-to-end patch proposal flow',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+    });
+
+    expect(previewResult.isError).toBeFalsy();
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.valid).toBe(true);
+    expect(preview.applyable).toBe(true);
+    expect(preview.validationStatus).toBe('valid');
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBeFalsy();
+    const committed = await project.readFile('main', 'docs/README.md');
+    expect(committed.content).toContain('Preview Commit Flow');
+  });
+
   it('should still reject untracked paths in the guarded proposal workflow', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
@@ -794,6 +944,58 @@ documents:
     expect(preview.diff).toContain('+++ b/docs/atlas/example.md');
     expect(preview.diff).toContain('+++ b/docs/manifest.yml');
     expect(preview.diff).toContain('path: docs/atlas/example.md');
+  });
+
+  it('should preview and commit a valid create-only document proposal end-to-end', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const proposeResult = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/end-to-end.md',
+      content: '# End To End\n\nAtlas content.\n',
+      document: {
+        role: 'guide',
+        summary: 'End to end summary',
+      },
+      intent: 'Validate preview and commit for create-only proposals',
+      summary: 'End-to-end create proposal flow',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+    });
+
+    expect(previewResult.isError).toBeFalsy();
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.valid).toBe(true);
+    expect(preview.applyable).toBe(true);
+    expect(preview.validationStatus).toBe('valid');
+    expect(preview.changedFiles).toEqual([
+      'docs/atlas/end-to-end.md',
+      'docs/manifest.yml',
+    ]);
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBeFalsy();
+    const created = await project.readFile('main', 'docs/atlas/end-to-end.md');
+    expect(created.content).toBe('# End To End\n\nAtlas content.\n');
   });
 
   it('should reject create-only document proposals outside docs/atlas/**', async () => {
@@ -2180,6 +2382,51 @@ describe('committing a patch', () => {
     // Verify the file was updated
     const updated = await project.readFile('main', filePath);
     expect(updated.content).toContain('New Section');
+  });
+
+  it('should reject a corrupt stored patch at commit time and mark it rejected', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { revision } = await project.readFile('main', 'docs/README.md');
+    expect(revision).toBeTruthy();
+
+    const stored = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'docs/README.md',
+      base_revision: revision ?? '',
+      patch: [
+        '--- a/docs/README.md',
+        '+++ b/docs/README.md',
+        '@@ -1,2 +1,2 @@',
+        ' this line is valid context',
+        'this line is corrupt diff syntax',
+      ].join('\n'),
+      intent: 'Store an intentionally corrupt patch for commit validation',
+      summary: 'Corrupt commit test',
+      risk_level: 'low',
+      requires_approval: false,
+    });
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: stored.id,
+      actor: 'test',
+    });
+
+    expect(commitResult.isError).toBe(true);
+    const data = JSON.parse(commitResult.content[0].text);
+    expect(data.error).toContain('Patch does not apply cleanly');
+    expect(data.validationStatus).toBe('invalid');
+    expect(data.status).toBe('rejected');
+
+    const persisted = project.eventLog.getProposal(stored.id);
+    expect(persisted?.status).toBe('rejected');
   });
 });
 

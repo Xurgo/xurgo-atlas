@@ -20,6 +20,11 @@ export interface HistoryEntry {
   message: string;
 }
 
+export interface PatchApplyCheckResult {
+  applyable: boolean;
+  error?: string;
+}
+
 export class GitStore {
   private repoPath: string;
   private workDir: string;
@@ -365,6 +370,60 @@ export class GitStore {
       [filePath],
       baseRevision ? { [filePath]: baseRevision } : undefined,
     );
+  }
+
+  /**
+   * Validate whether a unified diff can be applied cleanly on a branch without committing.
+   */
+  async validatePatchApplyability(
+    branch: string,
+    patchContent: string,
+    changedFiles: string[],
+  ): Promise<PatchApplyCheckResult> {
+    return this.withWorkDir(branch, async (git: SimpleGit, workDir: string) => {
+      if (changedFiles.length === 0) {
+        return {
+          applyable: false,
+          error: 'Patch does not name any changed files',
+        };
+      }
+
+      for (const filePath of changedFiles) {
+        const fullPath = path.join(workDir, filePath);
+        await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
+      }
+
+      const patchFile = path.join(workDir, '.docu-guard-patch-check.tmp');
+      await fs.promises.writeFile(patchFile, patchContent, 'utf-8');
+
+      try {
+        const applyResult = await git.raw([
+          'apply',
+          '--check',
+          '--unidiff-zero',
+          '--whitespace=nowarn',
+          patchFile,
+        ]);
+
+        if (applyResult && applyResult.includes('error:')) {
+          return {
+            applyable: false,
+            error: applyResult.trim(),
+          };
+        }
+
+        return { applyable: true };
+      } catch (err: unknown) {
+        return {
+          applyable: false,
+          error: (err as Error).message,
+        };
+      } finally {
+        try {
+          await fs.promises.unlink(patchFile);
+        } catch { /* ignore */ }
+      }
+    });
   }
 
   /**
