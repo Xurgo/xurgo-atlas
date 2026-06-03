@@ -6,7 +6,13 @@ import { DatabaseSync } from 'node:sqlite';
 import { Project } from '../src/core/project.js';
 import { Registry } from '../src/core/registry.js';
 import { Policy } from '../src/core/policy.js';
-import { StoragePaths, getDefaultConfigDir, getDefaultDataDir } from '../src/core/storage.js';
+import {
+  StoragePaths,
+  getDefaultConfigDir,
+  getDefaultDataDir,
+  getStorageRootCandidates,
+  resolveStorageRoots,
+} from '../src/core/storage.js';
 import { initCommand } from '../src/cli/init.js';
 import { GitStore } from '../src/core/git-store.js';
 import { EventLog } from '../src/core/events.js';
@@ -104,6 +110,20 @@ describe('storage path resolution', () => {
     expect(storage.dataDir).toBe(getDefaultDataDir());
   });
 
+  it('should expose atlas and legacy root candidates while keeping legacy defaults active', () => {
+    const candidates = getStorageRootCandidates();
+    const resolved = resolveStorageRoots();
+
+    expect(candidates.atlasConfigDir).toContain('xurgo-atlas');
+    expect(candidates.atlasDataDir).toContain('xurgo-atlas');
+    expect(candidates.legacyConfigDir).toContain('docu-guard');
+    expect(candidates.legacyDataDir).toContain('docu-guard');
+    expect(resolved.configDir).toBe(candidates.legacyConfigDir);
+    expect(resolved.dataDir).toBe(candidates.legacyDataDir);
+    expect(resolved.configSource).toBe('legacy-default');
+    expect(resolved.dataSource).toBe('legacy-default');
+  });
+
   it('should accept custom config and data directories', () => {
     const storage = new StoragePaths({
       configDir: '/custom/config',
@@ -111,6 +131,18 @@ describe('storage path resolution', () => {
     });
     expect(storage.configDir).toBe('/custom/config');
     expect(storage.dataDir).toBe('/custom/data');
+  });
+
+  it('should let explicit config and data roots override default resolution', () => {
+    const resolved = resolveStorageRoots({
+      configDir: '~/my-config',
+      dataDir: '~/my-data',
+    });
+
+    expect(resolved.configDir).toBe(path.join(os.homedir(), 'my-config'));
+    expect(resolved.dataDir).toBe(path.join(os.homedir(), 'my-data'));
+    expect(resolved.configSource).toBe('explicit');
+    expect(resolved.dataSource).toBe('explicit');
   });
 
   it('should derive correct project managed paths', () => {

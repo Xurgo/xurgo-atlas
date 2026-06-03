@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { expandTilde, getDefaultConfigDir, getDefaultDataDir } from './storage.js';
+import { resolveStorageRoots, normalizeStorageRoot } from './storage.js';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -39,18 +39,13 @@ export class RegistryError extends Error {
 
 export class Registry {
   private data: RegistryData;
-  private _configDir: string;
-  private _dataDir: string;
-  private configPath: string;
+  private _configDir!: string;
+  private _dataDir!: string;
+  private configPath!: string;
 
   constructor(configDir?: string, dataDir?: string) {
-    this._configDir = configDir != null
-      ? path.resolve(expandTilde(configDir))
-      : getDefaultConfigDir();
-    this._dataDir = dataDir != null
-      ? path.resolve(expandTilde(dataDir))
-      : getDefaultDataDir();
-    this.configPath = path.join(this._configDir, 'projects.json');
+    const roots = resolveStorageRoots({ configDir, dataDir });
+    this.setEffectiveRoots(roots.configDir, roots.dataDir);
     this.data = {
       version: 2,
       configDir: this._configDir,
@@ -81,6 +76,7 @@ export class Registry {
    */
   static async load(configDir?: string, dataDir?: string): Promise<Registry> {
     const registry = new Registry(configDir, dataDir);
+    const explicitDataDir = dataDir != null;
     try {
       const raw = await fs.promises.readFile(registry.configPath, 'utf-8');
       const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -88,9 +84,17 @@ export class Registry {
       if (parsed.version === 2) {
         // v2 schema — use directly
         registry.data = parsed as unknown as RegistryData;
-        // Use the stored paths for this session
-        registry._configDir = registry.data.configDir;
-        registry._dataDir = registry.data.dataDir;
+        const storedDataDir = (
+          typeof registry.data.dataDir === 'string' &&
+          registry.data.dataDir.trim().length > 0
+        )
+          ? normalizeStorageRoot(registry.data.dataDir)
+          : registry.dataDir;
+        registry.setEffectiveRoots(
+          registry.configDir,
+          explicitDataDir ? registry.dataDir : storedDataDir,
+        );
+        registry.syncStoredRoots();
       } else if (parsed.version === 1 || !parsed.version) {
         // v1 schema — upgrade in memory to v2
         const v1data = parsed as {
@@ -105,6 +109,7 @@ export class Registry {
           defaultProjectId: v1data.defaultProjectId ?? null,
           projects: v1data.projects ?? {},
         };
+        registry.syncStoredRoots();
       } else {
         throw new Error(`Unsupported registry schema version: ${parsed.version}`);
       }
@@ -123,11 +128,23 @@ export class Registry {
    * Persist the registry to disk atomically (write to temp file, then rename).
    */
   private async save(): Promise<void> {
+    this.syncStoredRoots();
     await fs.promises.mkdir(this._configDir, { recursive: true });
     const tmpPath = this.configPath + '.tmp';
     const raw = JSON.stringify(this.data, null, 2) + '\n';
     await fs.promises.writeFile(tmpPath, raw, 'utf-8');
     await fs.promises.rename(tmpPath, this.configPath);
+  }
+
+  private setEffectiveRoots(configDir: string, dataDir: string): void {
+    this._configDir = configDir;
+    this._dataDir = dataDir;
+    this.configPath = path.join(this._configDir, 'projects.json');
+  }
+
+  private syncStoredRoots(): void {
+    this.data.configDir = this._configDir;
+    this.data.dataDir = this._dataDir;
   }
 
   // ── CRUD ───────────────────────────────────────────────────────────
