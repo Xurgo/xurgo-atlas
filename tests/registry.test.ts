@@ -262,6 +262,75 @@ describe('Registry Persistence', () => {
     expect(registry.configDir).toBe(configDir);
     expect(registry.dataDir).toBe(dataDir);
   });
+
+  it('should keep saving to the selected registry file path after loading v2 metadata', async () => {
+    const selectedConfigDir = path.join(tmpDir, 'selected-config');
+    const driftedConfigDir = path.join(tmpDir, 'drifted-config');
+    const storedDataDir = path.join(tmpDir, 'stored-data');
+
+    await fs.promises.mkdir(selectedConfigDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(selectedConfigDir, 'projects.json'),
+      JSON.stringify({
+        version: 2,
+        configDir: driftedConfigDir,
+        dataDir: storedDataDir,
+        defaultProjectId: null,
+        projects: {},
+      }, null, 2),
+      'utf-8',
+    );
+
+    const registry = await Registry.load(selectedConfigDir);
+    expect(registry.configDir).toBe(selectedConfigDir);
+    expect(registry.dataDir).toBe(storedDataDir);
+
+    await registry.addProject('test-project', projDir('test'));
+
+    const selectedRaw = await fs.promises.readFile(
+      path.join(selectedConfigDir, 'projects.json'),
+      'utf-8',
+    );
+    const saved = JSON.parse(selectedRaw);
+    expect(saved.configDir).toBe(selectedConfigDir);
+    expect(saved.dataDir).toBe(storedDataDir);
+    expect(saved.projects['test-project'].projectRoot).toBe(projDir('test'));
+
+    await expect(
+      fs.promises.stat(path.join(driftedConfigDir, 'projects.json')),
+    ).rejects.toThrow();
+  });
+
+  it('should keep explicit dataDir overrides over stored registry metadata', async () => {
+    const selectedConfigDir = path.join(tmpDir, 'selected-config');
+    const storedDataDir = path.join(tmpDir, 'stored-data');
+    const explicitDataDir = path.join(tmpDir, 'explicit-data');
+
+    await fs.promises.mkdir(selectedConfigDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(selectedConfigDir, 'projects.json'),
+      JSON.stringify({
+        version: 2,
+        configDir: selectedConfigDir,
+        dataDir: storedDataDir,
+        defaultProjectId: null,
+        projects: {},
+      }, null, 2),
+      'utf-8',
+    );
+
+    const registry = await Registry.load(selectedConfigDir, explicitDataDir);
+    expect(registry.configDir).toBe(selectedConfigDir);
+    expect(registry.dataDir).toBe(explicitDataDir);
+
+    await registry.addProject('test-project', projDir('test'));
+    const raw = await fs.promises.readFile(
+      path.join(selectedConfigDir, 'projects.json'),
+      'utf-8',
+    );
+    const saved = JSON.parse(raw);
+    expect(saved.dataDir).toBe(explicitDataDir);
+  });
 });
 
 describe('Registry v1 backward compatibility', () => {
