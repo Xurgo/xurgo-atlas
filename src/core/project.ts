@@ -4,6 +4,7 @@ import { GitStore, FileEntry } from './git-store.js';
 import { Policy } from './policy.js';
 import { EventLog } from './events.js';
 import { StoragePaths } from './storage.js';
+import { isPathOwned as resolveOwnedPath, listOwnedPaths } from './ownership.js';
 
 const STATUS_MD_TEMPLATE = `---
 docuGuard.type: status
@@ -260,6 +261,14 @@ export class Project {
 
   async getTrackedFiles(branch = 'main'): Promise<string[]> {
     return this.gitStore.listFiles(branch);
+  }
+
+  async getOwnedFiles(branch = 'main'): Promise<string[]> {
+    return listOwnedPaths(this.gitStore, branch);
+  }
+
+  async isPathOwned(branch: string, filePath: string): Promise<boolean> {
+    return resolveOwnedPath(this.gitStore, branch, filePath);
   }
 
   async readFile(branch: string, filePath: string): Promise<{

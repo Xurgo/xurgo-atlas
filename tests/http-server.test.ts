@@ -96,8 +96,11 @@ describe('HTTP server', () => {
     await fs.promises.mkdir(projectRoot, { recursive: true });
     await fs.promises.mkdir(path.join(projectRoot, 'docs'), { recursive: true });
     await fs.promises.writeFile(path.join(projectRoot, 'docs', 'README.md'), '# README');
+    await fs.promises.mkdir(path.join(projectRoot, 'docs', 'atlas'), {
+      recursive: true,
+    });
     await fs.promises.writeFile(
-      path.join(projectRoot, 'docs', 'guide.md'),
+      path.join(projectRoot, 'docs', 'atlas', 'guide.md'),
       `# Guide
 
 Intro.
@@ -259,21 +262,21 @@ Next body.
   });
 
   it('GET /projects/:projectId/docs/* performs bounded document reads', async () => {
-    const res = await get('/projects/http-test/docs/docs/guide.md?maxChars=12&offset=9');
+    const res = await get('/projects/http-test/docs/docs/atlas/guide.md?maxChars=12&offset=9');
     expect(res.status).toBe(200);
     const data = res.data as Record<string, unknown>;
     expect(data.projectId).toBe('http-test');
-    expect(data.path).toBe('docs/guide.md');
+    expect(data.path).toBe('docs/atlas/guide.md');
     expect(data.content).toBe('Intro.\n\n## T');
     expect(data.returnedChars).toBe(12);
     expect(data.truncated).toBe(true);
   });
 
   it('GET /projects/:projectId/sections returns matching sections', async () => {
-    const res = await get('/projects/http-test/sections?path=docs%2Fguide.md&heading=Target');
+    const res = await get('/projects/http-test/sections?path=docs%2Fatlas%2Fguide.md&heading=Target');
     expect(res.status).toBe(200);
     const data = res.data as Record<string, unknown>;
-    expect(data.path).toBe('docs/guide.md');
+    expect(data.path).toBe('docs/atlas/guide.md');
     expect(data.heading).toBe('Target');
     expect(data.matchedHeading).toBe('Target');
     expect(data.content).toContain('### Child');
@@ -283,7 +286,7 @@ Next body.
   it('POST /projects/:projectId/context-pack returns ordered read-only context items', async () => {
     const res = await postRaw('/projects/http-test/context-pack', {
       maxChars: 4000,
-      paths: ['docs/guide.md'],
+      paths: ['docs/atlas/guide.md'],
     });
     expect(res.status).toBe(200);
     const data = res.data as {
@@ -295,7 +298,7 @@ Next body.
       ['status', 'STATUS.md'],
       ['agents', 'AGENTS.md'],
       ['manifest', 'docs/manifest.yml'],
-      ['document', 'docs/guide.md'],
+      ['document', 'docs/atlas/guide.md'],
     ]);
   });
 
@@ -322,11 +325,11 @@ Next body.
   });
 
   it('REST read endpoints return structured errors for missing documents and sections', async () => {
-    const missingDoc = await get('/projects/http-test/docs/docs/missing.md');
+    const missingDoc = await get('/projects/http-test/docs/docs/atlas/missing.md');
     expect(missingDoc.status).toBe(404);
     expect((missingDoc.data as { error: { code: string } }).error.code).toBe('not_found');
 
-    const missingSection = await get('/projects/http-test/sections?path=docs%2Fguide.md&heading=Missing');
+    const missingSection = await get('/projects/http-test/sections?path=docs%2Fatlas%2Fguide.md&heading=Missing');
     expect(missingSection.status).toBe(404);
     const sectionData = missingSection.data as { error: { code: string; details: { availableHeadings: unknown[] } } };
     expect(sectionData.error.code).toBe('not_found');

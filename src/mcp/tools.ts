@@ -151,7 +151,7 @@ export function registerTools(
       tools: [
         {
           name: 'docs.list',
-          description: 'List all tracked documentation files in a branch',
+          description: 'List all Atlas-owned managed documentation files in a branch',
           inputSchema: zodToJsonSchema(ListDocsSchema),
         },
         {
@@ -318,7 +318,7 @@ async function resolveProjectForRequest(
 
 async function handleList(project: Project, rawArgs: Record<string, unknown>) {
   const args = ListDocsSchema.parse(rawArgs);
-  const filePaths = await project.getTrackedFiles(args.branch);
+  const filePaths = await project.getOwnedFiles(args.branch);
   const branchRevision = await project.gitStore.getBranchHead(args.branch);
 
   // Enrich each file with revision and protected status
@@ -365,6 +365,10 @@ export async function handleRead(project: Project, rawArgs: Record<string, unkno
       ],
       isError: true,
     };
+  }
+
+  if (!(await project.isPathOwned(args.branch, args.path))) {
+    return ownedPathError(project.projectId, args.path, args.branch);
   }
 
   const { content, revision } = await project.readFile(
@@ -446,6 +450,10 @@ export async function handleReadSection(project: Project, rawArgs: Record<string
       ],
       isError: true,
     };
+  }
+
+  if (!(await project.isPathOwned(args.branch, args.path))) {
+    return ownedPathError(project.projectId, args.path, args.branch);
   }
 
   const readResult = args.revision
@@ -1554,7 +1562,12 @@ interface ContextReadResult {
 export async function handleContextPack(project: Project, rawArgs: Record<string, unknown>) {
   const args = ContextPackSchema.parse(rawArgs);
 
-  const validationError = validateContextPackPaths(project, args.paths, args.sections);
+  const validationError = await validateContextPackPaths(
+    project,
+    args.branch,
+    args.paths,
+    args.sections,
+  );
   if (validationError) {
     return validationError;
   }
@@ -1742,20 +1755,32 @@ export async function handleContextPack(project: Project, rawArgs: Record<string
 
 function validateContextPackPaths(
   project: Project,
+  branch: string,
   paths: string[],
   sections: Array<z.infer<typeof ContextPackSectionSchema>>,
-) {
+): Promise<{
+  content: Array<{ type: 'text'; text: string }>;
+  isError: boolean;
+} | null> {
   const explicitPaths = [
     ...paths,
     ...sections.map((section) => section.path),
   ];
 
+  return validateContextPackPathsAsync(project, branch, explicitPaths);
+}
+
+async function validateContextPackPathsAsync(
+  project: Project,
+  branch: string,
+  explicitPaths: string[],
+) {
   for (const filePath of explicitPaths) {
     if (isPathTraversal(filePath)) {
       return {
         content: [
           {
-            type: 'text',
+            type: 'text' as const,
             text: JSON.stringify({
               error: `Path traversal detected: "${filePath}" is outside the project scope`,
               path: filePath,
@@ -1766,23 +1791,29 @@ function validateContextPackPaths(
       };
     }
 
-    if (!project.policy.isPathProtected(filePath)) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              error: `Path "${filePath}" is not in the list of tracked documentation paths`,
-              path: filePath,
-            }),
-          },
-        ],
-        isError: true,
-      };
+    if (!(await project.isPathOwned(branch, filePath))) {
+      return ownedPathError(project.projectId, filePath, branch);
     }
   }
 
   return null;
+}
+
+function ownedPathError(projectId: string, filePath: string, branch: string) {
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify({
+          error: `Path "${filePath}" is not in the list of Atlas-owned managed documents`,
+          projectId,
+          path: filePath,
+          branch,
+        }),
+      },
+    ],
+    isError: true,
+  };
 }
 
 async function readContextFile(
