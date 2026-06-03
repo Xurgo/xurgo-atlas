@@ -2,7 +2,7 @@
 docuGuard.type: status
 statusVersion: 1
 priority: high
-currentFocus: "Create-only docs.propose_document support is complete alongside guarded Atlas document creation"
+currentFocus: "Create-only document creation remains complete, and guarded patch preview/commit validation now rejects non-applyable proposals before commit"
 nextActions:
   - "Plan the remaining CLI/internal/config-storage migration work without changing the docs.* namespace"
   - "Decide when curated Atlas ownership should also narrow docs.propose_patch write scope"
@@ -21,10 +21,10 @@ lastUpdated: "2026-06-03"
 # Project Status
 
 ## Project
-Xurgo Atlas is the project-context and documentation-safety MCP. Package metadata now uses `xurgo-atlas`, daemon lifecycle commands and curated Atlas document ownership are implemented, and guarded create-only document proposals now support adding new Atlas Markdown docs without broadening the existing patch workflow.
+Xurgo Atlas is the project-context and documentation-safety MCP. Package metadata now uses `xurgo-atlas`, daemon lifecycle commands and curated Atlas document ownership are implemented, guarded create-only document proposals now support adding new Atlas Markdown docs, and guarded patch previews now validate stored proposal applyability before commit.
 
 ## Current Focus
-The v0.4 context tools, minimal read-only REST API, and hardened read-only web UI remain stabilized as a private milestone. Guarded document creation now also supports `docs.propose_document` in create-only mode: proposals may create new Markdown files only under `docs/atlas/**`, must update `docs/manifest.yml` in the same proposal, preview both file changes together, and commit both managed-store changes atomically. Validation rejects traversal, paths outside `docs/atlas/**`, non-Markdown targets, existing files, duplicate manifest entries, and missing or invalid `docs/manifest.yml`. Proposal metadata now supports narrow `document_create` proposals, internal unified diff generation is used instead of shelling out to an external diff tool, `docs.propose_patch` remains backward-compatible, and no adopt/update/delete document tools were added.
+The v0.4 context tools, minimal read-only REST API, and hardened read-only web UI remain stabilized as a private milestone. Guarded document creation now also supports `docs.propose_document` in create-only mode: proposals may create new Markdown files only under `docs/atlas/**`, must update `docs/manifest.yml` in the same proposal, preview both file changes together, and commit both managed-store changes atomically. Guarded patch previews now dry-run check applyability with `git apply --check --unidiff-zero` against the managed branch/worktree state, reject empty or non-unified patch bodies during preview, and return structured preview errors that distinguish invalid patches from stale base revisions. `docs.commit_patch` rejects corrupt or non-applyable patches and marks them rejected instead of stale. Validation still rejects traversal, paths outside `docs/atlas/**`, non-Markdown targets, existing files, duplicate manifest entries, and missing or invalid `docs/manifest.yml`. Proposal metadata now supports narrow `document_create` proposals, internal unified diff generation is used instead of shelling out to an external diff tool, `docs.propose_patch` remains backward-compatible, and no adopt/update/delete document tools were added.
 
 ## Next Actions
 - Plan the remaining CLI/internal/config-storage migration work after the package metadata rename
