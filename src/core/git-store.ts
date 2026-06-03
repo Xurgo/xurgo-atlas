@@ -25,6 +25,35 @@ export interface PatchApplyCheckResult {
   error?: string;
 }
 
+function looksLikeUnifiedDiff(patchContent: string): boolean {
+  const lines = patchContent.split('\n');
+  let sawFileHeader = false;
+  let sawHunk = false;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!sawFileHeader) {
+      const nextLine = lines[index + 1] ?? '';
+      const hasValidOldHeader =
+        line.startsWith('--- a/') || line === '--- /dev/null';
+      const hasValidNewHeader = nextLine.startsWith('+++ b/');
+
+      if (hasValidOldHeader && hasValidNewHeader) {
+        sawFileHeader = true;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (line.startsWith('@@ ')) {
+      sawHunk = true;
+      break;
+    }
+  }
+
+  return sawFileHeader && sawHunk;
+}
+
 export class GitStore {
   private repoPath: string;
   private workDir: string;
@@ -385,6 +414,14 @@ export class GitStore {
         return {
           applyable: false,
           error: 'Patch does not name any changed files',
+        };
+      }
+
+      // Reject prose or apply_patch-style payloads before handing them to git apply.
+      if (!looksLikeUnifiedDiff(patchContent)) {
+        return {
+          applyable: false,
+          error: 'error: No valid patches in input (allow with "--allow-empty")',
         };
       }
 
