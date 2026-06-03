@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -8,12 +8,13 @@ import { Registry } from '../src/core/registry.js';
 import { Policy } from '../src/core/policy.js';
 import {
   StoragePaths,
+  emitStorageDiagnostics,
   getDefaultConfigDir,
   getDefaultDataDir,
   getStorageRootCandidates,
   resolveStorageRoots,
 } from '../src/core/storage.js';
-import { initCommand } from '../src/cli/init.js';
+import { exportCommand, historyCommand, initCommand, listCommand } from '../src/cli/init.js';
 import { GitStore } from '../src/core/git-store.js';
 import { EventLog } from '../src/core/events.js';
 import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/patch.js';
@@ -25,6 +26,37 @@ import YAML from 'yaml';
 import { simpleGit } from 'simple-git';
 
 let tmpDir: string;
+
+async function withXdgRoots<T>(
+  run: (roots: { root: string; configHome: string; dataHome: string }) => Promise<T>,
+): Promise<T> {
+  const prevConfigHome = process.env.XDG_CONFIG_HOME;
+  const prevDataHome = process.env.XDG_DATA_HOME;
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-xdg-'));
+  const configHome = path.join(root, 'config-home');
+  const dataHome = path.join(root, 'data-home');
+
+  process.env.XDG_CONFIG_HOME = configHome;
+  process.env.XDG_DATA_HOME = dataHome;
+
+  try {
+    return await run({ root, configHome, dataHome });
+  } finally {
+    if (prevConfigHome === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = prevConfigHome;
+    }
+
+    if (prevDataHome === undefined) {
+      delete process.env.XDG_DATA_HOME;
+    } else {
+      process.env.XDG_DATA_HOME = prevDataHome;
+    }
+
+    await fs.promises.rm(root, { recursive: true, force: true });
+  }
+}
 
 beforeEach(async () => {
   tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'docu-guard-test-'));
@@ -110,18 +142,72 @@ describe('storage path resolution', () => {
     expect(storage.dataDir).toBe(getDefaultDataDir());
   });
 
-  it('should expose atlas and legacy root candidates while keeping legacy defaults active', () => {
-    const candidates = getStorageRootCandidates();
-    const resolved = resolveStorageRoots();
+  it('should expose atlas root candidates and choose them for fresh installs', async () => {
+    await withXdgRoots(async () => {
+      const candidates = getStorageRootCandidates();
+      const resolved = resolveStorageRoots();
 
-    expect(candidates.atlasConfigDir).toContain('xurgo-atlas');
-    expect(candidates.atlasDataDir).toContain('xurgo-atlas');
-    expect(candidates.legacyConfigDir).toContain('docu-guard');
-    expect(candidates.legacyDataDir).toContain('docu-guard');
-    expect(resolved.configDir).toBe(candidates.legacyConfigDir);
-    expect(resolved.dataDir).toBe(candidates.legacyDataDir);
-    expect(resolved.configSource).toBe('legacy-default');
-    expect(resolved.dataSource).toBe('legacy-default');
+      expect(candidates.atlasConfigDir).toContain('xurgo-atlas');
+      expect(candidates.atlasDataDir).toContain('xurgo-atlas');
+      expect(candidates.legacyConfigDir).toContain('docu-guard');
+      expect(candidates.legacyDataDir).toContain('docu-guard');
+      expect(resolved.configDir).toBe(candidates.atlasConfigDir);
+      expect(resolved.dataDir).toBe(candidates.atlasDataDir);
+      expect(resolved.configSource).toBe('atlas-default');
+      expect(resolved.dataSource).toBe('atlas-default');
+      expect(resolved.discovery.selectedDefaultApp).toBe('atlas');
+      expect(resolved.diagnostics).toEqual([]);
+    });
+  });
+
+  it('should choose legacy roots for legacy-only installs', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+
+      await fs.promises.mkdir(legacyConfigDir, { recursive: true });
+      await fs.promises.mkdir(path.join(legacyDataDir, 'projects', 'legacy-project'), {
+        recursive: true,
+      });
+      await fs.promises.writeFile(
+        path.join(legacyConfigDir, 'projects.json'),
+        JSON.stringify({ version: 2, configDir: legacyConfigDir, dataDir: legacyDataDir, defaultProjectId: null, projects: {} }, null, 2),
+        'utf-8',
+      );
+
+      const resolved = resolveStorageRoots();
+
+      expect(resolved.configDir).toBe(legacyConfigDir);
+      expect(resolved.dataDir).toBe(legacyDataDir);
+      expect(resolved.configSource).toBe('legacy-default');
+      expect(resolved.dataSource).toBe('legacy-default');
+      expect(resolved.discovery.selectedDefaultApp).toBe('legacy');
+    });
+  });
+
+  it('should choose atlas roots for atlas-only installs', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const atlasConfigDir = path.join(configHome, 'xurgo-atlas');
+      const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+
+      await fs.promises.mkdir(atlasConfigDir, { recursive: true });
+      await fs.promises.mkdir(path.join(atlasDataDir, 'projects', 'atlas-project'), {
+        recursive: true,
+      });
+      await fs.promises.writeFile(
+        path.join(atlasConfigDir, 'projects.json'),
+        JSON.stringify({ version: 2, configDir: atlasConfigDir, dataDir: atlasDataDir, defaultProjectId: null, projects: {} }, null, 2),
+        'utf-8',
+      );
+
+      const resolved = resolveStorageRoots();
+
+      expect(resolved.configDir).toBe(atlasConfigDir);
+      expect(resolved.dataDir).toBe(atlasDataDir);
+      expect(resolved.configSource).toBe('atlas-default');
+      expect(resolved.dataSource).toBe('atlas-default');
+      expect(resolved.discovery.selectedDefaultApp).toBe('atlas');
+    });
   });
 
   it('should accept custom config and data directories', () => {
@@ -143,6 +229,74 @@ describe('storage path resolution', () => {
     expect(resolved.dataDir).toBe(path.join(os.homedir(), 'my-data'));
     expect(resolved.configSource).toBe('explicit');
     expect(resolved.dataSource).toBe('explicit');
+  });
+
+  it('should keep explicit roots even when legacy and atlas installs are discovered', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const atlasConfigDir = path.join(configHome, 'xurgo-atlas');
+      const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+
+      await fs.promises.mkdir(atlasConfigDir, { recursive: true });
+      await fs.promises.mkdir(legacyConfigDir, { recursive: true });
+      await fs.promises.mkdir(path.join(atlasDataDir, 'projects', 'atlas-project'), {
+        recursive: true,
+      });
+      await fs.promises.mkdir(path.join(legacyDataDir, 'projects', 'legacy-project'), {
+        recursive: true,
+      });
+      await fs.promises.writeFile(path.join(atlasConfigDir, 'projects.json'), '{}', 'utf-8');
+      await fs.promises.writeFile(path.join(legacyConfigDir, 'projects.json'), '{}', 'utf-8');
+
+      const resolved = resolveStorageRoots({
+        configDir: '/custom/config',
+        dataDir: '/custom/data',
+      });
+
+      expect(resolved.configDir).toBe('/custom/config');
+      expect(resolved.dataDir).toBe('/custom/data');
+      expect(resolved.configSource).toBe('explicit');
+      expect(resolved.dataSource).toBe('explicit');
+    });
+  });
+
+  it('should prefer atlas roots and expose a warning when both atlas and legacy roots are populated', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const atlasConfigDir = path.join(configHome, 'xurgo-atlas');
+      const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+
+      await fs.promises.mkdir(atlasConfigDir, { recursive: true });
+      await fs.promises.mkdir(legacyConfigDir, { recursive: true });
+      await fs.promises.mkdir(path.join(atlasDataDir, 'projects', 'atlas-project'), {
+        recursive: true,
+      });
+      await fs.promises.mkdir(path.join(legacyDataDir, 'projects', 'legacy-project'), {
+        recursive: true,
+      });
+      await fs.promises.writeFile(path.join(atlasConfigDir, 'projects.json'), '{}', 'utf-8');
+      await fs.promises.writeFile(path.join(legacyConfigDir, 'projects.json'), '{}', 'utf-8');
+
+      const resolved = resolveStorageRoots();
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      try {
+        expect(resolved.configDir).toBe(atlasConfigDir);
+        expect(resolved.dataDir).toBe(atlasDataDir);
+        expect(resolved.diagnostics).toHaveLength(1);
+        expect(resolved.diagnostics[0].code).toBe('both-storage-roots-populated');
+        expect(resolved.diagnostics[0].message).toContain('Using Xurgo Atlas roots');
+        expect(resolved.diagnostics[0].message).toContain('No automatic merge or migration was performed');
+
+        emitStorageDiagnostics(resolved);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy.mock.calls[0][0]).toContain('Both Xurgo Atlas and legacy docu-guard storage roots appear populated');
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
   });
 
   it('should derive correct project managed paths', () => {
@@ -191,6 +345,121 @@ describe('storage path resolution', () => {
     });
     expect(storage.configDir).toBe('/absolute/path');
     expect(storage.dataDir).toBe('/another/path');
+  });
+});
+
+describe('storage discovery workflows', () => {
+  it('should run init, list, history, and export against atlas roots on a fresh install', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const projectRoot = path.join(tmpDir, 'atlas-project-root');
+      const exportDir = path.join(tmpDir, 'atlas-export');
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+      await fs.promises.mkdir(projectRoot, { recursive: true });
+
+      try {
+        await initCommand({
+          projectRoot,
+          projectId: 'atlas-project-root',
+        });
+
+        const atlasConfigDir = path.join(configHome, 'xurgo-atlas');
+        const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+
+        await expect(
+          fs.promises.stat(path.join(atlasConfigDir, 'projects.json')),
+        ).resolves.toBeTruthy();
+        await expect(
+          fs.promises.stat(path.join(atlasDataDir, 'projects', 'atlas-project-root', 'repo.git')),
+        ).resolves.toBeTruthy();
+        await expect(
+          fs.promises.stat(path.join(atlasDataDir, 'projects', 'atlas-project-root', 'events.sqlite')),
+        ).resolves.toBeTruthy();
+
+        logSpy.mockClear();
+        await listCommand(projectRoot);
+        const listPayload = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? '{}'));
+        expect(listPayload.projectId).toBe('atlas-project-root');
+        expect(Array.isArray(listPayload.files)).toBe(true);
+
+        logSpy.mockClear();
+        await historyCommand(projectRoot, 'docs/README.md');
+        const historyPayload = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? '{}'));
+        expect(historyPayload.path).toBe('docs/README.md');
+        expect(Array.isArray(historyPayload.history)).toBe(true);
+
+        logSpy.mockClear();
+        await exportCommand(projectRoot, 'main', undefined, undefined, exportDir);
+        await expect(
+          fs.promises.readFile(path.join(exportDir, 'docs', 'README.md'), 'utf-8'),
+        ).resolves.toContain('Xurgo Atlas');
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+  });
+
+  it('should run init, list, history, and export against legacy-discovered roots', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const projectRoot = path.join(tmpDir, 'legacy-project-root');
+      const exportDir = path.join(tmpDir, 'legacy-export');
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+      await fs.promises.mkdir(projectRoot, { recursive: true });
+      await fs.promises.mkdir(path.join(legacyDataDir, 'projects', 'existing-project'), {
+        recursive: true,
+      });
+      await fs.promises.mkdir(legacyConfigDir, { recursive: true });
+      await fs.promises.writeFile(
+        path.join(legacyConfigDir, 'projects.json'),
+        JSON.stringify({
+          version: 2,
+          configDir: legacyConfigDir,
+          dataDir: legacyDataDir,
+          defaultProjectId: null,
+          projects: {},
+        }, null, 2),
+        'utf-8',
+      );
+
+      try {
+        await initCommand({
+          projectRoot,
+          projectId: 'legacy-project-root',
+        });
+
+        await expect(
+          fs.promises.readFile(path.join(legacyConfigDir, 'projects.json'), 'utf-8'),
+        ).resolves.toContain('legacy-project-root');
+        await expect(
+          fs.promises.stat(path.join(legacyDataDir, 'projects', 'legacy-project-root', 'repo.git')),
+        ).resolves.toBeTruthy();
+        await expect(
+          fs.promises.stat(path.join(legacyDataDir, 'projects', 'legacy-project-root', 'events.sqlite')),
+        ).resolves.toBeTruthy();
+
+        logSpy.mockClear();
+        await listCommand(projectRoot);
+        const listPayload = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? '{}'));
+        expect(Array.isArray(listPayload.files)).toBe(true);
+
+        logSpy.mockClear();
+        await historyCommand(projectRoot, 'docs/README.md');
+        const historyPayload = JSON.parse(String(logSpy.mock.calls.at(-1)?.[0] ?? '{}'));
+        expect(historyPayload.path).toBe('docs/README.md');
+        expect(Array.isArray(historyPayload.history)).toBe(true);
+
+        logSpy.mockClear();
+        await exportCommand(projectRoot, 'main', undefined, undefined, exportDir);
+        await expect(
+          fs.promises.readFile(path.join(exportDir, 'docs', 'README.md'), 'utf-8'),
+        ).resolves.toContain('Xurgo Atlas');
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
   });
 });
 

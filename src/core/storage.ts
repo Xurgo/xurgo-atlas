@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
@@ -32,12 +33,36 @@ export interface StorageRootCandidates {
   legacyDataDir: string;
 }
 
+export interface StorageNamespaceState {
+  configDir: string;
+  dataDir: string;
+  registryPath: string;
+  registryExists: boolean;
+  dataDirExists: boolean;
+  dataDirPopulated: boolean;
+  present: boolean;
+}
+
+export interface StorageDiscoveryState {
+  atlas: StorageNamespaceState;
+  legacy: StorageNamespaceState;
+  selectedDefaultApp: 'atlas' | 'legacy';
+}
+
+export interface StorageDiagnostic {
+  code: 'both-storage-roots-populated';
+  level: 'warning';
+  message: string;
+}
+
 export interface ResolvedStorageRoots {
   configDir: string;
   dataDir: string;
-  configSource: 'explicit' | 'legacy-default';
-  dataSource: 'explicit' | 'legacy-default';
+  configSource: 'explicit' | 'atlas-default' | 'legacy-default';
+  dataSource: 'explicit' | 'atlas-default' | 'legacy-default';
   candidates: StorageRootCandidates;
+  discovery: StorageDiscoveryState;
+  diagnostics: StorageDiagnostic[];
 }
 
 /**
@@ -60,8 +85,7 @@ function resolveXdgAppRoot(
 
 /**
  * Return the atlas and legacy storage-root candidates without choosing
- * between them. The current slice still selects legacy defaults unless
- * explicit overrides are supplied.
+ * between them.
  */
 export function getStorageRootCandidates(): StorageRootCandidates {
   return {
@@ -88,26 +112,136 @@ export function getStorageRootCandidates(): StorageRootCandidates {
   };
 }
 
+function isFile(filePath: string): boolean {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isDirectory(dirPath: string): boolean {
+  try {
+    return fs.statSync(dirPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function isPopulatedDirectory(dirPath: string): boolean {
+  if (!isDirectory(dirPath)) {
+    return false;
+  }
+
+  try {
+    return fs.readdirSync(dirPath).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function inspectNamespaceState(
+  configDir: string,
+  dataDir: string,
+): StorageNamespaceState {
+  const registryPath = path.join(configDir, 'projects.json');
+  const registryExists = isFile(registryPath);
+  const dataDirExists = isDirectory(dataDir);
+  const dataDirPopulated = isPopulatedDirectory(dataDir);
+
+  return {
+    configDir,
+    dataDir,
+    registryPath,
+    registryExists,
+    dataDirExists,
+    dataDirPopulated,
+    present: registryExists || dataDirPopulated,
+  };
+}
+
+export function inspectStorageDiscovery(
+  candidates: StorageRootCandidates = getStorageRootCandidates(),
+): StorageDiscoveryState {
+  const atlas = inspectNamespaceState(
+    candidates.atlasConfigDir,
+    candidates.atlasDataDir,
+  );
+  const legacy = inspectNamespaceState(
+    candidates.legacyConfigDir,
+    candidates.legacyDataDir,
+  );
+
+  return {
+    atlas,
+    legacy,
+    selectedDefaultApp: atlas.present ? 'atlas' : legacy.present ? 'legacy' : 'atlas',
+  };
+}
+
+function buildStorageDiagnostics(
+  discovery: StorageDiscoveryState,
+): StorageDiagnostic[] {
+  if (!(discovery.atlas.present && discovery.legacy.present)) {
+    return [];
+  }
+
+  return [
+    {
+      code: 'both-storage-roots-populated',
+      level: 'warning',
+      message:
+        'Both Xurgo Atlas and legacy docu-guard storage roots appear populated. ' +
+        `Using Xurgo Atlas roots (${discovery.atlas.configDir}, ${discovery.atlas.dataDir}) ` +
+        `and leaving legacy roots unchanged (${discovery.legacy.configDir}, ${discovery.legacy.dataDir}). ` +
+        'No automatic merge or migration was performed. Use --config-dir/--data-dir to target a specific root explicitly.',
+    },
+  ];
+}
+
+export function emitStorageDiagnostics(
+  resolved: Pick<ResolvedStorageRoots, 'diagnostics'>,
+  logger: Pick<Console, 'warn'> = console,
+): void {
+  for (const diagnostic of resolved.diagnostics) {
+    logger.warn(`Warning: ${diagnostic.message}`);
+  }
+}
+
 /**
  * Resolve the effective config/data roots for the current process.
  *
- * This slice preserves the current legacy defaults. Atlas-named roots are
- * exposed as candidates for a later migration step, but are not selected
- * automatically yet.
+ * Explicit overrides always win. Otherwise, atlas-named roots are preferred
+ * when present, legacy roots are discovered for backward compatibility, and
+ * fresh installs default to atlas-named roots.
  */
 export function resolveStorageRoots(config: StorageConfig = {}): ResolvedStorageRoots {
   const candidates = getStorageRootCandidates();
+  const discovery = inspectStorageDiscovery(candidates);
+  const selectedDefaultRoots = discovery.selectedDefaultApp === 'atlas'
+    ? {
+        configDir: candidates.atlasConfigDir,
+        dataDir: candidates.atlasDataDir,
+        source: 'atlas-default' as const,
+      }
+    : {
+        configDir: candidates.legacyConfigDir,
+        dataDir: candidates.legacyDataDir,
+        source: 'legacy-default' as const,
+      };
 
   return {
     configDir: config.configDir != null
       ? normalizeStorageRoot(config.configDir)
-      : candidates.legacyConfigDir,
+      : selectedDefaultRoots.configDir,
     dataDir: config.dataDir != null
       ? normalizeStorageRoot(config.dataDir)
-      : candidates.legacyDataDir,
-    configSource: config.configDir != null ? 'explicit' : 'legacy-default',
-    dataSource: config.dataDir != null ? 'explicit' : 'legacy-default',
+      : selectedDefaultRoots.dataDir,
+    configSource: config.configDir != null ? 'explicit' : selectedDefaultRoots.source,
+    dataSource: config.dataDir != null ? 'explicit' : selectedDefaultRoots.source,
     candidates,
+    discovery,
+    diagnostics: buildStorageDiagnostics(discovery),
   };
 }
 
@@ -150,7 +284,7 @@ export class StoragePaths {
 
 /**
  * Default config directory follows XDG_CONFIG_HOME, falling back to
- * ~/.config/docu-guard.
+ * ~/.config/xurgo-atlas while still discovering legacy docu-guard roots.
  */
 export function getDefaultConfigDir(): string {
   return resolveStorageRoots().configDir;
@@ -158,7 +292,7 @@ export function getDefaultConfigDir(): string {
 
 /**
  * Default data directory follows XDG_DATA_HOME, falling back to
- * ~/.local/share/docu-guard.
+ * ~/.local/share/xurgo-atlas while still discovering legacy docu-guard roots.
  */
 export function getDefaultDataDir(): string {
   return resolveStorageRoots().dataDir;

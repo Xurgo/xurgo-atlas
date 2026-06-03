@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import {
   initCommand,
   serverCommand,
@@ -17,9 +21,10 @@ import {
   projectDefaultCommand,
 } from './cli/project.js';
 import { daemonCommand } from './cli/daemon.js';
+import { emitStorageDiagnostics, resolveStorageRoots } from './core/storage.js';
 
-function printUsage(): void {
-  console.log(`
+export function getUsageText(): string {
+  return `
 xurgo-atlas — Xurgo Atlas, safe, versioned, auditable documentation management for AI-assisted projects
 Legacy alias: docu-guard (temporary)
 
@@ -30,14 +35,14 @@ COMMANDS:
   init       Initialize a Xurgo Atlas project
     --project-root <path>   Path to the project root (default: .)
     --project-id <id>       Unique identifier for the project
-    --config-dir <path>     Config directory (default: ~/.config/docu-guard)
-    --data-dir <path>       Data directory (default: ~/.local/share/docu-guard)
+    --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
 
   server     Start the MCP server
     --project-root <path>   Path to the project root (default: .)
     --project-id <id>       Project identifier (optional, defaults to dir name)
-    --config-dir <path>     Config directory (default: ~/.config/docu-guard)
-    --data-dir <path>       Data directory (default: ~/.local/share/docu-guard)
+    --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
 
   daemon     Manage the daemon (HTTP MCP server)
     start                   Start the daemon in the background
@@ -45,8 +50,8 @@ COMMANDS:
     status                  Show background daemon status
     --host <host>           Host to bind to (default: 127.0.0.1)
     --port <port>           Port to listen on (default: 3737)
-    --config-dir <path>     Config directory (default: ~/.config/docu-guard)
-    --data-dir <path>       Data directory (default: ~/.local/share/docu-guard)
+    --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
     --project-id <id>       Optional: register a project on startup
     --project-root <path>   Optional: project root (used with --project-id)
     Without a subcommand, starts the foreground daemon exactly as before.
@@ -83,7 +88,11 @@ EXAMPLES:
   xurgo-atlas export --branch main
 
 Legacy compatibility alias remains: docu-guard
-`);
+`;
+}
+
+function printUsage(): void {
+  console.log(getUsageText());
 }
 
 function parseArgv(argv: string[]): Record<string, string | string[]> {
@@ -151,6 +160,7 @@ async function main(): Promise<void> {
 
   switch (command) {
     case 'init': {
+      emitStorageDiagnostics(resolveStorageRoots({ configDir, dataDir }));
       if (!projectId) {
         console.error('Error: --project-id is required for init');
         process.exit(1);
@@ -160,6 +170,7 @@ async function main(): Promise<void> {
     }
 
     case 'server': {
+      emitStorageDiagnostics(resolveStorageRoots({ configDir, dataDir }));
       await serverCommand({
         projectRoot,
         projectId: projectId || requireProjectId(projectRoot),
@@ -170,6 +181,7 @@ async function main(): Promise<void> {
     }
 
     case 'daemon': {
+      emitStorageDiagnostics(resolveStorageRoots({ configDir, dataDir }));
       await daemonCommand({
         action: positionals[0],
         host: (args['host'] as string | undefined) || '127.0.0.1',
@@ -190,6 +202,13 @@ async function main(): Promise<void> {
         printProjectUsage();
         process.exit(0);
       }
+
+      emitStorageDiagnostics(
+        resolveStorageRoots({
+          configDir: kwargs['config-dir'] || configDir,
+          dataDir,
+        }),
+      );
 
       switch (subcommand) {
         case 'add': {
@@ -243,11 +262,13 @@ async function main(): Promise<void> {
     }
 
     case 'list': {
+      emitStorageDiagnostics(resolveStorageRoots({ configDir, dataDir }));
       await listCommand(projectRoot, configDir, dataDir);
       break;
     }
 
     case 'history': {
+      emitStorageDiagnostics(resolveStorageRoots({ configDir, dataDir }));
       const filePath = positionals[0];
       if (!filePath) {
         console.error('Error: path argument is required for history');
@@ -259,6 +280,7 @@ async function main(): Promise<void> {
     }
 
     case 'export': {
+      emitStorageDiagnostics(resolveStorageRoots({ configDir, dataDir }));
       await exportCommand(projectRoot, branch, configDir, dataDir, targetDir);
       break;
     }
@@ -276,7 +298,14 @@ function requireProjectId(projectRoot: string): string {
   return parts[parts.length - 1] || 'unnamed-project';
 }
 
-main().catch((err) => {
-  console.error('Unhandled error:', err);
-  process.exit(1);
-});
+const entryPath = fs.realpathSync.native(fileURLToPath(import.meta.url));
+const invokedPath = process.argv[1]
+  ? fs.realpathSync.native(path.resolve(process.argv[1]))
+  : null;
+
+if (invokedPath === entryPath) {
+  main().catch((err) => {
+    console.error('Unhandled error:', err);
+    process.exit(1);
+  });
+}
