@@ -1,7 +1,7 @@
 # docu-guard-mcp — Implementation Checklist
 
-> Last updated: 2026-06-02 (Xurgo Atlas naming migration readiness audit complete)
-> Status: **v0.4 private milestone stabilized; naming migration implementation inventory complete, migration not implemented**
+> Last updated: 2026-06-02 (daemon lifecycle and curated ownership documented)
+> Status: **v0.4 private milestone stabilized; daemon lifecycle and curated ownership updates landed**
 
 ---
 
@@ -31,10 +31,10 @@
 
 | Tool | Status | Notes |
 |------|--------|-------|
-| `docs.list` | ✅ Complete | Returns per-file `{ path, revision, protected }` |
-| `docs.read` | ✅ Complete | Content + revision hash; bounded reads with `maxChars`/`offset`; `truncated`, `returnedChars`, `totalChars` |
+| `docs.list` | ✅ Complete | Returns Atlas-owned docs only using curated ownership, separate from policy `protected_paths` |
+| `docs.read` | ✅ Complete | Content + revision hash; bounded reads with `maxChars`/`offset`; `truncated`, `returnedChars`, `totalChars`; owned-scope reads use curated Atlas ownership |
 | `docs.read_section` | ✅ Complete | Reads one Markdown section by heading; supports `level`, `occurrence`, `includeHeading`, `maxChars`, and `offset` |
-| `docs.context_pack` | ✅ Complete | Assembles STATUS.md, AGENTS.md, manifest data, requested sections/paths, and manifest-guided docs within a total `maxChars` budget |
+| `docs.context_pack` | ✅ Complete | Assembles STATUS.md, AGENTS.md, manifest data, requested sections/paths, and manifest-guided owned docs within a total `maxChars` budget |
 | `docs.create_branch` | ✅ Complete | `from` parameter, returns `created: true` |
 | `docs.propose_patch` | ✅ Complete | Stores proposal, returns `proposalId` |
 | `docs.preview_diff` | ✅ Complete | Looks up by `proposalId`, returns diff + risk |
@@ -142,11 +142,13 @@
 | v0.4 project context files (STATUS.md, manifest) | ✅ Complete | 8 tests (create, idempotent ×2, no .docu-guard/, policy protection, legacy policy merge, STATUS.md propose/commit, untracked rejection) |
 | docs.status front matter parsing | ✅ Complete | 7 tests (parse STATUS.md, read via project, truncation, missing file, no front matter, empty, partial delimiter) |
 | HTTP server with managed storage, read-only REST context API, and web UI | ✅ Complete | 22 tests (health, MCP dispatch, managed storage, REST context API, UI shell/assets/no write routes) |
+| Daemon lifecycle helpers and commands | ✅ Complete | 5 tests (action parsing, detached args, background start, stale PID cleanup, stop via SIGTERM) |
+| Curated Atlas-owned document scope | ✅ Complete | 4 tests (ownership resolution, docs.list exclusion, docs.read rejection, default context-pack exclusion) |
 | Daemon with managed storage | ✅ Complete | 4 tests (isolated temp paths) |
 | Bounded `docs.read` via handler | ✅ Complete | 9 tests: backward-compatible, truncation, maxChars>content, offset, offset+maxChars, revision preserved, missing file, offset beyond end, path traversal |
 | `docs.read_section` via handler | ✅ Complete | 10 tests: section reads, child subsections, includeHeading=false, maxChars, offset, duplicate occurrence, level filter, fenced code blocks, missing heading, docs.read compatibility |
 | `docs.context_pack` via handler | ✅ Complete | 6 tests: default orientation pack, total maxChars budget, explicit paths, explicit sections, missing paths, unsafe/untracked rejection |
-| **Total** | | **137 tests** |
+| **Total** | | **151 tests** |
 
 ---
 
@@ -181,7 +183,7 @@
 
 | Command | Status | Notes |
 |---------|--------|-------|
-| `docu-guard daemon` | ⏳ Planned | Streamable HTTP daemon on localhost:3737 |
+| `docu-guard daemon` | ✅ Complete | Foreground mode preserved; `xurgo-atlas daemon start|stop|status` manage background lifecycle; PID file stored under managed runtime data outside the repo working tree |
 | `docu-guard project add` | ⏳ Planned | Register a project in the local registry |
 | `docu-guard project remove` | ⏳ Planned | Remove a project from registry |
 | `docu-guard project list` | ⏳ Planned | List all registered projects |
@@ -209,7 +211,7 @@
 | Health check endpoint | ⏳ Planned | `GET /health` |
 | CORS support | ⏳ Planned | ACAO, ACAM, ACAH headers |
 | Origin validation | ⏳ Planned | Localhost origins by default |
-| Graceful shutdown | ⏳ Planned | SIGINT/SIGTERM handling |
+| Graceful shutdown | ✅ Complete | Foreground daemon handles SIGINT/SIGTERM; background lifecycle stop uses PID tracking + SIGTERM |
 
 ### Project Registry
 
@@ -328,6 +330,7 @@
 | Minimal read-only REST API | ✅ Complete | REST facade mirrors read-only MCP context tools; no write/proposal/approval/export endpoints |
 | Minimal read-only web UI | ✅ Complete | Served at `/` and `/ui`; opens to STATUS.md, uses manifest navigation, reads docs via REST, and exposes copy actions only |
 | Focused v0.4 stabilization audit | ✅ Complete | Confirmed docs/policy coherence, MCP/REST/UI read-only alignment, package dependency manifest, and private milestone readiness |
+| Curated Atlas-owned document scope for read surfaces | ✅ Complete | Ownership is now separate from `.docs-policy.yml` `protected_paths`; default owned docs are canonical Atlas docs, `docs/atlas/**`, and explicit manifest `documents[].path` entries; write scope remains conservatively policy-protected |
 | Mechanical rename/internal migration planning | ✅ Planning complete | Phased post-v0.4 plan added to the v0.4 spec; implementation remains deferred |
 
 ---
