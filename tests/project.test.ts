@@ -513,6 +513,7 @@ describe('project initialization', () => {
 
     // Verify AGENTS.md contains the documentation safety rules
     const agentsContent = await fs.promises.readFile(agentsMd, 'utf-8');
+    expect(agentsContent).toContain('# Agent Instructions for Xurgo Atlas');
     expect(agentsContent).toContain('Documentation Safety Rules');
     expect(agentsContent).toContain('Xurgo Atlas');
     expect(agentsContent).toContain('docu-guard-mcp');
@@ -523,6 +524,59 @@ describe('project initialization', () => {
     // Verify Git store has files tracked
     const files = await project.getTrackedFiles();
     expect(files.length).toBeGreaterThan(0);
+  });
+
+  it('should not duplicate generated AGENTS content on re-init after atlas-branded generation', async () => {
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const agentsContent = await fs.promises.readFile(
+      path.join(tmpDir, 'AGENTS.md'),
+      'utf-8',
+    );
+
+    expect(agentsContent.match(/# Agent Instructions for Xurgo Atlas/g)).toHaveLength(1);
+  });
+
+  it('should treat legacy generated AGENTS content as already initialized', async () => {
+    const legacyAgents = `# Agent Instructions for docu-guard-mcp
+
+## Documentation Safety Rules
+
+Legacy generated content.
+`;
+
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'AGENTS.md'),
+      legacyAgents,
+      'utf-8',
+    );
+
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const agentsContent = await fs.promises.readFile(
+      path.join(tmpDir, 'AGENTS.md'),
+      'utf-8',
+    );
+
+    expect(agentsContent).toBe(legacyAgents);
+    expect(agentsContent).not.toContain('# Agent Instructions for Xurgo Atlas');
   });
 
   it('should create managed state under dataDir, not project root', async () => {
@@ -579,6 +633,28 @@ describe('project initialization', () => {
     const managedDir = storage.projectDataDir('test-project');
     const managedStat = await fs.promises.stat(managedDir);
     expect(managedStat.isDirectory()).toBe(true);
+  });
+
+  it('should log initialization under the atlas-branded event path', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const atlasInitHistory = project.eventLog.getHistoryForPath(
+      'test-project',
+      '.xurgo-atlas/init',
+    );
+    const legacyInitHistory = project.eventLog.getHistoryForPath(
+      'test-project',
+      '.docu-guard/init',
+    );
+
+    expect(atlasInitHistory).toHaveLength(1);
+    expect(atlasInitHistory[0].summary).toContain('Initialized Xurgo Atlas project');
+    expect(legacyInitHistory).toHaveLength(0);
   });
 });
 
@@ -3542,6 +3618,56 @@ describe('GitStore workdir cleanup', () => {
     // Verify the exported files do not contain the dirty file
     const exportDocs = await fs.promises.readdir(path.join(exportDir, 'docs'));
     expect(exportDocs).not.toContain('dirty-file.md');
+  });
+
+  it('should clean up atlas-branded temporary patch files after patch validation and commit', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const repoDir = project.gitStore.repoDir;
+    const workDir = path.join(repoDir, 'workdir');
+    const policy = await Policy.load(tmpDir);
+    const filePath = 'docs/README.md';
+    const { content, revision } = await project.readFile('main', filePath);
+    const updatedContent = (content ?? '') + '\n## Temp Cleanup\n';
+    const patch = createSimplePatch(content ?? '', updatedContent);
+
+    const validation = await validatePatch(policy, project.gitStore, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: filePath,
+      baseRevision: revision ?? '',
+      patch,
+      intent: 'Validate patch temp file cleanup',
+      summary: 'Ensure atlas patch-check temp files are removed',
+    });
+
+    expect(validation.valid).toBe(true);
+    await expect(
+      fs.promises.stat(path.join(workDir, '.xurgo-atlas-patch-check.tmp')),
+    ).rejects.toThrow();
+    await expect(
+      fs.promises.stat(path.join(workDir, '.docu-guard-patch-check.tmp')),
+    ).rejects.toThrow();
+
+    await project.gitStore.applyPatchAndCommit(
+      'main',
+      filePath,
+      patch,
+      'Check atlas temp patch cleanup',
+      revision ?? undefined,
+    );
+
+    await expect(
+      fs.promises.stat(path.join(workDir, '.xurgo-atlas-patch.tmp')),
+    ).rejects.toThrow();
+    await expect(
+      fs.promises.stat(path.join(workDir, '.docu-guard-patch.tmp')),
+    ).rejects.toThrow();
   });
 });
 

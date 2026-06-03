@@ -435,7 +435,7 @@ export class GitStore {
         await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
       }
 
-      const patchFile = path.join(workDir, '.docu-guard-patch-check.tmp');
+      const patchFile = path.join(workDir, '.xurgo-atlas-patch-check.tmp');
       await fs.promises.writeFile(patchFile, patchContent, 'utf-8');
 
       try {
@@ -499,7 +499,7 @@ export class GitStore {
         await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
       }
 
-      const patchFile = path.join(workDir, '.docu-guard-patch.tmp');
+      const patchFile = path.join(workDir, '.xurgo-atlas-patch.tmp');
       await fs.promises.writeFile(patchFile, patchContent, 'utf-8');
 
       try {
