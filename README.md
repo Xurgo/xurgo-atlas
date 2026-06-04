@@ -436,6 +436,12 @@ The canonical safe workflow for agents to modify documentation is:
 > **Agent Instruction:**  
 > Use docu-guard-mcp for all documentation changes. Do not edit docs directly. Read the file first, use the returned baseRevision, propose a minimal patch, preview the diff, commit the proposal, then export.
 
+## Validation
+
+Use `npm run validate:quick` during narrow edits. It runs the fast test tier plus `npm run build` without the slow integration-heavy project suite.
+
+Use `npm run validate:full` before risky merges or release-style checks. It keeps the existing full `npm test` path, adds a build, and runs `npm pack --dry-run`. The full validation currently takes a few minutes.
+
 ## Creating New Documentation
 
 Creating a new documentation file is supported via the existing patch-based workflow. To create a new file:
