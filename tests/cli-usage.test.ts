@@ -60,7 +60,6 @@ describe('CLI usage text', () => {
     expect(output).toContain('storage    Inspect Atlas-vs-legacy managed storage (read-only)');
     expect(output).toContain('default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered');
     expect(output).toContain('default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered');
-    expect(output).toContain('Legacy compatibility alias remains: docu-guard');
   });
 
   it('presents Xurgo Atlas as the primary project command name', () => {
@@ -73,17 +72,16 @@ describe('CLI usage text', () => {
       expect(output).toContain('xurgo-atlas project <subcommand> [options]');
       expect(output).toContain('default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered');
       expect(output).toContain('default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered');
-      expect(output).toContain('Legacy compatibility alias remains: docu-guard project <subcommand>');
     } finally {
       logSpy.mockRestore();
     }
   });
 
-  it('keeps the temporary docu-guard alias documented in project help text', () => {
+  it('shows legacy docu-guard root discovery in project help text', () => {
     const output = getProjectUsageText();
 
-    expect(output).toContain('Legacy alias: docu-guard (temporary)');
-    expect(output).toContain('Legacy compatibility alias remains: docu-guard project <subcommand>');
+    expect(output).toContain('Manage registered Xurgo Atlas projects.');
+    expect(output).toContain('legacy docu-guard roots auto-discovered');
   });
 
   it('parses config-dir and data-dir for project subcommands', () => {

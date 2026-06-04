@@ -36,7 +36,6 @@ export function parseProjectArgs(argv: string[]): {
 export function getProjectUsageText(): string {
   return `
 Manage registered Xurgo Atlas projects.
-Legacy alias: docu-guard (temporary)
 
 USAGE:
   xurgo-atlas project <subcommand> [options]
@@ -74,7 +73,6 @@ EXAMPLES:
   xurgo-atlas project show --project-id my-app
   xurgo-atlas project default --project-id my-app
 
-Legacy compatibility alias remains: docu-guard project <subcommand>
 `;
 }
 
