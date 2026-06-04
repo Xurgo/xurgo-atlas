@@ -108,6 +108,10 @@ function printUsage(): void {
   console.log(getUsageText());
 }
 
+function hasHelpFlag(argv: string[]): boolean {
+  return argv.includes('--help') || argv.includes('-h');
+}
+
 function parseArgv(argv: string[]): Record<string, string | string[]> {
   const args: Record<string, string | string[]> = { _: [] };
   let i = 0;
@@ -159,7 +163,7 @@ function parseArgv(argv: string[]): Record<string, string | string[]> {
   return args;
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   // Parse the command
   const command = process.argv[2];
   const rawArgs = process.argv.slice(3);
@@ -180,6 +184,10 @@ async function main(): Promise<void> {
 
   switch (command) {
     case 'init': {
+      if (hasHelpFlag(rawArgs)) {
+        printUsage();
+        process.exit(0);
+      }
       emitStorageDiagnostics(resolveStorageRoots({ configDir, dataDir }));
       if (!projectId) {
         console.error('Error: --project-id is required for init');
@@ -201,7 +209,7 @@ async function main(): Promise<void> {
     }
 
     case 'daemon': {
-      if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
+      if (hasHelpFlag(rawArgs)) {
         console.log(getDaemonUsageText());
         process.exit(0);
       }
