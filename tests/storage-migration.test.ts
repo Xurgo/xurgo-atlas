@@ -3,7 +3,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { planStorageMigration } from '../src/core/storage-migration.js';
+import {
+  applyStorageMigration,
+  planStorageMigration,
+} from '../src/core/storage-migration.js';
 import { getStorageRootCandidates } from '../src/core/storage.js';
 
 async function withXdgRoots<T>(
@@ -66,6 +69,33 @@ async function writeRegistry(
   );
 }
 
+async function writeProjectStore(
+  dataDir: string,
+  projectId: string,
+  options: {
+    includeRepo?: boolean;
+    includeEvents?: boolean;
+  } = {},
+): Promise<void> {
+  const includeRepo = options.includeRepo ?? true;
+  const includeEvents = options.includeEvents ?? true;
+  const projectDir = path.join(dataDir, 'projects', projectId);
+
+  await fs.promises.mkdir(projectDir, { recursive: true });
+
+  if (includeRepo) {
+    await fs.promises.mkdir(path.join(projectDir, 'repo.git'), { recursive: true });
+  }
+
+  if (includeEvents) {
+    await fs.promises.writeFile(
+      path.join(projectDir, 'events.sqlite'),
+      'sqlite-placeholder',
+      'utf-8',
+    );
+  }
+}
+
 describe('storage migration planner', () => {
   it('reports when no legacy roots are found and performs no writes', async () => {
     await withXdgRoots(async () => {
@@ -110,8 +140,58 @@ describe('storage migration planner', () => {
       expect(plan.futureCopyActions.join('\n')).toContain(legacyConfigDir);
       expect(plan.futureCopyActions.join('\n')).toContain(path.join(legacyDataDir, 'projects'));
       expect(plan.futureSkipActions.join('\n')).toContain('Legacy source runtime artifact would be skipped');
+      expect(plan.nextAction).toContain('storage migrate --apply');
       await expect(fs.promises.stat(candidates.atlasConfigDir)).rejects.toThrow();
       await expect(fs.promises.stat(candidates.atlasDataDir)).rejects.toThrow();
+    });
+  });
+
+  it('applies a safe legacy-only copy into empty Atlas roots and leaves legacy roots untouched', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+      const atlasConfigDir = path.join(configHome, 'xurgo-atlas');
+      const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+      const runtimeDir = path.join(legacyDataDir, 'runtime');
+      const runtimeLog = path.join(runtimeDir, 'xurgo-atlas-daemon.log');
+
+      await writeRegistry(legacyConfigDir, legacyDataDir, ['legacy-a']);
+      await writeProjectStore(legacyDataDir, 'legacy-a');
+      await fs.promises.mkdir(runtimeDir, { recursive: true });
+      await fs.promises.writeFile(runtimeLog, 'legacy log', 'utf-8');
+
+      const result = await applyStorageMigration();
+      const atlasRegistryRaw = await fs.promises.readFile(
+        path.join(atlasConfigDir, 'projects.json'),
+        'utf-8',
+      );
+      const atlasRegistry = JSON.parse(atlasRegistryRaw) as {
+        configDir: string;
+        dataDir: string;
+        projects: Record<string, unknown>;
+      };
+
+      expect(result.copiedProjectIds).toEqual(['legacy-a']);
+      expect(result.runtimeArtifactsSkipped).toContain(runtimeDir);
+      expect(result.runtimeArtifactsSkipped).toContain(runtimeLog);
+      expect(result.legacyRootsUntouched).toBe(true);
+      expect(result.wroteAtlasTargetRoots).toBe(true);
+      expect(atlasRegistry.configDir).toBe(atlasConfigDir);
+      expect(atlasRegistry.dataDir).toBe(atlasDataDir);
+      expect(Object.keys(atlasRegistry.projects)).toEqual(['legacy-a']);
+
+      await expect(
+        fs.promises.stat(path.join(atlasDataDir, 'projects', 'legacy-a', 'repo.git')),
+      ).resolves.toBeDefined();
+      await expect(
+        fs.promises.stat(path.join(atlasDataDir, 'projects', 'legacy-a', 'events.sqlite')),
+      ).resolves.toBeDefined();
+      await expect(fs.promises.stat(path.join(legacyConfigDir, 'projects.json'))).resolves.toBeDefined();
+      await expect(
+        fs.promises.stat(path.join(legacyDataDir, 'projects', 'legacy-a', 'repo.git')),
+      ).resolves.toBeDefined();
+      await expect(fs.promises.stat(runtimeLog)).resolves.toBeDefined();
+      await expect(fs.promises.stat(path.join(atlasDataDir, 'runtime'))).rejects.toThrow();
     });
   });
 
@@ -155,6 +235,27 @@ describe('storage migration planner', () => {
     });
   });
 
+  it('refuses apply when no legacy roots are found', async () => {
+    await withXdgRoots(async () => {
+      await expect(applyStorageMigration()).rejects.toThrow(
+        'No legacy managed storage roots were found to copy into Atlas.',
+      );
+    });
+  });
+
+  it('refuses apply when legacy state is partial config-only', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+
+      await writeRegistry(legacyConfigDir, legacyDataDir, ['legacy-a']);
+
+      await expect(applyStorageMigration()).rejects.toThrow(
+        'Legacy migration source is incomplete: the legacy registry exists, but the legacy data root is missing or empty.',
+      );
+    });
+  });
+
   it('classifies partial legacy data-only state', async () => {
     await withXdgRoots(async ({ configHome, dataHome }) => {
       const legacyDataDir = path.join(dataHome, 'docu-guard');
@@ -185,6 +286,59 @@ describe('storage migration planner', () => {
       expect(plan.classifications).toContain('atlas-target-populated');
       expect(plan.classifications).not.toContain('legacy-only-roots-found');
       expect(plan.nextAction).toContain('Atlas managed storage is already in use');
+    });
+  });
+
+  it('refuses apply when Atlas target roots are already populated', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const atlasConfigDir = path.join(configHome, 'xurgo-atlas');
+      const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+
+      await writeRegistry(legacyConfigDir, legacyDataDir, ['legacy-a']);
+      await writeProjectStore(legacyDataDir, 'legacy-a');
+      await writeRegistry(atlasConfigDir, atlasDataDir, ['atlas-a']);
+      await writeProjectStore(atlasDataDir, 'atlas-a');
+
+      await expect(applyStorageMigration()).rejects.toThrow(
+        'Atlas target roots are already populated.',
+      );
+    });
+  });
+
+  it('refuses apply when both Atlas and legacy roots are present with a project ID conflict', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const atlasConfigDir = path.join(configHome, 'xurgo-atlas');
+      const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+
+      await writeRegistry(atlasConfigDir, atlasDataDir, ['shared']);
+      await writeProjectStore(atlasDataDir, 'shared');
+      await writeRegistry(legacyConfigDir, legacyDataDir, ['shared']);
+      await writeProjectStore(legacyDataDir, 'shared');
+
+      await expect(applyStorageMigration()).rejects.toThrow(
+        'would conflict: shared',
+      );
+    });
+  });
+
+  it('refuses apply while a daemon pid file is present', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+      const pidFile = path.join(legacyDataDir, 'runtime', 'xurgo-atlas-daemon.json');
+
+      await writeRegistry(legacyConfigDir, legacyDataDir, ['legacy-a']);
+      await writeProjectStore(legacyDataDir, 'legacy-a');
+      await fs.promises.mkdir(path.dirname(pidFile), { recursive: true });
+      await fs.promises.writeFile(pidFile, '{}', 'utf-8');
+
+      await expect(applyStorageMigration()).rejects.toThrow(
+        'A daemon PID file is present in managed storage.',
+      );
     });
   });
 
@@ -232,6 +386,29 @@ describe('storage migration planner', () => {
       expect(plan.blockers.join('\n')).toContain('does not match the discovered legacy data root');
       expect(plan.futureSkipActions.join('\n')).toContain('Existing Atlas runtime artifact would be left untouched');
       expect(plan.warnings.join('\n')).toContain('Atlas runtime artifacts are present');
+    });
+  });
+
+  it('leaves no final Atlas registry behind when copied project validation fails', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+      const atlasConfigDir = path.join(configHome, 'xurgo-atlas');
+      const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+
+      await writeRegistry(legacyConfigDir, legacyDataDir, ['legacy-a']);
+      await writeProjectStore(legacyDataDir, 'legacy-a', { includeEvents: false });
+
+      await expect(applyStorageMigration()).rejects.toThrow(
+        'missing events.sqlite',
+      );
+
+      await expect(fs.promises.stat(path.join(atlasConfigDir, 'projects.json'))).rejects.toThrow();
+      await expect(fs.promises.stat(atlasDataDir)).rejects.toThrow();
+      await expect(fs.promises.stat(path.join(legacyConfigDir, 'projects.json'))).resolves.toBeDefined();
+      await expect(
+        fs.promises.stat(path.join(legacyDataDir, 'projects', 'legacy-a', 'repo.git')),
+      ).resolves.toBeDefined();
     });
   });
 });
