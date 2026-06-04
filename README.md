@@ -35,6 +35,8 @@ The project working tree contains only user-facing committed files: `docs/`, `AG
 
 The config and data directory locations can be set with `--config-dir` and `--data-dir` flags on `init`, `server`, `daemon`, and `project` commands. The defaults follow XDG Base Directory conventions (`XDG_CONFIG_HOME` / `XDG_DATA_HOME`). There is not yet a command that physically migrates managed storage between legacy and Atlas root directories.
 
+Use `xurgo-atlas storage inspect` to see the effective selected roots, Atlas-vs-legacy candidate state, registry presence, project counts when readable, and runtime PID/log artifact presence. The command is read-only and does not migrate or modify storage.
+
 ### Global project registry
 
 The daemon mode uses a global project registry (located at `<configDir>/projects.json`, default `~/.config/xurgo-atlas/projects.json`) to map project IDs to project roots. Legacy-only installs still resolve through `~/.config/docu-guard/projects.json` until you explicitly point elsewhere. The location is configurable with `--config-dir`. This allows the daemon to serve multiple projects without needing to know their paths in advance.

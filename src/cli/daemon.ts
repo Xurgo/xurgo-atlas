@@ -78,7 +78,7 @@ export function resolveDaemonAction(action?: string): DaemonAction {
 }
 
 export function getDaemonPidFilePath(storage: StoragePaths): string {
-  return path.join(storage.dataDir, 'runtime', 'xurgo-atlas-daemon.json');
+  return storage.daemonPidFilePath();
 }
 
 export function buildBackgroundDaemonArgs(
