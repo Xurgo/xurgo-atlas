@@ -20,6 +20,8 @@ export function parseProjectArgs(argv: string[]): {
       kwargs['project-root'] = argv[++i];
     } else if (arg === '--config-dir' && i + 1 < argv.length) {
       kwargs['config-dir'] = argv[++i];
+    } else if (arg === '--data-dir' && i + 1 < argv.length) {
+      kwargs['data-dir'] = argv[++i];
     } else if (arg.startsWith('--')) {
       // Skip unknown flags
     }
@@ -44,17 +46,26 @@ SUBCOMMANDS:
     --project-id <id>     Unique identifier for the project
     --project-root <path> Path to the project root
     --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
 
   remove    Remove a project from the registry
     --project-id <id>     Project identifier
+    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
 
   list      List all registered projects
+    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
 
   show      Show details for a registered project
     --project-id <id>     Project identifier
+    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
 
   default   Set the default project (used when projectId is omitted)
     --project-id <id>     Project identifier
+    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
 
 EXAMPLES:
   xurgo-atlas project add --project-id my-app --project-root /path/to/my-app
@@ -73,16 +84,21 @@ export function printProjectUsage(): void {
 
 // ── Subcommand handlers ────────────────────────────────────────────────
 
-export async function projectAddCommand(projectId: string, projectRoot: string, configDir?: string): Promise<void> {
+export async function projectAddCommand(
+  projectId: string,
+  projectRoot: string,
+  configDir?: string,
+  dataDir?: string,
+): Promise<void> {
   const resolvedRoot = path.resolve(projectRoot);
-  const registry = await Registry.load(configDir);
+  const registry = await Registry.load(configDir, dataDir);
   const entry = await registry.addProject(projectId, resolvedRoot);
   console.log(`✅ Project "${projectId}" registered at ${resolvedRoot}`);
   console.log(`   Created: ${entry.createdAt}`);
 }
 
-export async function projectRemoveCommand(projectId: string, configDir?: string): Promise<void> {
-  const registry = await Registry.load(configDir);
+export async function projectRemoveCommand(projectId: string, configDir?: string, dataDir?: string): Promise<void> {
+  const registry = await Registry.load(configDir, dataDir);
   const removed = await registry.removeProject(projectId);
   if (removed) {
     console.log(`✅ Project "${projectId}" removed from registry.`);
@@ -92,8 +108,8 @@ export async function projectRemoveCommand(projectId: string, configDir?: string
   }
 }
 
-export async function projectListCommand(configDir?: string): Promise<void> {
-  const registry = await Registry.load(configDir);
+export async function projectListCommand(configDir?: string, dataDir?: string): Promise<void> {
+  const registry = await Registry.load(configDir, dataDir);
   const projects = registry.listProjects();
   const defaultEntry = registry.getDefault();
 
@@ -110,8 +126,8 @@ export async function projectListCommand(configDir?: string): Promise<void> {
   }
 }
 
-export async function projectShowCommand(projectId: string, configDir?: string): Promise<void> {
-  const registry = await Registry.load(configDir);
+export async function projectShowCommand(projectId: string, configDir?: string, dataDir?: string): Promise<void> {
+  const registry = await Registry.load(configDir, dataDir);
   const entry = registry.getProject(projectId);
   if (!entry) {
     console.error(`❌ Project "${projectId}" not found in registry.`);
@@ -120,8 +136,8 @@ export async function projectShowCommand(projectId: string, configDir?: string):
   console.log(JSON.stringify(entry, null, 2));
 }
 
-export async function projectDefaultCommand(projectId: string, configDir?: string): Promise<void> {
-  const registry = await Registry.load(configDir);
+export async function projectDefaultCommand(projectId: string, configDir?: string, dataDir?: string): Promise<void> {
+  const registry = await Registry.load(configDir, dataDir);
   try {
     await registry.setDefault(projectId);
     console.log(`✅ Default project set to "${projectId}".`);

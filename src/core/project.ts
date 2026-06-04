@@ -207,7 +207,7 @@ export class Project {
         console.error(
           `Warning: Found pre-v0.3 .docu-guard/ directory at ${legacyDir}. ` +
             'This is a development artifact from an earlier version. ' +
-            'Run migration or remove it manually. ' +
+            'Remove this old project-local artifact manually when you are ready. ' +
             'The managed store will be created at the configured data directory instead.',
         );
       }
