@@ -32,7 +32,6 @@ import { emitStorageDiagnostics, resolveStorageRoots } from './core/storage.js';
 export function getUsageText(): string {
   return `
 xurgo-atlas — Xurgo Atlas, safe, versioned, auditable documentation management for AI-assisted projects
-Legacy alias: docu-guard (temporary)
 
 USAGE:
   xurgo-atlas <command> [options]
@@ -102,8 +101,6 @@ EXAMPLES:
   xurgo-atlas list
   xurgo-atlas history docs/README.md
   xurgo-atlas export --branch main
-
-Legacy compatibility alias remains: docu-guard
 `;
 }
 

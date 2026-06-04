@@ -10,7 +10,6 @@ import type { StorageConfig } from '../core/storage.js';
 export function getStorageUsageText(): string {
   return `
 Inspect Xurgo Atlas managed storage roots.
-Legacy alias: docu-guard (temporary)
 
 USAGE:
   xurgo-atlas storage inspect [options]

@@ -1,10 +1,10 @@
-# docu-guard-mcp
+# Xurgo Atlas
 
 Safe, versioned, auditable documentation management for AI-assisted projects.
 
-## How docu-guard-mcp Works
+## How Xurgo Atlas Works
 
-docu-guard-mcp provides two interfaces for managing documentation:
+Xurgo Atlas provides two interfaces for managing documentation:
 
 1. **CLI (Command Line Interface)**: For direct interaction and project management.
 2. **MCP (Model Context Protocol) Server**: For AI agents to interact with documentation projects programmatically.
@@ -16,8 +16,8 @@ docu-guard-mcp provides two interfaces for managing documentation:
 
 ### stdio mode vs daemon mode
 
-- **stdio mode** (`docu-guard server`): The MCP server runs on standard input/output, suitable for local development and direct integration with MCP clients.
-- **daemon mode** (`docu-guard daemon`): The MCP server runs as an HTTP server using Streamable HTTP transport, allowing multiple agents to connect over HTTP. This mode supports multi-project setups via a global project registry.
+- **stdio mode** (`xurgo-atlas server`): The MCP server runs on standard input/output, suitable for local development and direct integration with MCP clients.
+- **daemon mode** (`xurgo-atlas daemon`): The MCP server runs as an HTTP server using Streamable HTTP transport, allowing multiple agents to connect over HTTP. This mode supports multi-project setups via a global project registry.
 
 ### Configurable managed storage
 
@@ -439,7 +439,7 @@ The canonical safe workflow for agents to modify documentation is:
 7. **docs.export** – (Optional) Export the branch to the working tree to synchronize changes.
 
 > **Agent Instruction:**  
-> Use docu-guard-mcp for all documentation changes. Do not edit docs directly. Read the file first, use the returned baseRevision, propose a minimal patch, preview the diff, commit the proposal, then export.
+> Use Xurgo Atlas for all documentation changes. Do not edit docs directly. Read the file first, use the returned baseRevision, propose a minimal patch, preview the diff, commit the proposal, then export.
 
 ## Validation
 

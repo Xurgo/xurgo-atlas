@@ -494,7 +494,6 @@ describe('project initialization', () => {
     expect(docsReadmeStat.isFile()).toBe(true);
     const docsReadmeContent = await fs.promises.readFile(docsReadme, 'utf-8');
     expect(docsReadmeContent).toContain('Xurgo Atlas');
-    expect(docsReadmeContent).toContain('docu-guard');
 
     // Check docs/spec/README.md exists
     const specReadme = path.join(tmpDir, 'docs', 'spec', 'README.md');
