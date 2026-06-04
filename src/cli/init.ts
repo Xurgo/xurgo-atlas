@@ -39,7 +39,7 @@ export async function initCommand(options: InitOptions): Promise<void> {
       console.error(
         `Warning: Found pre-v0.3 .docu-guard/ directory at ${legacyDir}. ` +
           'This is a development artifact from an earlier version. ' +
-          'To migrate, copy its contents to the managed store then remove it. ' +
+          'Clean up this old project-local artifact manually; it is not used as active storage. ' +
           'The managed store will be created at the configured data directory.',
       );
     }
