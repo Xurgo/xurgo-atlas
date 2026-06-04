@@ -1322,6 +1322,60 @@ documents:
     expect(committed.content).toContain('Preview Commit Flow');
   });
 
+  it('should preview and commit a bare-path unified diff proposal end-to-end', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'docs/README.md');
+    expect(content).not.toBeNull();
+    expect(revision).toBeTruthy();
+
+    const updated = (content ?? '') + '\n## Bare Header Preview Commit Flow\n\nValidated flow.\n';
+    const patch = stripGitPrefixesFromPatch(
+      createSimplePatch(content ?? '', updated),
+      'docs/README.md',
+    );
+
+    const proposeResult = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'docs/README.md',
+      baseRevision: revision,
+      patch,
+      intent: 'Validate preview and commit for a bare-path unified diff proposal',
+      summary: 'End-to-end bare-path patch proposal flow',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+    });
+
+    expect(previewResult.isError).toBeFalsy();
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.valid).toBe(true);
+    expect(preview.applyable).toBe(true);
+    expect(preview.validationStatus).toBe('valid');
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBeFalsy();
+    const committed = await project.readFile('main', 'docs/README.md');
+    expect(committed.content).toContain('Bare Header Preview Commit Flow');
+  });
+
   it('should accept patch proposals for curated owned documents', async () => {
     await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
     await fs.promises.writeFile(
@@ -1563,6 +1617,93 @@ documents:
       expect(data.error).toContain('docs.propose_patch requires a standard unified diff patch');
       expect(data.error).toContain(testCase.errorFragment);
       expect(getStoredProposalCount(project)).toBe(beforeCount);
+    }
+  });
+
+  it('should reject truncated unified diff hunks at docs.propose_patch creation time', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { revision } = await project.readFile('main', 'docs/README.md');
+    expect(revision).toBeTruthy();
+
+    const result = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'docs/README.md',
+      baseRevision: revision,
+      patch: [
+        '--- docs/README.md',
+        '+++ docs/README.md',
+        '@@ -1,2 +1,2 @@',
+        '-# Documentation',
+      ].join('\n'),
+      intent: 'Reject truncated unified diff hunks at proposal creation time',
+      summary: 'Do not store truncated hunks',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.valid).toBe(false);
+    expect(data.error).toContain('complete unified diff patch');
+    expect(data.error).toContain('Corrupt unified diff hunk');
+    expect(data.error).toContain('header expects');
+  });
+
+  it('should reject unsafe patch header paths at docs.propose_patch creation time', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { revision } = await project.readFile('main', 'docs/README.md');
+    expect(revision).toBeTruthy();
+
+    const cases = [
+      {
+        name: 'absolute path',
+        patch: [
+          '--- /docs/README.md',
+          '+++ /docs/README.md',
+          '@@ -1,1 +1,1 @@',
+          '-# Documentation',
+          '+# Documentation',
+        ].join('\n'),
+      },
+      {
+        name: 'parent traversal path',
+        patch: [
+          '--- ../docs/README.md',
+          '+++ ../docs/README.md',
+          '@@ -1,1 +1,1 @@',
+          '-# Documentation',
+          '+# Documentation',
+        ].join('\n'),
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const result = await handleProposePatch(project, {
+        projectId: 'test-project',
+        branch: 'main',
+        path: 'docs/README.md',
+        baseRevision: revision,
+        patch: testCase.patch,
+        intent: `Reject ${testCase.name} in patch headers`,
+        summary: `Do not store ${testCase.name} patch headers`,
+      });
+
+      expect(result.isError).toBe(true);
+      const data = JSON.parse(result.content[0].text);
+      expect(data.valid).toBe(false);
+      expect(data.error).toContain('Unsupported patch path');
+      expect(data.error).toContain('absolute paths and parent traversal are not allowed');
     }
   });
 
@@ -3107,6 +3248,74 @@ describe('proposing a valid patch', () => {
 
     expect(validation.valid).toBe(true);
   });
+
+  it('should validate a full git-style unified diff proposal', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const policy = await Policy.load(tmpDir);
+    const filePath = 'docs/README.md';
+    const { content, revision } = await project.readFile('main', filePath);
+
+    const patch = prependGitDiffHeader(
+      createSimplePatch(
+        content ?? '',
+        (content ?? '') + '\n## Git Style Section\n\nAdded content.\n',
+        filePath,
+      ),
+      filePath,
+    );
+
+    const validation = await validatePatch(policy, project.gitStore, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: filePath,
+      baseRevision: revision ?? '',
+      patch,
+      intent: 'Validate a full git-style unified diff proposal',
+      summary: 'Accept full git-style unified diff input',
+    });
+
+    expect(validation.valid).toBe(true);
+  });
+
+  it('should validate a complete unified diff with bare relative file headers', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const policy = await Policy.load(tmpDir);
+    const filePath = 'docs/README.md';
+    const { content, revision } = await project.readFile('main', filePath);
+
+    const patch = stripGitPrefixesFromPatch(
+      createSimplePatch(
+        content ?? '',
+        (content ?? '') + '\n## Bare Header Section\n\nAdded content.\n',
+        filePath,
+      ),
+      filePath,
+    );
+
+    const validation = await validatePatch(policy, project.gitStore, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: filePath,
+      baseRevision: revision ?? '',
+      patch,
+      intent: 'Validate a complete unified diff with bare relative file headers',
+      summary: 'Accept unified diff input without diff --git and without a/b prefixes',
+    });
+
+    expect(validation.valid).toBe(true);
+  });
 });
 
 describe('rejecting a stale baseRevision', () => {
@@ -4040,4 +4249,18 @@ function createSimplePatch(original: string, updated: string, filePath = 'docs/R
   }
 
   return patch;
+}
+
+function stripGitPrefixesFromPatch(patch: string, filePath: string): string {
+  return patch
+    .replace(`--- a/${filePath}`, `--- ${filePath}`)
+    .replace(`+++ b/${filePath}`, `+++ ${filePath}`);
+}
+
+function prependGitDiffHeader(patch: string, filePath: string): string {
+  return [
+    `diff --git a/${filePath} b/${filePath}`,
+    'index 1111111..2222222 100644',
+    patch,
+  ].join('\n');
 }
