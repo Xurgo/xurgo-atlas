@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   initCommand,
+  printInitUsage,
   serverCommand,
   listCommand,
   historyCommand,
@@ -185,7 +186,7 @@ export async function main(): Promise<void> {
   switch (command) {
     case 'init': {
       if (hasHelpFlag(rawArgs)) {
-        printUsage();
+        printInitUsage();
         process.exit(0);
       }
       emitStorageDiagnostics(resolveStorageRoots({ configDir, dataDir }));
