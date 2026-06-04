@@ -21,6 +21,7 @@ import {
   projectDefaultCommand,
 } from './cli/project.js';
 import { daemonCommand } from './cli/daemon.js';
+import { printStorageUsage, storageInspectCommand } from './cli/storage.js';
 import { emitStorageDiagnostics, resolveStorageRoots } from './core/storage.js';
 
 export function getUsageText(): string {
@@ -56,6 +57,11 @@ COMMANDS:
     --project-root <path>   Optional: project root (used with --project-id)
     Without a subcommand, starts the foreground daemon exactly as before.
 
+  storage    Inspect Atlas-vs-legacy managed storage (read-only)
+    inspect                 Show selected roots, candidates, registry state, and runtime artifacts
+    --config-dir <path>     Inspect with an explicit config directory override
+    --data-dir <path>       Inspect with an explicit data directory override
+
   project    Manage registered projects
     add --project-id <id> --project-root <path>
     remove --project-id <id>
@@ -81,6 +87,7 @@ EXAMPLES:
   xurgo-atlas daemon
   xurgo-atlas daemon start
   xurgo-atlas daemon status
+  xurgo-atlas storage inspect
   xurgo-atlas project add --project-id my-app --project-root /path/to/my-app
   xurgo-atlas project list
   xurgo-atlas list
@@ -278,6 +285,24 @@ async function main(): Promise<void> {
           process.exit(1);
         }
       }
+      break;
+    }
+
+    case 'storage': {
+      const subcommand = positionals[0];
+
+      if (!subcommand || subcommand === '--help' || subcommand === '-h') {
+        printStorageUsage();
+        process.exit(0);
+      }
+
+      if (subcommand !== 'inspect') {
+        console.error(`Unknown storage subcommand: "${subcommand}"`);
+        printStorageUsage();
+        process.exit(1);
+      }
+
+      await storageInspectCommand({ configDir, dataDir });
       break;
     }
 
