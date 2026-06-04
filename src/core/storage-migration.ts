@@ -270,8 +270,8 @@ function getNextAction(plan: StorageMigrationPlan): string {
   }
 
   return (
-    'Review this read-only plan only. Write-capable storage migration is not ' +
-    'implemented yet, so no copy step can be executed from this command.'
+    'Review this read-only plan first. If the legacy-only copy looks correct, ' +
+    'rerun with `xurgo-atlas storage migrate --apply` to perform the copy-only migration.'
   );
 }
 

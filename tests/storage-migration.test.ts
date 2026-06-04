@@ -140,6 +140,7 @@ describe('storage migration planner', () => {
       expect(plan.futureCopyActions.join('\n')).toContain(legacyConfigDir);
       expect(plan.futureCopyActions.join('\n')).toContain(path.join(legacyDataDir, 'projects'));
       expect(plan.futureSkipActions.join('\n')).toContain('Legacy source runtime artifact would be skipped');
+      expect(plan.nextAction).toContain('storage migrate --apply');
       await expect(fs.promises.stat(candidates.atlasConfigDir)).rejects.toThrow();
       await expect(fs.promises.stat(candidates.atlasDataDir)).rejects.toThrow();
     });
