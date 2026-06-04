@@ -1,4 +1,8 @@
 import { inspectManagedStorage } from '../core/storage-inspect.js';
+import {
+  planStorageMigration,
+  type StorageMigrationClassification,
+} from '../core/storage-migration.js';
 import type { StorageConfig } from '../core/storage.js';
 
 export function getStorageUsageText(): string {
@@ -8,6 +12,7 @@ Legacy alias: docu-guard (temporary)
 
 USAGE:
   xurgo-atlas storage inspect [options]
+  xurgo-atlas storage migrate --dry-run [options]
 
 SUBCOMMANDS:
   inspect
@@ -16,11 +21,18 @@ SUBCOMMANDS:
     --config-dir <path>   Inspect with an explicit config directory override
     --data-dir <path>     Inspect with an explicit data directory override
 
+  migrate --dry-run
+    Plan a future legacy-to-Atlas storage migration without creating
+    directories, copying files, modifying registries, or touching runtime.
+    --config-dir <path>   Inspect with an explicit config directory override
+    --data-dir <path>     Inspect with an explicit data directory override
+
 EXAMPLES:
   xurgo-atlas storage inspect
+  xurgo-atlas storage migrate --dry-run
   xurgo-atlas storage inspect --config-dir ~/.config/xurgo-atlas --data-dir ~/.local/share/xurgo-atlas
 
-This command is read-only. It does not migrate, create, update, or delete storage files.
+This command is read-only. It does not migrate, create, copy, update, or delete storage files.
 `;
 }
 
@@ -34,6 +46,40 @@ function formatYesNo(value: boolean): string {
 
 function formatProjectCount(projectCount: number | null): string {
   return projectCount == null ? 'unavailable' : String(projectCount);
+}
+
+function formatOptionalPath(value: string | null): string {
+  return value == null ? 'unavailable' : value;
+}
+
+function formatBooleanOrUnknown(value: boolean | null): string {
+  return value == null ? 'unknown' : formatYesNo(value);
+}
+
+function formatListSection(title: string, items: string[]): string[] {
+  return [
+    title,
+    ...(items.length > 0 ? items.map((item) => `  - ${item}`) : ['  - none']),
+  ];
+}
+
+function formatMigrationClassification(
+  classification: StorageMigrationClassification,
+): string {
+  switch (classification) {
+    case 'no-legacy-roots-found':
+      return 'No legacy roots found';
+    case 'legacy-only-roots-found':
+      return 'Legacy-only roots found';
+    case 'atlas-target-populated':
+      return 'Atlas target already populated';
+    case 'both-atlas-and-legacy-present':
+      return 'Both Atlas and legacy roots present';
+    case 'partial-legacy-config-only':
+      return 'Partial legacy state: config only';
+    case 'partial-legacy-data-only':
+      return 'Partial legacy state: data only';
+  }
 }
 
 export function formatStorageInspection(
@@ -103,4 +149,93 @@ export async function storageInspectCommand(
   options: StorageConfig = {},
 ): Promise<void> {
   console.log(formatStorageInspection(options));
+}
+
+export function getStorageMigrationNotImplementedMessage(): string {
+  return (
+    'Write-capable storage migration is not implemented yet. ' +
+    'Rerun with --dry-run to inspect the migration plan.'
+  );
+}
+
+export function formatStorageMigrationPlan(
+  options: StorageConfig = {},
+): string {
+  const plan = planStorageMigration(options);
+  const lines = [
+    'Xurgo Atlas storage migration plan',
+    'Mode: dry-run (read-only; no directories created, no files copied, no registry changes)',
+    '',
+    'Selected current roots:',
+    `  configDir: ${plan.selected.configDir}`,
+    `  dataDir: ${plan.selected.dataDir}`,
+    `  source: ${plan.selected.sourceSummary}`,
+    `  registry: ${plan.selected.registry.path}`,
+    `  registry exists: ${formatYesNo(plan.selected.registry.exists)}`,
+    `  registry project count: ${formatProjectCount(plan.selected.registry.projectCount)}`,
+    `  runtime dir: ${plan.selected.runtime.runtimeDir}`,
+    `  runtime dir exists: ${formatYesNo(plan.selected.runtime.runtimeDirExists)}`,
+    '',
+    'Legacy source candidate:',
+    `  configDir: ${plan.source.configDir}`,
+    `  dataDir: ${plan.source.dataDir}`,
+    `  appears present: ${formatYesNo(plan.source.present)}`,
+    `  registry exists: ${formatYesNo(plan.source.registry.exists)}`,
+    `  registry project count: ${formatProjectCount(plan.source.registry.projectCount)}`,
+    `  registry stored configDir: ${formatOptionalPath(plan.source.registry.storedConfigDir)}`,
+    `  registry stored dataDir: ${formatOptionalPath(plan.source.registry.storedDataDir)}`,
+    `  registry configDir mismatch: ${formatBooleanOrUnknown(plan.source.registry.configDirMismatch)}`,
+    `  registry dataDir mismatch: ${formatBooleanOrUnknown(plan.source.registry.dataDirMismatch)}`,
+    `  data dir exists: ${formatYesNo(plan.source.dataDirExists)}`,
+    `  data dir populated: ${formatYesNo(plan.source.dataDirPopulated)}`,
+    `  runtime artifacts present: ${formatYesNo(plan.source.runtime.presentArtifacts.length > 0)}`,
+    '',
+    'Atlas target candidate:',
+    `  configDir: ${plan.target.configDir}`,
+    `  dataDir: ${plan.target.dataDir}`,
+    `  appears present: ${formatYesNo(plan.target.present)}`,
+    `  registry exists: ${formatYesNo(plan.target.registry.exists)}`,
+    `  registry project count: ${formatProjectCount(plan.target.registry.projectCount)}`,
+    `  registry stored configDir: ${formatOptionalPath(plan.target.registry.storedConfigDir)}`,
+    `  registry stored dataDir: ${formatOptionalPath(plan.target.registry.storedDataDir)}`,
+    `  registry configDir mismatch: ${formatBooleanOrUnknown(plan.target.registry.configDirMismatch)}`,
+    `  registry dataDir mismatch: ${formatBooleanOrUnknown(plan.target.registry.dataDirMismatch)}`,
+    `  data dir exists: ${formatYesNo(plan.target.dataDirExists)}`,
+    `  data dir populated: ${formatYesNo(plan.target.dataDirPopulated)}`,
+    `  runtime artifacts present: ${formatYesNo(plan.target.runtime.presentArtifacts.length > 0)}`,
+    '',
+    ...formatListSection(
+      'Classifications:',
+      plan.classifications.map((classification) => formatMigrationClassification(classification)),
+    ),
+    ...formatListSection('Future copy actions:', plan.futureCopyActions),
+    ...formatListSection('Future skip / leave-untouched actions:', plan.futureSkipActions),
+    ...formatListSection('Blockers:', plan.blockers),
+    ...formatListSection('Warnings:', plan.warnings),
+    `Next recommended action: ${plan.nextAction}`,
+    'No changes were made. This command did not create, copy, modify, or delete any files.',
+  ];
+
+  if (plan.projectIdConflicts.length > 0) {
+    lines.splice(
+      lines.indexOf('Future copy actions:'),
+      0,
+      'Project ID conflicts:',
+      ...plan.projectIdConflicts.map((projectId) => `  - ${projectId}`),
+      '',
+    );
+  }
+
+  return lines.join('\n');
+}
+
+export async function storageMigrateCommand(
+  options: StorageConfig = {},
+  dryRun = false,
+): Promise<void> {
+  if (!dryRun) {
+    throw new Error(getStorageMigrationNotImplementedMessage());
+  }
+
+  console.log(formatStorageMigrationPlan(options));
 }

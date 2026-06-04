@@ -21,7 +21,12 @@ import {
   projectDefaultCommand,
 } from './cli/project.js';
 import { daemonCommand } from './cli/daemon.js';
-import { printStorageUsage, storageInspectCommand } from './cli/storage.js';
+import {
+  getStorageMigrationNotImplementedMessage,
+  printStorageUsage,
+  storageInspectCommand,
+  storageMigrateCommand,
+} from './cli/storage.js';
 import { emitStorageDiagnostics, resolveStorageRoots } from './core/storage.js';
 
 export function getUsageText(): string {
@@ -59,6 +64,7 @@ COMMANDS:
 
   storage    Inspect Atlas-vs-legacy managed storage (read-only)
     inspect                 Show selected roots, candidates, registry state, and runtime artifacts
+    migrate --dry-run       Plan a future legacy-to-Atlas migration without making changes
     --config-dir <path>     Inspect with an explicit config directory override
     --data-dir <path>       Inspect with an explicit data directory override
 
@@ -88,6 +94,7 @@ EXAMPLES:
   xurgo-atlas daemon start
   xurgo-atlas daemon status
   xurgo-atlas storage inspect
+  xurgo-atlas storage migrate --dry-run
   xurgo-atlas project add --project-id my-app --project-root /path/to/my-app
   xurgo-atlas project list
   xurgo-atlas list
@@ -133,6 +140,9 @@ function parseArgv(argv: string[]): Record<string, string | string[]> {
     } else if (arg === '--data-dir' && i + 1 < argv.length) {
       args['data-dir'] = argv[i + 1];
       i += 2;
+    } else if (arg === '--dry-run') {
+      args['dry-run'] = 'true';
+      i++;
     } else if (arg === '--pid-file' && i + 1 < argv.length) {
       args['pid-file'] = argv[i + 1];
       i += 2;
@@ -296,13 +306,32 @@ async function main(): Promise<void> {
         process.exit(0);
       }
 
-      if (subcommand !== 'inspect') {
+      if (subcommand !== 'inspect' && subcommand !== 'migrate') {
         console.error(`Unknown storage subcommand: "${subcommand}"`);
         printStorageUsage();
         process.exit(1);
       }
 
-      await storageInspectCommand({ configDir, dataDir });
+      if (subcommand === 'inspect') {
+        await storageInspectCommand({ configDir, dataDir });
+        break;
+      }
+
+      try {
+        await storageMigrateCommand(
+          { configDir, dataDir },
+          args['dry-run'] === 'true',
+        );
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === getStorageMigrationNotImplementedMessage()
+        ) {
+          console.error(error.message);
+          process.exit(1);
+        }
+        throw error;
+      }
       break;
     }
 

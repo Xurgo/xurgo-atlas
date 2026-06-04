@@ -33,9 +33,10 @@ Fresh installs default to the Xurgo Atlas XDG roots above. Legacy-only installs 
 
 The project working tree contains only user-facing committed files: `docs/`, `AGENTS.md`, `.docs-policy.yml`. No `.docu-guard/` directory is created in the project. Existing project-local `.docu-guard/` folders are pre-v0.3 development artifacts and are warned about, not used as active storage.
 
-The config and data directory locations can be set with `--config-dir` and `--data-dir` flags on `init`, `server`, `daemon`, and `project` commands. The defaults follow XDG Base Directory conventions (`XDG_CONFIG_HOME` / `XDG_DATA_HOME`). There is not yet a command that physically migrates managed storage between legacy and Atlas root directories.
+The config and data directory locations can be set with `--config-dir` and `--data-dir` flags on `init`, `server`, `daemon`, and `project` commands. The defaults follow XDG Base Directory conventions (`XDG_CONFIG_HOME` / `XDG_DATA_HOME`). There is not yet a command that physically migrates managed storage between legacy and Atlas root directories, but `xurgo-atlas storage migrate --dry-run` will report the planned copy-only migration without making changes.
 
 Use `xurgo-atlas storage inspect` to see the effective selected roots, Atlas-vs-legacy candidate state, registry presence, project counts when readable, and runtime PID/log artifact presence. The command is read-only and does not migrate or modify storage.
+Use `xurgo-atlas storage migrate --dry-run` to inspect what a future migration would copy, what it would skip, any blockers or warnings, and the recommended next action. The dry run is explicitly read-only: it does not create directories, copy files, update registries, stop daemons, or delete legacy roots.
 
 ### Global project registry
 
