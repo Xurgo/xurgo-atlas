@@ -240,8 +240,7 @@ export class Registry {
       throw new RegistryError(
         'NOT_FOUND',
         `Project '${projectId}' not found in registry. ` +
-          `Use 'xurgo-atlas project add --project-id ${projectId} --project-root <path>' to register it ` +
-          `(legacy alias: 'docu-guard project add --project-id ${projectId} --project-root <path>').`,
+          `Use 'xurgo-atlas project add --project-id ${projectId} --project-root <path>' to register it.`,
       );
     }
 
@@ -251,8 +250,7 @@ export class Registry {
       throw new RegistryError(
         'ROOT_MISSING',
         `Project root for '${projectId}' does not exist at ${entry.projectRoot}. ` +
-          `Update the path with 'xurgo-atlas project add --project-id ${projectId} --project-root <new-path>' ` +
-          `(legacy alias: 'docu-guard project add --project-id ${projectId} --project-root <new-path>').`,
+          `Update the path with 'xurgo-atlas project add --project-id ${projectId} --project-root <new-path>'.`,
       );
     }
 
@@ -262,8 +260,7 @@ export class Registry {
       throw new RegistryError(
         'NOT_INITIALIZED',
         `Project '${projectId}' has not been initialized. ` +
-          `Run 'xurgo-atlas init --project-root ${entry.projectRoot} --project-id ${projectId}' first ` +
-          `(legacy alias: 'docu-guard init --project-root ${entry.projectRoot} --project-id ${projectId}').`,
+          `Run 'xurgo-atlas init --project-root ${entry.projectRoot} --project-id ${projectId}' first.`,
       );
     }
 
@@ -290,9 +287,8 @@ export class Registry {
     throw new RegistryError(
       'NO_DEFAULT',
       'No projectId provided and no default project is set. ' +
-        'Provide --project-id or set a default with ' +
-        "'xurgo-atlas project default --project-id <id>' " +
-        "(legacy alias: 'docu-guard project default --project-id <id>').",
+        "Provide --project-id or set a default with " +
+        "'xurgo-atlas project default --project-id <id>'.",
     );
   }
 

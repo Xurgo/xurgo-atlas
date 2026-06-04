@@ -1,12 +1,12 @@
-# Agent Instructions for docu-guard-mcp
+# Agent Instructions for Xurgo Atlas
 
 ## Documentation Safety Rules
 
-This project uses **docu-guard-mcp** for safe, versioned, auditable documentation management.
+This project uses **Xurgo Atlas** for safe, versioned, auditable documentation management.
 
 ### Rules for AI Agents
 
-1. **Never directly overwrite documentation files.** All documentation changes must go through the docu-guard-mcp MCP server.
+1. **Never directly overwrite documentation files.** All documentation changes must go through the Xurgo Atlas MCP server.
 
 2. **Read before you write.** Always read the current version of a document before proposing changes.
 
@@ -26,7 +26,7 @@ This project uses **docu-guard-mcp** for safe, versioned, auditable documentatio
 
 ### Tracked Files
 
-The following files and directories are managed through docu-guard-mcp and must not be edited directly:
+The following files and directories are managed through Xurgo Atlas and must not be edited directly:
 
 - `STATUS.md`
 - `AGENTS.md`
