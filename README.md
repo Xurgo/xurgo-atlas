@@ -2,6 +2,34 @@
 
 Safe, versioned, auditable documentation management for AI-assisted projects.
 
+> **⚠️ Pre-release.** This project is not publicly released. Do not publish, tag, or release without explicit approval.
+
+## Quick Start
+
+```bash
+# Prerequisites: Node.js >= 22, npm
+
+# Install and build
+git clone <repo-url>
+cd xurgo-atlas
+npm install
+npm run build
+
+# Initialize a project
+xurgo-atlas init /path/to/project
+
+# Start the MCP daemon
+xurgo-atlas daemon start
+
+# Check daemon status
+xurgo-atlas daemon status
+```
+
+For detailed setup instructions, see [docs/atlas/setup.md](docs/atlas/setup.md).
+For daemon and MCP client configuration, see [docs/atlas/daemon-mcp.md](docs/atlas/daemon-mcp.md).
+For storage migration guidance, see [docs/atlas/storage-migration.md](docs/atlas/storage-migration.md).
+For pre-release validation, see [docs/atlas/release-checklist.md](docs/atlas/release-checklist.md).
+
 ## How Xurgo Atlas Works
 
 Xurgo Atlas provides two interfaces for managing documentation:
@@ -37,7 +65,9 @@ The config and data directory locations can be set with `--config-dir` and `--da
 
 Use `xurgo-atlas storage inspect` to see the effective selected roots, Atlas-vs-legacy candidate state, registry presence, project counts when readable, and runtime PID/log artifact presence. The command is read-only and does not migrate or modify storage.
 Use `xurgo-atlas storage migrate --dry-run` first to inspect what migration would copy, what it would skip, any blockers or warnings, and the recommended next action. The dry run is explicitly read-only: it does not create directories, copy files, update registries, stop daemons, or delete legacy roots.
-Use `xurgo-atlas storage migrate --apply` only after the dry run shows the safe legacy-only-to-empty-Atlas case. This apply step copies data into Atlas roots, rewrites the Atlas registry for the new target paths, skips runtime PID/log artifacts, and still never deletes or modifies the legacy roots.
+Use `xurgo-atlas storage migrate --apply` only after the dry run shows the safe legacy-only-to-empty-Atlas case. This apply step copies data into Atlas roots, rewrites the Atlas registry for the new target paths, repairs internal Git metadata, skips runtime PID/log artifacts, and still never deletes or modifies the legacy roots.
+
+For a full workflow with examples, see [docs/atlas/storage-migration.md](docs/atlas/storage-migration.md).
 
 ### Global project registry
 
@@ -445,7 +475,9 @@ The canonical safe workflow for agents to modify documentation is:
 
 Use `npm run validate:quick` during narrow edits. It runs the fast test tier plus `npm run build` without the slow integration-heavy project suite.
 
-Use `npm run validate:full` before risky merges or release-style checks. It keeps the existing full `npm test` path, adds a build, and runs `npm pack --dry-run`. The full validation currently takes a few minutes.
+Use `npm run validate:full` before risky merges or release-style checks. It keeps the existing full `npm test` path, adds a build, and runs `npm pack --dry-run`.
+
+See [docs/atlas/setup.md](docs/atlas/setup.md) for the full validation tier reference and [docs/atlas/release-checklist.md](docs/atlas/release-checklist.md) for pre-release steps.
 
 ## Creating New Documentation
 
