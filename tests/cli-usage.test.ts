@@ -1,9 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { getUsageText } from '../src/index.js';
+import { getUsageText, main } from '../src/index.js';
 import { getDaemonUsageText } from '../src/cli/daemon.js';
+import * as initCli from '../src/cli/init.js';
 import { getProjectUsageText, parseProjectArgs, printProjectUsage } from '../src/cli/project.js';
 import {
   getStorageMigrationNotImplementedMessage,
@@ -11,6 +12,11 @@ import {
   storageInspectCommand,
   storageMigrateCommand,
 } from '../src/cli/storage.js';
+import * as storageCore from '../src/core/storage.js';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 async function withXdgRoots<T>(
   run: (roots: { root: string; configHome: string; dataHome: string }) => Promise<T>,
@@ -53,6 +59,50 @@ async function writeProjectStore(dataDir: string, projectId: string): Promise<vo
   );
 }
 
+async function runMainWithArgs(argv: string[]): Promise<{
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}> {
+  const originalArgv = process.argv;
+  const stdoutLines: string[] = [];
+  const stderrLines: string[] = [];
+  const exitError = new Error('process.exit');
+  let exitCode = -1;
+
+  const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+    stdoutLines.push(args.join(' '));
+  });
+  const errorSpy = vi.spyOn(console, 'error').mockImplementation((...args) => {
+    stderrLines.push(args.join(' '));
+  });
+  const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+    exitCode = code ?? 0;
+    throw exitError;
+  }) as never);
+
+  process.argv = argv;
+
+  try {
+    await main();
+  } catch (error) {
+    if (error !== exitError) {
+      throw error;
+    }
+  } finally {
+    process.argv = originalArgv;
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  }
+
+  return {
+    exitCode,
+    stdout: stdoutLines.join('\n'),
+    stderr: stderrLines.join('\n'),
+  };
+}
+
 describe('CLI usage text', () => {
   it('shows atlas defaults and legacy discovery in the main help text', () => {
     const output = getUsageText();
@@ -70,6 +120,77 @@ describe('CLI usage text', () => {
     expect(output).toContain('xurgo-atlas daemon [options]');
     expect(output).toContain('xurgo-atlas daemon start [options]');
     expect(output).toContain('[no subcommand]        Start the daemon in foreground mode');
+  });
+
+  it.each([
+    ['--help without --project-id', ['node', 'xurgo-atlas', 'init', '--help']],
+    ['-h without --project-id', ['node', 'xurgo-atlas', 'init', '-h']],
+  ])('prints init help safely for %s', async (_label, argv) => {
+    const initSpy = vi.spyOn(initCli, 'initCommand').mockResolvedValue(undefined);
+    const storageSpy = vi.spyOn(storageCore, 'emitStorageDiagnostics').mockImplementation(() => undefined);
+
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const result = await runMainWithArgs(argv);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('xurgo-atlas init [options]');
+      expect(result.stdout).toContain('Initialize a Xurgo Atlas project');
+      expect(result.stderr).toBe('');
+      expect(initSpy).not.toHaveBeenCalled();
+      expect(storageSpy).not.toHaveBeenCalled();
+      await expect(fs.promises.stat(configHome)).rejects.toThrow();
+      await expect(fs.promises.stat(dataHome)).rejects.toThrow();
+    });
+  });
+
+  it.each([
+    [
+      '--project-id before --help',
+      ['node', 'xurgo-atlas', 'init', '--project-id', 'foo', '--help'],
+    ],
+    [
+      '--help before --project-id',
+      ['node', 'xurgo-atlas', 'init', '--help', '--project-id', 'foo'],
+    ],
+  ])('prints init help safely for %s', async (_label, baseArgv) => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-init-help-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+    const initSpy = vi.spyOn(initCli, 'initCommand').mockResolvedValue(undefined);
+    const storageSpy = vi.spyOn(storageCore, 'emitStorageDiagnostics').mockImplementation(() => undefined);
+
+    try {
+      const result = await runMainWithArgs([
+        ...baseArgv,
+        '--config-dir',
+        configDir,
+        '--data-dir',
+        dataDir,
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('xurgo-atlas init [options]');
+      expect(result.stdout).toContain('Initialize a Xurgo Atlas project');
+      expect(result.stderr).toBe('');
+      expect(initSpy).not.toHaveBeenCalled();
+      expect(storageSpy).not.toHaveBeenCalled();
+      await expect(fs.promises.stat(configDir)).rejects.toThrow();
+      await expect(fs.promises.stat(dataDir)).rejects.toThrow();
+    } finally {
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('still errors clearly when init is missing --project-id and help was not requested', async () => {
+    const initSpy = vi.spyOn(initCli, 'initCommand').mockResolvedValue(undefined);
+    const storageSpy = vi.spyOn(storageCore, 'emitStorageDiagnostics').mockImplementation(() => undefined);
+
+    const result = await runMainWithArgs(['node', 'xurgo-atlas', 'init']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('Error: --project-id is required for init');
+    expect(initSpy).not.toHaveBeenCalled();
+    expect(storageSpy).toHaveBeenCalledTimes(1);
   });
 
   it('presents Xurgo Atlas as the primary project command name', () => {
