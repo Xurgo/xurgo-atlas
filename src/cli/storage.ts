@@ -237,6 +237,28 @@ export function formatStorageMigrationPlan(
   return lines.join('\n');
 }
 
+function formatGitRepairSummary(repairs: StorageMigrationApplyResult['gitMetadataRepairs']): string[] {
+  if (repairs.length === 0) return [];
+
+  const lines: string[] = ['', 'Git metadata repairs:'];
+  for (const repair of repairs) {
+    const items: string[] = [];
+    if (repair.headRepaired) items.push('HEAD → main');
+    if (repair.alternatesRepaired) items.push('alternates');
+    if (repair.remoteUrlRepaired) items.push('remote URL');
+    if (items.length > 0) {
+      lines.push(`  ${repair.projectId}: ${items.join(', ')}`);
+    }
+    if (repair.errors.length > 0) {
+      for (const err of repair.errors) {
+        lines.push(`  ${repair.projectId} warning: ${err}`);
+      }
+    }
+  }
+
+  return lines;
+}
+
 export function formatStorageMigrationApplyResult(
   result: StorageMigrationApplyResult,
 ): string {
@@ -256,6 +278,7 @@ export function formatStorageMigrationApplyResult(
     `Runtime artifacts skipped: ${result.runtimeArtifactsSkipped.length}`,
     ...formatListSection('Copy actions:', result.copyActions),
     ...formatListSection('Skipped runtime artifacts:', result.runtimeArtifactsSkipped),
+    ...formatGitRepairSummary(result.gitMetadataRepairs),
     ...formatListSection('Warnings:', result.warnings),
     'Atlas target roots were written.',
     'Legacy roots were left untouched.',
