@@ -2,40 +2,38 @@
 docuGuard.type: status
 statusVersion: 1
 priority: high
-currentFocus: "Release hardening and release-candidate prep: install/setup docs, daemon setup docs, MCP config docs, storage migration docs, and validation/release checklist"
+currentFocus: "Release hardening setup docs are merged and pushed, the macOS managed docs store can read the new Atlas release docs, and the next step is a release-candidate readiness audit with fresh install, daemon, and storage-doc verification before any private release action"
 nextActions:
-  - "Release hardening / release candidate prep"
-  - "Install/setup docs, daemon setup docs, MCP config docs, storage migration docs"
-  - "Validation/release checklist"
-  - "Keep storage migration support until explicitly removed"
-  - "No public release/tag/publish without explicit approval"
+  - "Run a release-candidate readiness audit without tagging, publishing, or releasing: verify private checklist coverage, confirm validate:full and npm audit remain clean, and keep release actions gated on explicit approval"
+  - "Verify install and setup guidance from the new docs/atlas release docs on macOS and again on CachyOS when returning there"
+  - "Verify daemon and MCP setup from fresh instructions rather than an already-warmed local environment"
+  - "Verify storage migration guidance against current CLI behavior, and defer any keep-vs-delete decision for legacy backup directories until more normal workflows have been exercised"
+  - "Keep future storage migration work conservative and explicit: copy-only, never delete legacy roots, refuse populated Atlas targets, skip runtime artifacts, validate copied project stores, and leave legacy roots usable on failure"
 blockers:
 doNotDo:
-  - "Do not implement docs.merge_branch unless explicitly asked"
-  - "Do not implement proposal/diff/approval UI unless explicitly asked"
-  - "Do not remove legacy migration support yet"
-  - "Do not delete machine legacy backup directories yet"
-  - "Do not publish/release/tag without explicit approval"
+  - "Do not edit STATUS.md, manifest.yml, or .docs-policy.yml directly"
+  - "Do not tag, publish, or release without explicit approval"
+  - "Do not implement docs.merge_branch or proposal/diff/approval UI unless explicitly requested"
 relatedDocs:
   - docs/manifest.yml
-  - docs/implementation-checklist.md
-  - docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md
+  - docs/atlas/setup.md
+  - docs/atlas/release-checklist.md
+  - docs/atlas/storage-migration.md
 lastUpdated: "2026-06-04"
 ---
 
 # Project Status
 
 ## Project
-Xurgo Atlas is the project-context and documentation-safety MCP. The storage migration is complete: all active managed storage was copied from legacy `docu-guard` roots to `xurgo-atlas` roots, and the migration now hardens copied project stores by repairing internal Git metadata during staged migration before finalization. Legacy roots were archived (not deleted) and remain accessible if needed. The Vitest dependency was upgraded from 3.x to 4.x to resolve a critical audit vulnerability (GHSA-5xrq-8626-4rwp). The package binary now exposes `xurgo-atlas` only — the legacy `docu-guard` CLI alias has been removed. Active product naming has been cleaned up across README, help text, generated templates, and root AGENTS.md. The `docs.*` MCP namespace remains intentionally unchanged.
+Xurgo Atlas is the project-context and documentation-safety MCP. Package metadata now uses `xurgo-atlas`, published npm contents are explicitly allowlisted, daemon lifecycle commands and curated Atlas document ownership are implemented, and guarded create-only document proposals support adding new Atlas Markdown docs. Storage defaults now document and select Atlas config/data roots first, legacy-only `docu-guard` roots still fall back for compatibility, both-present states intentionally stay on Atlas roots without merging data, and project commands consistently thread `--data-dir` through storage-sensitive paths. The repo also now exposes faster validation tiers for day-to-day work, a read-only storage inspection command, and a read-only storage migration dry-run planner that makes migration state and future actions visible without changing files. Managed docs branches remain intentionally independent from source repo branches, `docs.propose_patch` now accepts standard unified diffs with clearer format guidance, and export still refuses cross-branch sync drift instead of writing it silently.
 
 ## Current Focus
-Release hardening and release-candidate preparation. The immediate next work items are install/setup documentation, daemon setup documentation, MCP configuration documentation, storage migration documentation, and a validation/release checklist. Storage migration support (both dry-run and apply-copy) is stable and should be kept in place until explicitly removed.
+The release hardening setup docs are now merged on `main` via `d726772 merge: release hardening setup docs`, carrying feature commit `a7f4370 docs: harden release setup guidance`. The repo now includes `docs/atlas/setup.md`, `docs/atlas/daemon-mcp.md`, `docs/atlas/storage-migration.md`, and `docs/atlas/release-checklist.md`, while `README.md` and `docs/README.md` were updated to point at the new material and `docs/manifest.yml` was updated through the guarded docs workflow. The macOS managed docs store can read all four new `docs/atlas/*` docs, `npm run validate:full` passed before merge, and `npm audit` reports zero vulnerabilities. No public release, tag, or publish step has occurred.
+
+The next focus is a release-candidate readiness audit rather than new source features: verify the install/setup docs on macOS and again on CachyOS when returning there, verify daemon and MCP setup from fresh instructions, verify the storage migration docs against current CLI behavior, and prepare a private release checklist while keeping all release actions gated on explicit approval. Existing protections remain intact: traversal, malformed/prose/`apply_patch` input, stale base revisions, and non-applyable patch validation are still enforced, `.docs-policy.yml` protected-path risk and approval behavior still layers on top, the `docs.propose_document` create-only flow is unchanged, and branch-safe export still refuses cross-branch sync drift.
 
 ## Recently Completed
-- `177e1a9 merge: remove active legacy naming` removes all active/current-product `docu-guard` and `docu-guard-mcp` naming from README, CLI help text, error messages, generated templates, and tests. The package binary now exposes `xurgo-atlas` only. Root AGENTS.md was updated through the guarded docs workflow. The `docs.*` MCP namespace intentionally remains unchanged. Intentional legacy references are preserved only for migration compatibility, diagnostics explaining old roots, and migration test fixtures.
-- `4a74ce6 merge: update test dependencies for audit` resolves a critical npm audit issue (GHSA-5xrq-8626-4rwp) in Vitest. Vitest was upgraded from 3.x to 4.x. npm audit now reports 0 vulnerabilities. Only `package.json` and `package-lock.json` changed. `validate:full` passed before merge.
-- `615b1ef merge: storage migration git metadata repair` hardens `xurgo-atlas storage migrate --apply` by repairing internal Git metadata in copied project stores during staged migration before finalization. The repair normalizes bare repo HEAD from stale/nonexistent `master` to `main` when appropriate, fixes workdir object alternates pointing at legacy roots, and fixes workdir origin remote URLs pointing at legacy bare repo paths. Conservative migration behavior is preserved: no deletion of legacy roots, no overwrite/merge behavior, no mutation of legacy source roots.
-- `b4eb610 merge: storage migration apply copy` adds conservative copy-only `xurgo-atlas storage migrate --apply` that copies legacy registry and project stores into empty Atlas target roots, rewrites the copied registry to point at Atlas roots, skips runtime artifacts, validates copied project stores, leaves legacy roots untouched, refuses populated/conflict states, and refuses overwrite/merge behavior. Manual isolated QA passed, `validate:quick` and `validate:full` passed after merge.
+- `d726772 merge: release hardening setup docs` merges `a7f4370 docs: harden release setup guidance` into `main`, adds `docs/atlas/setup.md`, `docs/atlas/daemon-mcp.md`, `docs/atlas/storage-migration.md`, and `docs/atlas/release-checklist.md`, updates `README.md` and `docs/README.md` to point at the new docs, updates `docs/manifest.yml` through the guarded workflow, confirms the macOS managed docs store can read all four release docs, passes `npm run validate:full` before merge, and keeps `npm audit` at 0 vulnerabilities without any tag, publish, or release step.
 - `7be26e5 merge: storage migration dry run` adds read-only `xurgo-atlas storage migrate --dry-run`, keeps non-dry-run `xurgo-atlas storage migrate` explicitly failing because write-capable migration is not implemented yet, reports no-legacy roots, legacy-only roots, Atlas-populated targets, both-present roots, partial legacy config/data states, registry presence and readable project counts, project ID conflicts, detectable registry `dataDir` mismatch, and runtime PID/log artifacts as skipped and left untouched, and summarizes blockers, warnings, future copy actions, future skip actions, and the next recommended action without performing writes or creating storage directories/files.
 - `1e1c135 merge: propose patch unified diff support` updates `docs.propose_patch` to accept full git-style unified diffs, complete `--- path` / `+++ path` diffs, and complete `--- a/path` / `+++ b/path` diffs, while still rejecting empty or whitespace-only patches, prose-only input, `*** Begin Patch` envelopes, corrupt or truncated hunks, unsafe absolute or `..` header paths, and patches that touch files other than the declared guarded target. Error text now better explains supported and unsupported patch formats.
 - `c3da6c5 merge: storage inspection command` adds read-only `xurgo-atlas storage inspect`, reports selected config/data roots, Atlas and legacy candidates, registry presence and project count, both-present status, and runtime artifact presence, explicitly avoids migration or file modification, and introduces the reusable `inspectManagedStorage()` helper for future migration planning work.
@@ -45,26 +43,31 @@ Release hardening and release-candidate preparation. The immediate next work ite
 - `ac61527 chore: define npm package contents` explicitly allowlists published package contents through `package.json` `files`, keeping the runtime package limited to `README.md`, `package.json`, and `dist/**`.
 
 ## Next Actions
-- Release hardening / release candidate prep
-- Install/setup docs, daemon setup docs, MCP config docs, storage migration docs
-- Validation/release checklist
-- Keep storage migration support until explicitly removed
-- No public release/tag/publish without explicit approval
+- Run a release-candidate readiness audit without tagging, publishing, or releasing
+- Verify install and setup guidance from `docs/atlas/setup.md` on macOS and again on CachyOS when returning there
+- Verify daemon and MCP setup from `docs/atlas/daemon-mcp.md` using fresh instructions
+- Verify storage migration guidance in `docs/atlas/storage-migration.md` against current CLI behavior
+- Decide whether to keep or delete legacy backup directories only after more normal workflows have been exercised
+- Prepare a private release checklist from `docs/atlas/release-checklist.md`, but do not tag, publish, or release without explicit approval
 
 ## Blockers
 - None currently
 
 ## Do Not Do
-- Do not implement docs.merge_branch unless explicitly asked
+- Do not edit STATUS.md, manifest.yml, or .docs-policy.yml directly — always use docs.propose_patch
+- Do not tag, publish, or release without explicit approval
+- Do not implement `docs.merge_branch` unless explicitly asked
 - Do not implement proposal/diff/approval UI unless explicitly asked
-- Do not remove legacy migration support yet
-- Do not delete machine legacy backup directories yet
-- Do not publish/release/tag without explicit approval
+
+## Follow-Up Notes
+- The macOS managed docs workdir had stale legacy `docu-guard` paths and was safely quarantined and regenerated during the managed-doc sync.
+- A future hardening item should make managed reusable workdirs self-heal or be recreated when stored Git metadata still points at missing legacy paths.
+- The CachyOS managed store may need a refresh when returning there, because it previously had a local `add-atlas-docs` managed branch during the `docs/atlas` sync attempt.
 
 ## Related Documents
-- [Implementation Checklist](docs/implementation-checklist.md)
-- [v0.4 Spec](docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md)
-- [Xurgo Atlas Naming Migration Plan](docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md#14-xurgo-atlas-naming-migration-plan-post-v04)
-- [Naming Migration Readiness Inventory](docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md#15-migration-implementation-readiness-inventory-phase-b-audit)
+- [Release Setup](docs/atlas/setup.md)
+- [Daemon & MCP Configuration](docs/atlas/daemon-mcp.md)
+- [Storage Migration](docs/atlas/storage-migration.md)
+- [Release Checklist](docs/atlas/release-checklist.md)
 - [Vision: Project Context MCP](docs/vision/project-context-mcp.md)
 - [Xurgo Integration](docs/vision/xurgo-integration.md)
