@@ -26,6 +26,11 @@ The daemon exposes a Streamable HTTP MCP endpoint:
 POST http://127.0.0.1:3737/mcp
 ```
 
+`GET /mcp` returning `404 Not Found` is expected and does not mean the daemon is broken.
+`OPTIONS /mcp` is the CORS preflight path and may return `204 No Content`.
+Raw `POST /mcp` requests should send compatible `Accept` headers that include `application/json` and `text/event-stream`, or the daemon may reply with `406 Not Acceptable`.
+Prefer `xurgo-atlas daemon status` and actual MCP tool calls when verifying the daemon, rather than treating a browser `GET /mcp` check as authoritative.
+
 ## MCP Client Configuration
 
 ### opencode

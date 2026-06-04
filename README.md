@@ -16,7 +16,7 @@ npm install
 npm run build
 
 # Initialize a project
-xurgo-atlas init /path/to/project
+xurgo-atlas init --project-id my-project --project-root /path/to/project
 
 # Start the MCP daemon
 xurgo-atlas daemon start
