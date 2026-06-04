@@ -20,7 +20,7 @@ import {
   projectShowCommand,
   projectDefaultCommand,
 } from './cli/project.js';
-import { daemonCommand } from './cli/daemon.js';
+import { daemonCommand, getDaemonUsageText } from './cli/daemon.js';
 import {
   getStorageMigrationNotImplementedMessage,
   printStorageUsage,
@@ -162,13 +162,14 @@ function parseArgv(argv: string[]): Record<string, string | string[]> {
 async function main(): Promise<void> {
   // Parse the command
   const command = process.argv[2];
+  const rawArgs = process.argv.slice(3);
 
   if (!command || command === '--help' || command === '-h') {
     printUsage();
     process.exit(0);
   }
 
-  const args = parseArgv(process.argv.slice(3));
+  const args = parseArgv(rawArgs);
   const positionals = (args._ as string[]) ?? [];
   const projectRoot = (args['project-root'] as string | undefined) || process.cwd();
   const projectId = (args['project-id'] as string | undefined) || '';
@@ -200,6 +201,10 @@ async function main(): Promise<void> {
     }
 
     case 'daemon': {
+      if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
+        console.log(getDaemonUsageText());
+        process.exit(0);
+      }
       emitStorageDiagnostics(resolveStorageRoots({ configDir, dataDir }));
       await daemonCommand({
         action: positionals[0],

@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { getUsageText } from '../src/index.js';
+import { getDaemonUsageText } from '../src/cli/daemon.js';
 import { getProjectUsageText, parseProjectArgs, printProjectUsage } from '../src/cli/project.js';
 import {
   getStorageMigrationNotImplementedMessage,
@@ -60,6 +61,15 @@ describe('CLI usage text', () => {
     expect(output).toContain('storage    Inspect Atlas-vs-legacy managed storage (read-only)');
     expect(output).toContain('default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered');
     expect(output).toContain('default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered');
+  });
+
+  it('shows dedicated daemon help text without requiring foreground startup', () => {
+    const output = getDaemonUsageText();
+
+    expect(output).toContain('Manage the Xurgo Atlas daemon');
+    expect(output).toContain('xurgo-atlas daemon [options]');
+    expect(output).toContain('xurgo-atlas daemon start [options]');
+    expect(output).toContain('[no subcommand]        Start the daemon in foreground mode');
   });
 
   it('presents Xurgo Atlas as the primary project command name', () => {
