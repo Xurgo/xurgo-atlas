@@ -60,6 +60,38 @@ export interface DaemonCommandDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
+export function getDaemonUsageText(): string {
+  return `
+Manage the Xurgo Atlas daemon (HTTP MCP server).
+
+USAGE:
+  xurgo-atlas daemon [options]
+  xurgo-atlas daemon start [options]
+  xurgo-atlas daemon stop [options]
+  xurgo-atlas daemon status [options]
+
+MODES:
+  [no subcommand]        Start the daemon in foreground mode
+  start                  Start the daemon in the background
+  stop                   Stop the background daemon
+  status                 Show background daemon status
+
+OPTIONS:
+  --host <host>          Host to bind to (default: 127.0.0.1)
+  --port <port>          Port to listen on (default: 3737)
+  --config-dir <path>    Config directory override
+  --data-dir <path>      Data directory override
+  --project-id <id>      Optional: register a project on startup
+  --project-root <path>  Optional: project root (used with --project-id)
+
+EXAMPLES:
+  xurgo-atlas daemon
+  xurgo-atlas daemon --host 127.0.0.1 --port 3737
+  xurgo-atlas daemon start
+  xurgo-atlas daemon status
+`;
+}
+
 const defaultDeps: Required<DaemonCommandDeps> = {
   spawnProcess: (command, args, options) => spawn(command, args, options),
   isProcessRunning: processExists,
