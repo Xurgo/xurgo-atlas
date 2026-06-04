@@ -59,6 +59,15 @@ export interface StorageMigrationPlan {
   noChangesMade: true;
 }
 
+export interface GitMetadataRepairResult {
+  projectId: string;
+  repoPath: string;
+  alternatesRepaired: boolean;
+  remoteUrlRepaired: boolean;
+  headRepaired: boolean;
+  errors: string[];
+}
+
 export interface StorageMigrationApplyResult {
   mode: 'apply';
   source: StorageMigrationNamespaceCandidate;
@@ -66,6 +75,7 @@ export interface StorageMigrationApplyResult {
   copiedProjectIds: string[];
   runtimeArtifactsSkipped: string[];
   copyActions: string[];
+  gitMetadataRepairs: GitMetadataRepairResult[];
   warnings: string[];
   legacyRootsUntouched: true;
   wroteAtlasTargetRoots: true;
@@ -502,6 +512,69 @@ async function ensureMissingOrEmptyDirectory(dirPath: string, description: strin
   }
 }
 
+function repairProjectGitMetadata(
+  projectId: string,
+  tempDataDir: string,
+  legacyDataDir: string,
+  targetDataDir: string,
+): GitMetadataRepairResult {
+  const repoPath = path.join(tempDataDir, 'projects', projectId, 'repo.git');
+  const result: GitMetadataRepairResult = {
+    projectId,
+    repoPath,
+    alternatesRepaired: false,
+    remoteUrlRepaired: false,
+    headRepaired: false,
+    errors: [],
+  };
+
+  // 1. Repair bare repo HEAD — ensure it points to refs/heads/main, not refs/heads/master
+  const headPath = path.join(repoPath, 'HEAD');
+  try {
+    if (isFile(headPath)) {
+      const content = fs.readFileSync(headPath, 'utf-8').trim();
+      if (content === 'ref: refs/heads/master') {
+        fs.writeFileSync(headPath, 'ref: refs/heads/main\n', 'utf-8');
+        result.headRepaired = true;
+      }
+    }
+  } catch (error) {
+    result.errors.push(`Failed to repair HEAD: ${(error as Error).message}`);
+  }
+
+  // 2. Repair workdir alternates file to point at new objects location
+  const alternatesPath = path.join(repoPath, 'workdir', '.git', 'objects', 'info', 'alternates');
+  try {
+    if (isFile(alternatesPath)) {
+      const content = fs.readFileSync(alternatesPath, 'utf-8');
+      if (content.includes(legacyDataDir)) {
+        const updated = content.replaceAll(legacyDataDir, targetDataDir);
+        fs.writeFileSync(alternatesPath, updated, 'utf-8');
+        result.alternatesRepaired = true;
+      }
+    }
+  } catch (error) {
+    result.errors.push(`Failed to repair alternates: ${(error as Error).message}`);
+  }
+
+  // 3. Repair workdir remote origin URL in git config
+  const configPath = path.join(repoPath, 'workdir', '.git', 'config');
+  try {
+    if (isFile(configPath)) {
+      const content = fs.readFileSync(configPath, 'utf-8');
+      if (content.includes(legacyDataDir)) {
+        const updated = content.replaceAll(legacyDataDir, targetDataDir);
+        fs.writeFileSync(configPath, updated, 'utf-8');
+        result.remoteUrlRepaired = true;
+      }
+    }
+  } catch (error) {
+    result.errors.push(`Failed to repair remote URL: ${(error as Error).message}`);
+  }
+
+  return result;
+}
+
 function validateProjectStoreOrThrow(
   dataDir: string,
   projectId: string,
@@ -767,6 +840,8 @@ export async function applyStorageMigration(
   await fs.promises.mkdir(path.dirname(tempConfigDir), { recursive: true });
   await fs.promises.mkdir(path.dirname(tempDataDir), { recursive: true });
 
+  const gitMetadataRepairs: GitMetadataRepairResult[] = [];
+
   try {
     await ensureMissingOrEmptyDirectory(plan.target.configDir, 'Atlas target config directory');
     await ensureMissingOrEmptyDirectory(plan.target.dataDir, 'Atlas target data directory');
@@ -784,6 +859,31 @@ export async function applyStorageMigration(
       plan.source.runtime.runtimeDir,
     );
     copyActions.push(`Copied legacy data root to staging directory: ${tempDataDir}`);
+
+    // Repair internal git metadata in copied project stores
+    // (alternates, remote URLs, HEAD) to point at Atlas target paths
+    // instead of stale legacy source paths.
+    for (const projectId of copiedProjectIds) {
+      const repair = repairProjectGitMetadata(
+        projectId,
+        tempDataDir,
+        plan.source.dataDir,
+        plan.target.dataDir,
+      );
+      gitMetadataRepairs.push(repair);
+      if (repair.headRepaired) {
+        copyActions.push(`Repaired bare repo HEAD → refs/heads/main for project "${projectId}"`);
+      }
+      if (repair.alternatesRepaired) {
+        copyActions.push(`Repaired workdir alternates file for project "${projectId}"`);
+      }
+      if (repair.remoteUrlRepaired) {
+        copyActions.push(`Repaired workdir remote URL for project "${projectId}"`);
+      }
+      for (const err of repair.errors) {
+        copyActions.push(`Warning: git metadata repair issue for "${projectId}": ${err}`);
+      }
+    }
 
     await fs.promises.mkdir(tempConfigDir, { recursive: true });
     await fs.promises.writeFile(
@@ -823,6 +923,7 @@ export async function applyStorageMigration(
     copiedProjectIds,
     runtimeArtifactsSkipped,
     copyActions,
+    gitMetadataRepairs,
     warnings: [...plan.warnings],
     legacyRootsUntouched: true,
     wroteAtlasTargetRoots: true,
