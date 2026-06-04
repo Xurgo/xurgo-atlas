@@ -218,7 +218,12 @@ async function main(): Promise<void> {
             console.error('Error: --project-id and --project-root are required for project add');
             process.exit(1);
           }
-          await projectAddCommand(pid, proot, kwargs['config-dir'] || configDir);
+          await projectAddCommand(
+            pid,
+            proot,
+            kwargs['config-dir'] || configDir,
+            kwargs['data-dir'] || dataDir,
+          );
           break;
         }
         case 'remove': {
@@ -227,11 +232,18 @@ async function main(): Promise<void> {
             console.error('Error: --project-id is required for project remove');
             process.exit(1);
           }
-          await projectRemoveCommand(pid, configDir);
+          await projectRemoveCommand(
+            pid,
+            kwargs['config-dir'] || configDir,
+            kwargs['data-dir'] || dataDir,
+          );
           break;
         }
         case 'list': {
-          await projectListCommand(configDir);
+          await projectListCommand(
+            kwargs['config-dir'] || configDir,
+            kwargs['data-dir'] || dataDir,
+          );
           break;
         }
         case 'show': {
@@ -240,7 +252,11 @@ async function main(): Promise<void> {
             console.error('Error: --project-id is required for project show');
             process.exit(1);
           }
-          await projectShowCommand(pid, configDir);
+          await projectShowCommand(
+            pid,
+            kwargs['config-dir'] || configDir,
+            kwargs['data-dir'] || dataDir,
+          );
           break;
         }
         case 'default': {
@@ -249,7 +265,11 @@ async function main(): Promise<void> {
             console.error('Error: --project-id is required for project default');
             process.exit(1);
           }
-          await projectDefaultCommand(pid, configDir);
+          await projectDefaultCommand(
+            pid,
+            kwargs['config-dir'] || configDir,
+            kwargs['data-dir'] || dataDir,
+          );
           break;
         }
         default: {
