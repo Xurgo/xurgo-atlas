@@ -1,12 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { getUsageText } from '../src/index.js';
 import { getProjectUsageText, parseProjectArgs, printProjectUsage } from '../src/cli/project.js';
+import { getStorageUsageText, storageInspectCommand } from '../src/cli/storage.js';
 
 describe('CLI usage text', () => {
   it('shows atlas defaults and legacy discovery in the main help text', () => {
     const output = getUsageText();
 
     expect(output).toContain('xurgo-atlas — Xurgo Atlas');
+    expect(output).toContain('storage    Inspect Atlas-vs-legacy managed storage (read-only)');
     expect(output).toContain('default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered');
     expect(output).toContain('default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered');
     expect(output).toContain('Legacy compatibility alias remains: docu-guard');
@@ -50,5 +55,64 @@ describe('CLI usage text', () => {
     expect(parsed.subcommand).toBe('list');
     expect(parsed.kwargs['config-dir']).toBe('/tmp/config');
     expect(parsed.kwargs['data-dir']).toBe('/tmp/data');
+  });
+
+  it('documents storage inspection as a read-only command', () => {
+    const output = getStorageUsageText();
+
+    expect(output).toContain('xurgo-atlas storage inspect [options]');
+    expect(output).toContain('This command is read-only.');
+    expect(output).toContain('does not migrate, create, update, or delete storage files');
+  });
+
+  it('prints storage inspection output with no-migration wording', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-storage-cli-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+    const runtimeDir = path.join(dataDir, 'runtime');
+    const registryPath = path.join(configDir, 'projects.json');
+    const pidFile = path.join(runtimeDir, 'xurgo-atlas-daemon.json');
+    const logFile = path.join(runtimeDir, 'xurgo-atlas-daemon.log');
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await fs.promises.mkdir(runtimeDir, { recursive: true });
+    await fs.promises.mkdir(configDir, { recursive: true });
+    await fs.promises.writeFile(
+      registryPath,
+      JSON.stringify({
+        version: 2,
+        configDir,
+        dataDir,
+        defaultProjectId: null,
+        projects: {
+          alpha: {
+            projectId: 'alpha',
+            projectRoot: '/tmp/alpha',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        },
+      }, null, 2),
+      'utf-8',
+    );
+    await fs.promises.writeFile(pidFile, '{}', 'utf-8');
+    await fs.promises.writeFile(logFile, '', 'utf-8');
+
+    try {
+      await storageInspectCommand({ configDir, dataDir });
+      const output = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+
+      expect(output).toContain('Xurgo Atlas storage inspection');
+      expect(output).toContain(`configDir: ${configDir}`);
+      expect(output).toContain(`dataDir: ${dataDir}`);
+      expect(output).toContain('source: explicit');
+      expect(output).toContain('registry project count: 1');
+      expect(output).toContain('daemon pid file exists: yes');
+      expect(output).toContain('daemon log file exists: yes');
+      expect(output).toContain('No files were modified. This command does not migrate storage.');
+    } finally {
+      logSpy.mockRestore();
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
   });
 });

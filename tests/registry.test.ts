@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { Registry, RegistryError } from '../src/core/registry.js';
+import { inspectManagedStorage } from '../src/core/storage-inspect.js';
 
 let tmpDir: string;
 let configDir: string;
@@ -506,5 +507,117 @@ describe('Registry v1 backward compatibility', () => {
     expect(saved.dataDir).toBe(dataDir);
     expect(saved.defaultProjectId).toBe('legacy-project');
     expect(Object.keys(saved.projects)).toEqual(['legacy-project', 'new-project']);
+  });
+});
+
+describe('Storage inspection helpers', () => {
+  it('inspects atlas-vs-legacy storage state without modifying files', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const atlasConfigDir = path.join(configHome, 'xurgo-atlas');
+      const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+      const atlasRuntimeDir = path.join(atlasDataDir, 'runtime');
+
+      await fs.promises.mkdir(path.join(atlasDataDir, 'projects', 'atlas-project'), {
+        recursive: true,
+      });
+      await fs.promises.mkdir(path.join(legacyDataDir, 'projects', 'legacy-project'), {
+        recursive: true,
+      });
+      await fs.promises.mkdir(atlasRuntimeDir, { recursive: true });
+      await fs.promises.mkdir(atlasConfigDir, { recursive: true });
+      await fs.promises.mkdir(legacyConfigDir, { recursive: true });
+
+      await fs.promises.writeFile(
+        path.join(atlasConfigDir, 'projects.json'),
+        JSON.stringify({
+          version: 2,
+          configDir: atlasConfigDir,
+          dataDir: atlasDataDir,
+          defaultProjectId: null,
+          projects: {
+            atlasA: {
+              projectId: 'atlasA',
+              projectRoot: projDir('atlasA'),
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+            },
+            atlasB: {
+              projectId: 'atlasB',
+              projectRoot: projDir('atlasB'),
+              createdAt: '2026-01-02T00:00:00.000Z',
+              updatedAt: '2026-01-02T00:00:00.000Z',
+            },
+          },
+        }, null, 2),
+        'utf-8',
+      );
+      await fs.promises.writeFile(
+        path.join(legacyConfigDir, 'projects.json'),
+        JSON.stringify({
+          version: 2,
+          configDir: legacyConfigDir,
+          dataDir: legacyDataDir,
+          defaultProjectId: null,
+          projects: {
+            legacyOnly: {
+              projectId: 'legacyOnly',
+              projectRoot: projDir('legacyOnly'),
+              createdAt: '2026-01-03T00:00:00.000Z',
+              updatedAt: '2026-01-03T00:00:00.000Z',
+            },
+          },
+        }, null, 2),
+        'utf-8',
+      );
+      await fs.promises.writeFile(
+        path.join(atlasRuntimeDir, 'xurgo-atlas-daemon.json'),
+        '{}',
+        'utf-8',
+      );
+
+      const report = inspectManagedStorage();
+
+      expect(report.selected.configDir).toBe(atlasConfigDir);
+      expect(report.selected.dataDir).toBe(atlasDataDir);
+      expect(report.selected.sourceSummary).toBe('atlas-default');
+      expect(report.selected.registry.exists).toBe(true);
+      expect(report.selected.registry.projectCount).toBe(2);
+      expect(report.selected.runtime.runtimeDirExists).toBe(true);
+      expect(report.selected.runtime.pidFileExists).toBe(true);
+      expect(report.selected.runtime.logFileExists).toBe(false);
+      expect(report.atlas.present).toBe(true);
+      expect(report.atlas.registry.projectCount).toBe(2);
+      expect(report.legacy.present).toBe(true);
+      expect(report.legacy.registry.projectCount).toBe(1);
+      expect(report.bothPresent).toBe(true);
+      expect(report.diagnostics).toHaveLength(1);
+    });
+  });
+
+  it('reports unreadable registry counts without writing or throwing', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const atlasConfigDir = path.join(configHome, 'xurgo-atlas');
+      const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+
+      await fs.promises.mkdir(atlasConfigDir, { recursive: true });
+      await fs.promises.mkdir(path.join(atlasDataDir, 'projects', 'atlas-project'), {
+        recursive: true,
+      });
+      await fs.promises.writeFile(
+        path.join(atlasConfigDir, 'projects.json'),
+        '{not-json',
+        'utf-8',
+      );
+
+      const report = inspectManagedStorage();
+
+      expect(report.selected.registry.exists).toBe(true);
+      expect(report.selected.registry.projectCount).toBeNull();
+      expect(report.selected.registry.readError).toBeTruthy();
+      expect(report.atlas.registry.projectCount).toBeNull();
+      expect(report.atlas.registry.readError).toBeTruthy();
+    });
   });
 });
