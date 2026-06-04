@@ -84,7 +84,7 @@ Override defaults with CLI flags:
 
 ```bash
 xurgo-atlas daemon start --config-dir /path/to/config --data-dir /path/to/data
-xurgo-atlas init /path/to/project --config-dir /path/to/config --data-dir /path/to/data
+xurgo-atlas init --project-root /path/to/project --project-id my-project --config-dir /path/to/config --data-dir /path/to/data
 ```
 
 Flags are available on `init`, `server`, `daemon`, and `project` commands.
