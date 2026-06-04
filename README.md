@@ -25,17 +25,19 @@ Managed state (Git repositories, event logs) lives outside the project tree in c
 
 | Path | Default | Content |
 |------|---------|---------|
-| `<configDir>/projects.json` | `~/.config/docu-guard/projects.json` | Global project registry |
-| `<dataDir>/projects/<id>/repo.git` | `~/.local/share/docu-guard/projects/<id>/repo.git` | Git bare repository (docs history) |
-| `<dataDir>/projects/<id>/events.sqlite` | `~/.local/share/docu-guard/projects/<id>/events.sqlite` | Event/proposal database |
+| `<configDir>/projects.json` | `~/.config/xurgo-atlas/projects.json` | Global project registry |
+| `<dataDir>/projects/<id>/repo.git` | `~/.local/share/xurgo-atlas/projects/<id>/repo.git` | Git bare repository (docs history) |
+| `<dataDir>/projects/<id>/events.sqlite` | `~/.local/share/xurgo-atlas/projects/<id>/events.sqlite` | Event/proposal database |
 
-The project working tree contains only user-facing committed files: `docs/`, `AGENTS.md`, `.docs-policy.yml`. No `.docu-guard/` directory is created in the project. Existing `.docu-guard/` folders are pre-v0.3 development artifacts and are warned about, not used as active storage.
+Fresh installs default to the Xurgo Atlas XDG roots above. Legacy-only installs still fall back to the historical `docu-guard` config and data roots for compatibility. If both Atlas and legacy managed roots are already populated, Atlas roots are selected, nothing is merged automatically, and a warning/diagnostic is emitted so you can choose an explicit root with `--config-dir` or `--data-dir` if needed.
 
-The config and data directory locations can be set with `--config-dir` and `--data-dir` flags on `init`, `server`, and `daemon` commands. The defaults follow XDG Base Directory conventions (`XDG_CONFIG_HOME` / `XDG_DATA_HOME`).
+The project working tree contains only user-facing committed files: `docs/`, `AGENTS.md`, `.docs-policy.yml`. No `.docu-guard/` directory is created in the project. Existing project-local `.docu-guard/` folders are pre-v0.3 development artifacts and are warned about, not used as active storage.
+
+The config and data directory locations can be set with `--config-dir` and `--data-dir` flags on `init`, `server`, `daemon`, and `project` commands. The defaults follow XDG Base Directory conventions (`XDG_CONFIG_HOME` / `XDG_DATA_HOME`). There is not yet a command that physically migrates managed storage between legacy and Atlas root directories.
 
 ### Global project registry
 
-The daemon mode uses a global project registry (located at `<configDir>/projects.json`, default `~/.config/docu-guard/projects.json`) to map project IDs to project roots. The location is configurable with `--config-dir`. This allows the daemon to serve multiple projects without needing to know their paths in advance.
+The daemon mode uses a global project registry (located at `<configDir>/projects.json`, default `~/.config/xurgo-atlas/projects.json`) to map project IDs to project roots. Legacy-only installs still resolve through `~/.config/docu-guard/projects.json` until you explicitly point elsewhere. The location is configurable with `--config-dir`. This allows the daemon to serve multiple projects without needing to know their paths in advance.
 
 ### Git-backed docs history
 
@@ -444,4 +446,3 @@ Creating a new documentation file is supported via the existing patch-based work
 4. Follow the standard workflow: preview the diff, commit the proposal, and export if desired.
 
 **Note:** Although creating new files is possible, the workflow is optimized for modifying existing files. Agents should prefer to read a file first when possible. For entirely new documentation, consider creating a template file in the repository first, then modifying it.
-

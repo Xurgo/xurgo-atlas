@@ -635,6 +635,29 @@ Legacy generated content.
     expect(managedStat.isDirectory()).toBe(true);
   });
 
+  it('should explain that pre-v0.3 .docu-guard/ cleanup is manual', async () => {
+    const legacyDir = path.join(tmpDir, '.docu-guard');
+    await fs.promises.mkdir(legacyDir, { recursive: true });
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      await Project.init({
+        projectRoot: tmpDir,
+        projectId: 'test-project',
+        configDir: path.join(tmpDir, 'config'),
+        dataDir: path.join(tmpDir, 'data'),
+      });
+
+      const output = errorSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+      expect(output).toContain('pre-v0.3 .docu-guard/ directory');
+      expect(output).toContain('Remove this old project-local artifact manually');
+      expect(output).not.toContain('Run migration');
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it('should log initialization under the atlas-branded event path', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
