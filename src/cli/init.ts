@@ -13,6 +13,28 @@ export interface InitOptions {
   dataDir?: string;
 }
 
+export function getInitUsageText(): string {
+  return `
+Initialize a Xurgo Atlas project
+
+USAGE:
+  xurgo-atlas init [options]
+
+OPTIONS:
+  --project-root <path>   Path to the project root (default: .)
+  --project-id <id>       Unique identifier for the project
+  --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
+  --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
+
+EXAMPLES:
+  xurgo-atlas init --project-root . --project-id my-project
+`;
+}
+
+export function printInitUsage(): void {
+  console.log(getInitUsageText());
+}
+
 /**
  * Run the `xurgo-atlas init` command.
  */

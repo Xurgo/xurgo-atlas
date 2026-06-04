@@ -122,21 +122,37 @@ describe('CLI usage text', () => {
     expect(output).toContain('[no subcommand]        Start the daemon in foreground mode');
   });
 
-  it('prints init help without requiring --project-id', async () => {
+  it.each([
+    ['--help without --project-id', ['node', 'xurgo-atlas', 'init', '--help']],
+    ['-h without --project-id', ['node', 'xurgo-atlas', 'init', '-h']],
+  ])('prints init help safely for %s', async (_label, argv) => {
     const initSpy = vi.spyOn(initCli, 'initCommand').mockResolvedValue(undefined);
     const storageSpy = vi.spyOn(storageCore, 'emitStorageDiagnostics').mockImplementation(() => undefined);
 
-    const result = await runMainWithArgs(['node', 'xurgo-atlas', 'init', '--help']);
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const result = await runMainWithArgs(argv);
 
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('xurgo-atlas <command> [options]');
-    expect(result.stdout).toContain('init       Initialize a Xurgo Atlas project');
-    expect(result.stderr).toBe('');
-    expect(initSpy).not.toHaveBeenCalled();
-    expect(storageSpy).not.toHaveBeenCalled();
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('xurgo-atlas init [options]');
+      expect(result.stdout).toContain('Initialize a Xurgo Atlas project');
+      expect(result.stderr).toBe('');
+      expect(initSpy).not.toHaveBeenCalled();
+      expect(storageSpy).not.toHaveBeenCalled();
+      await expect(fs.promises.stat(configHome)).rejects.toThrow();
+      await expect(fs.promises.stat(dataHome)).rejects.toThrow();
+    });
   });
 
-  it('prints init help without initializing when --project-id is also present', async () => {
+  it.each([
+    [
+      '--project-id before --help',
+      ['node', 'xurgo-atlas', 'init', '--project-id', 'foo', '--help'],
+    ],
+    [
+      '--help before --project-id',
+      ['node', 'xurgo-atlas', 'init', '--help', '--project-id', 'foo'],
+    ],
+  ])('prints init help safely for %s', async (_label, baseArgv) => {
     const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-init-help-'));
     const configDir = path.join(root, 'config');
     const dataDir = path.join(root, 'data');
@@ -145,12 +161,7 @@ describe('CLI usage text', () => {
 
     try {
       const result = await runMainWithArgs([
-        'node',
-        'xurgo-atlas',
-        'init',
-        '--project-id',
-        'foo',
-        '--help',
+        ...baseArgv,
         '--config-dir',
         configDir,
         '--data-dir',
@@ -158,7 +169,8 @@ describe('CLI usage text', () => {
       ]);
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain('init       Initialize a Xurgo Atlas project');
+      expect(result.stdout).toContain('xurgo-atlas init [options]');
+      expect(result.stdout).toContain('Initialize a Xurgo Atlas project');
       expect(result.stderr).toBe('');
       expect(initSpy).not.toHaveBeenCalled();
       expect(storageSpy).not.toHaveBeenCalled();
