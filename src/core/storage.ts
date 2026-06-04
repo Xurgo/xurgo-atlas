@@ -280,6 +280,21 @@ export class StoragePaths {
   projectEventsPath(projectId: string): string {
     return path.join(this.projectDataDir(projectId), 'events.sqlite');
   }
+
+  /** Root directory for daemon runtime artifacts. */
+  runtimeDir(): string {
+    return path.join(this.dataDir, 'runtime');
+  }
+
+  /** PID file for the background daemon. */
+  daemonPidFilePath(): string {
+    return path.join(this.runtimeDir(), 'xurgo-atlas-daemon.json');
+  }
+
+  /** Log file for the background daemon. */
+  daemonLogPath(): string {
+    return path.join(this.runtimeDir(), 'xurgo-atlas-daemon.log');
+  }
 }
 
 /**
