@@ -201,6 +201,7 @@ The `docs.export` tool can export a branch to a target directory, allowing users
   "summary": "string (required, brief summary of the change)"
 }
 ```
+Accepted patch formats include full git-style unified diffs from `git diff`, complete unified diffs with `--- path` / `+++ path` headers, and complete unified diffs with `--- a/path` / `+++ b/path` headers. Prose-only text, OpenAI `*** Begin Patch` envelopes, and truncated or corrupt hunks are rejected.
 **Output:**
 ```json
 {

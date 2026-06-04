@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { simpleGit, SimpleGit } from 'simple-git';
+import { normalizeUnifiedDiffPatch } from './unified-diff.js';
 
 export interface FileEntry {
   path: string;
@@ -30,33 +31,14 @@ export interface ExportTargetBranchInfo {
   branch: string | null;
 }
 
-function looksLikeUnifiedDiff(patchContent: string): boolean {
-  const lines = patchContent.split('\n');
-  let sawFileHeader = false;
-  let sawHunk = false;
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (!sawFileHeader) {
-      const nextLine = lines[index + 1] ?? '';
-      const hasValidOldHeader =
-        line.startsWith('--- a/') || line === '--- /dev/null';
-      const hasValidNewHeader = nextLine.startsWith('+++ b/');
-
-      if (hasValidOldHeader && hasValidNewHeader) {
-        sawFileHeader = true;
-        index += 1;
-      }
-      continue;
-    }
-
-    if (line.startsWith('@@ ')) {
-      sawHunk = true;
-      break;
-    }
+function sameChangedFiles(actual: string[], expected: string[]): boolean {
+  if (actual.length !== expected.length) {
+    return false;
   }
 
-  return sawFileHeader && sawHunk;
+  const actualSorted = [...actual].sort();
+  const expectedSorted = [...expected].sort();
+  return actualSorted.every((file, index) => file === expectedSorted[index]);
 }
 
 export class GitStore {
@@ -422,11 +404,22 @@ export class GitStore {
         };
       }
 
-      // Reject prose or apply_patch-style payloads before handing them to git apply.
-      if (!looksLikeUnifiedDiff(patchContent)) {
+      let normalizedPatch: string;
+      try {
+        const normalized = normalizeUnifiedDiffPatch(patchContent);
+        if (!sameChangedFiles(normalized.changedFiles, changedFiles)) {
+          return {
+            applyable: false,
+            error:
+              `Patch changes ${normalized.changedFiles.join(', ') || '(none)'} ` +
+              `but expected ${changedFiles.join(', ')}.`,
+          };
+        }
+        normalizedPatch = normalized.normalizedPatch;
+      } catch (err: unknown) {
         return {
           applyable: false,
-          error: 'error: No valid patches in input (allow with "--allow-empty")',
+          error: (err as Error).message,
         };
       }
 
@@ -436,7 +429,7 @@ export class GitStore {
       }
 
       const patchFile = path.join(workDir, '.xurgo-atlas-patch-check.tmp');
-      await fs.promises.writeFile(patchFile, patchContent, 'utf-8');
+      await fs.promises.writeFile(patchFile, normalizedPatch, 'utf-8');
 
       try {
         const applyResult = await git.raw([
@@ -499,8 +492,23 @@ export class GitStore {
         await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
       }
 
+      let normalizedPatch: string;
+      try {
+        const normalized = normalizeUnifiedDiffPatch(patchContent);
+        if (!sameChangedFiles(normalized.changedFiles, changedFiles)) {
+          throw new Error(
+            `Patch changes ${normalized.changedFiles.join(', ') || '(none)'} but expected ${changedFiles.join(', ')}.`,
+          );
+        }
+        normalizedPatch = normalized.normalizedPatch;
+      } catch (err: unknown) {
+        throw new Error(
+          `Patch does not apply cleanly: ${(err as Error).message}`,
+        );
+      }
+
       const patchFile = path.join(workDir, '.xurgo-atlas-patch.tmp');
-      await fs.promises.writeFile(patchFile, patchContent, 'utf-8');
+      await fs.promises.writeFile(patchFile, normalizedPatch, 'utf-8');
 
       try {
         const applyResult = await git.raw([
