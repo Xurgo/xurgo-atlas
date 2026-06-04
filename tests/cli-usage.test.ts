@@ -4,7 +4,43 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { getUsageText } from '../src/index.js';
 import { getProjectUsageText, parseProjectArgs, printProjectUsage } from '../src/cli/project.js';
-import { getStorageUsageText, storageInspectCommand } from '../src/cli/storage.js';
+import {
+  getStorageMigrationNotImplementedMessage,
+  getStorageUsageText,
+  storageInspectCommand,
+  storageMigrateCommand,
+} from '../src/cli/storage.js';
+
+async function withXdgRoots<T>(
+  run: (roots: { root: string; configHome: string; dataHome: string }) => Promise<T>,
+): Promise<T> {
+  const prevConfigHome = process.env.XDG_CONFIG_HOME;
+  const prevDataHome = process.env.XDG_DATA_HOME;
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-cli-xdg-'));
+  const configHome = path.join(root, 'config-home');
+  const dataHome = path.join(root, 'data-home');
+
+  process.env.XDG_CONFIG_HOME = configHome;
+  process.env.XDG_DATA_HOME = dataHome;
+
+  try {
+    return await run({ root, configHome, dataHome });
+  } finally {
+    if (prevConfigHome === undefined) {
+      delete process.env.XDG_CONFIG_HOME;
+    } else {
+      process.env.XDG_CONFIG_HOME = prevConfigHome;
+    }
+
+    if (prevDataHome === undefined) {
+      delete process.env.XDG_DATA_HOME;
+    } else {
+      process.env.XDG_DATA_HOME = prevDataHome;
+    }
+
+    await fs.promises.rm(root, { recursive: true, force: true });
+  }
+}
 
 describe('CLI usage text', () => {
   it('shows atlas defaults and legacy discovery in the main help text', () => {
@@ -61,8 +97,9 @@ describe('CLI usage text', () => {
     const output = getStorageUsageText();
 
     expect(output).toContain('xurgo-atlas storage inspect [options]');
+    expect(output).toContain('xurgo-atlas storage migrate --dry-run [options]');
     expect(output).toContain('This command is read-only.');
-    expect(output).toContain('does not migrate, create, update, or delete storage files');
+    expect(output).toContain('does not migrate, create, copy, update, or delete storage files');
   });
 
   it('prints storage inspection output with no-migration wording', async () => {
@@ -114,5 +151,55 @@ describe('CLI usage text', () => {
       logSpy.mockRestore();
       await fs.promises.rm(root, { recursive: true, force: true });
     }
+  });
+
+  it('prints storage migration dry-run output with no-change wording', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+      await fs.promises.mkdir(legacyConfigDir, { recursive: true });
+      await fs.promises.mkdir(path.join(legacyDataDir, 'projects', 'alpha'), {
+        recursive: true,
+      });
+      await fs.promises.writeFile(
+        path.join(legacyConfigDir, 'projects.json'),
+        JSON.stringify({
+          version: 2,
+          configDir: legacyConfigDir,
+          dataDir: legacyDataDir,
+          defaultProjectId: null,
+          projects: {
+            alpha: {
+              projectId: 'alpha',
+              projectRoot: '/tmp/alpha',
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+            },
+          },
+        }, null, 2),
+        'utf-8',
+      );
+
+      try {
+        await storageMigrateCommand({}, true);
+        const output = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+
+        expect(output).toContain('Xurgo Atlas storage migration plan');
+        expect(output).toContain('Mode: dry-run');
+        expect(output).toContain('Legacy-only roots found');
+        expect(output).toContain('Future copy actions:');
+        expect(output).toContain('No changes were made. This command did not create, copy, modify, or delete any files.');
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+  });
+
+  it('fails clearly when storage migrate is invoked without --dry-run', async () => {
+    await expect(storageMigrateCommand()).rejects.toThrow(
+      getStorageMigrationNotImplementedMessage(),
+    );
   });
 });
