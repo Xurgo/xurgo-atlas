@@ -44,6 +44,18 @@ const DEFAULT_ALLOWED_ORIGINS: ReadonlyArray<string | RegExp> = [
   /^https?:\/\/localhost(?::\d+)?$/,
 ];
 
+const MCP_DEBUG_LOG_ENV_VAR = 'XURGO_ATLAS_DEBUG_MCP';
+
+function isVerboseMcpLoggingEnabled(): boolean {
+  return process.env[MCP_DEBUG_LOG_ENV_VAR] === '1';
+}
+
+function logMcpDebug(...args: unknown[]): void {
+  if (isVerboseMcpLoggingEnabled()) {
+    console.error(...args);
+  }
+}
+
 // ── Minimal read-only UI assets ───────────────────────────────────────
 
 const UI_HTML = `<!doctype html>
@@ -977,7 +989,7 @@ export async function startHttpServer(
     let transport: StreamableHTTPServerTransport | undefined;
     
     try {
-      console.error('MCP endpoint hit', req.method, req.path, req.headers.origin);
+      logMcpDebug('MCP endpoint hit', req.method, req.path, req.headers.origin);
       
       // Validate Origin
       const origin = req.headers.origin as string | undefined;
@@ -991,8 +1003,8 @@ export async function startHttpServer(
         return;
       }
       
-      console.error('Origin validation passed, origin:', origin);
-      console.error('Request body:', req.body);
+      logMcpDebug('Origin validation passed, origin:', origin);
+      logMcpDebug('Request body:', req.body);
 
       // Create new MCP server and transport for this request
       server = createMcpServer();
@@ -1005,11 +1017,11 @@ export async function startHttpServer(
       
       // Handle the MCP request
       await transport.handleRequest(req, res, req.body);
-      console.error('MCP request handled successfully');
+      logMcpDebug('MCP request handled successfully');
       
       // Close transport and server when response closes
       res.on('close', async () => {
-        console.error('Response closed, cleaning up');
+        logMcpDebug('Response closed, cleaning up');
         try {
           if (transport) await transport.close();
         } catch (e) {

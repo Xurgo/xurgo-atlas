@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as http from 'node:http';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -22,6 +22,7 @@ async function post(address: string, body: unknown): Promise<{ status: number; d
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': String(payload.length),
+          Accept: 'application/json, text/event-stream',
         },
       },
       (res) => {
@@ -381,6 +382,18 @@ Next body.
     const res = await post('/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
     expect(res.status).not.toBe(404);
     expect(res.status).not.toBe(403);
+  });
+
+  it('does not log full MCP request bodies by default', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    try {
+      const res = await post('/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
+      expect(res.status).not.toBe(404);
+      expect(errorSpy.mock.calls.some((call) => String(call[0]).includes('Request body:'))).toBe(false);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('POST /mcp with disallowed Origin returns 403', async () => {

@@ -22,10 +22,10 @@ The CLI binary is `xurgo-atlas` (via `npm start` or `node dist/index.js`).
 
 ```bash
 # Initialize a project
-xurgo-atlas init /path/to/project
+xurgo-atlas init --project-id my-project --project-root /path/to/project
 
 # Start the MCP server in stdio mode
-xurgo-atlas server
+xurgo-atlas server --project-root /path/to/project --project-id my-project
 
 # Start the daemon in background
 xurgo-atlas daemon start
