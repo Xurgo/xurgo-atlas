@@ -65,6 +65,7 @@ COMMANDS:
   storage    Inspect Atlas-vs-legacy managed storage (read-only)
     inspect                 Show selected roots, candidates, registry state, and runtime artifacts
     migrate --dry-run       Plan a future legacy-to-Atlas migration without making changes
+    migrate --apply         Copy legacy managed storage into empty Atlas roots
     --config-dir <path>     Inspect with an explicit config directory override
     --data-dir <path>       Inspect with an explicit data directory override
 
@@ -95,6 +96,7 @@ EXAMPLES:
   xurgo-atlas daemon status
   xurgo-atlas storage inspect
   xurgo-atlas storage migrate --dry-run
+  xurgo-atlas storage migrate --apply
   xurgo-atlas project add --project-id my-app --project-root /path/to/my-app
   xurgo-atlas project list
   xurgo-atlas list
@@ -142,6 +144,9 @@ function parseArgv(argv: string[]): Record<string, string | string[]> {
       i += 2;
     } else if (arg === '--dry-run') {
       args['dry-run'] = 'true';
+      i++;
+    } else if (arg === '--apply') {
+      args['apply'] = 'true';
       i++;
     } else if (arg === '--pid-file' && i + 1 < argv.length) {
       args['pid-file'] = argv[i + 1];
@@ -321,11 +326,15 @@ async function main(): Promise<void> {
         await storageMigrateCommand(
           { configDir, dataDir },
           args['dry-run'] === 'true',
+          args['apply'] === 'true',
         );
       } catch (error) {
         if (
           error instanceof Error &&
-          error.message === getStorageMigrationNotImplementedMessage()
+          (
+            error.message === getStorageMigrationNotImplementedMessage() ||
+            error.name === 'StorageMigrationCommandError'
+          )
         ) {
           console.error(error.message);
           process.exit(1);
