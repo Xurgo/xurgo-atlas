@@ -81,7 +81,7 @@ const AGENTS_MD_SAFETY_RULES = `# Agent Instructions for Xurgo Atlas
 ## Documentation Safety Rules
 
 This project uses **Xurgo Atlas** for safe, versioned, auditable documentation management.
-The historical \`docu-guard-mcp\` name remains as a transitional package and CLI alias for now.
+The historical \`docu-guard-mcp\` name is retained for transitional compatibility.
 
 ### Rules for AI Agents
 
@@ -291,7 +291,7 @@ async function ensureDocsStructure(projectRoot: string): Promise<void> {
   await fs.promises.mkdir(docsDir, { recursive: true });
 
   const docsFiles: [string, string][] = [
-    ['README.md', '# Documentation\n\nThis directory contains project documentation managed by Xurgo Atlas (legacy CLI alias: docu-guard).\n'],
+    ['README.md', '# Documentation\n\nThis directory contains project documentation managed by Xurgo Atlas.\n'],
     ['spec/README.md', '# Specification\n\nThis directory contains project specifications.\n'],
     ['manifest.yml', MANIFEST_YML_TEMPLATE],
   ];
