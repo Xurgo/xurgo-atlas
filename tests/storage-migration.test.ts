@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { simpleGit } from 'simple-git';
 
 import {
   applyStorageMigration,
@@ -409,6 +410,223 @@ describe('storage migration planner', () => {
       await expect(
         fs.promises.stat(path.join(legacyDataDir, 'projects', 'legacy-a', 'repo.git')),
       ).resolves.toBeDefined();
+    });
+  });
+
+  describe('git metadata repair', () => {
+    /**
+     * Build a realistic project store with a bare repo + workdir.
+     * Uses simple-git to init the bare repo, then manually constructs
+     * the workdir's .git/config and alternates so they point at the
+     * legacy bare repo, simulating a pre-migration state.
+     */
+    async function createProjectWithRealGitRepo(
+      dataDir: string,
+      projectId: string,
+      options: { headRef?: string } = {},
+    ): Promise<{ repoPath: string; workdirPath: string }> {
+      const headRef = options.headRef ?? 'main';
+      const repoPath = path.join(dataDir, 'projects', projectId, 'repo.git');
+      const workdirPath = path.join(repoPath, 'workdir');
+      const workdirGitDir = path.join(workdirPath, '.git');
+      const projectDir = path.join(dataDir, 'projects', projectId);
+
+      // --- bare repo ---
+      await fs.promises.mkdir(repoPath, { recursive: true });
+      const bareGit = simpleGit({ baseDir: repoPath });
+      await bareGit.init(true);
+      // Ensure HEAD points at the desired ref
+      await fs.promises.writeFile(path.join(repoPath, 'HEAD'), `ref: refs/heads/${headRef}\n`, 'utf-8');
+
+      // No need for an initial commit — validateProjectStoreOrThrow only
+      // checks that repo.git/ exists as a directory, not that it has commits.
+
+      // --- workdir ---
+      await fs.promises.mkdir(workdirPath, { recursive: true });
+      await fs.promises.writeFile(path.join(workdirPath, 'README.md'), '# test\n', 'utf-8');
+
+      // Create .git structure inside workdir as if it were a regular clone
+      await fs.promises.mkdir(path.join(workdirGitDir, 'objects', 'info'), { recursive: true });
+      await fs.promises.mkdir(path.join(workdirGitDir, 'refs', 'heads'), { recursive: true });
+      await fs.promises.mkdir(path.join(workdirGitDir, 'refs', 'remotes', 'origin'), { recursive: true });
+
+      // HEAD — currently checked out branch
+      await fs.promises.writeFile(
+        path.join(workdirGitDir, 'HEAD'),
+        `ref: refs/heads/${headRef}\n`,
+        'utf-8',
+      );
+
+      // Config with remote origin pointing to bare repo (legacy path)
+      const remoteUrl = repoPath;
+      await fs.promises.writeFile(
+        path.join(workdirGitDir, 'config'),
+        `[core]
+\trepositoryformatversion = 0
+\tfilemode = true
+\tbare = false
+\tlogallrefupdates = true
+[remote "origin"]
+\turl = ${remoteUrl}
+\tfetch = +refs/heads/*:refs/remotes/origin/*
+[branch "${headRef}"]
+\tremote = origin
+\tmerge = refs/heads/${headRef}
+`,
+        'utf-8',
+      );
+
+      // Alternates file pointing to bare repo objects
+      await fs.promises.writeFile(
+        path.join(workdirGitDir, 'objects', 'info', 'alternates'),
+        path.join(repoPath, 'objects') + '\n',
+        'utf-8',
+      );
+
+      // Also write events.sqlite so validation passes
+      await fs.promises.writeFile(
+        path.join(projectDir, 'events.sqlite'),
+        'sqlite-placeholder',
+        'utf-8',
+      );
+
+      return { repoPath, workdirPath };
+    }
+
+    async function verifyAlternatesPath(
+      workdirPath: string,
+      expectedPrefix: string,
+    ): Promise<void> {
+      const alternatesFile = path.join(workdirPath, '.git', 'objects', 'info', 'alternates');
+      const content = await fs.promises.readFile(alternatesFile, 'utf-8');
+      const firstLine = content.split('\n')[0].trim();
+      expect(firstLine).toBe(
+        path.join(expectedPrefix, 'projects', 'legacy-a', 'repo.git', 'objects'),
+      );
+    }
+
+    async function verifyRemoteUrl(
+      workdirPath: string,
+      expectedUrl: string,
+    ): Promise<void> {
+      const wdGit = simpleGit({ baseDir: workdirPath });
+      const remotes = await wdGit.getRemotes(true);
+      const origin = remotes.find((r) => r.name === 'origin');
+      expect(origin).toBeDefined();
+      expect(origin!.refs.fetch).toBe(
+        path.join(expectedUrl, 'projects', 'legacy-a', 'repo.git'),
+      );
+    }
+
+    async function verifyHead(repoPath: string, expectedRef: string): Promise<void> {
+      const headContent = await fs.promises.readFile(path.join(repoPath, 'HEAD'), 'utf-8');
+      expect(headContent.trim()).toBe(`ref: refs/heads/${expectedRef}`);
+    }
+
+    it('repairs alternates and remote URL during migration', async () => {
+      await withXdgRoots(async ({ configHome, dataHome }) => {
+        const legacyConfigDir = path.join(configHome, 'docu-guard');
+        const legacyDataDir = path.join(dataHome, 'docu-guard');
+        const atlasConfigDir = path.join(configHome, 'xurgo-atlas');
+        const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+
+        await writeRegistry(legacyConfigDir, legacyDataDir, ['legacy-a']);
+        const { repoPath, workdirPath } = await createProjectWithRealGitRepo(
+          legacyDataDir,
+          'legacy-a',
+        );
+
+        // Verify pre-migration state: alternates and remote point to legacy path
+        await verifyAlternatesPath(workdirPath, legacyDataDir);
+        await verifyRemoteUrl(workdirPath, legacyDataDir);
+        await verifyHead(repoPath, 'main');
+
+        const result = await applyStorageMigration();
+
+        // Verify result includes repair info
+        expect(result.gitMetadataRepairs).toHaveLength(1);
+        expect(result.gitMetadataRepairs[0].projectId).toBe('legacy-a');
+        expect(result.gitMetadataRepairs[0].alternatesRepaired).toBe(true);
+        expect(result.gitMetadataRepairs[0].remoteUrlRepaired).toBe(true);
+        expect(result.gitMetadataRepairs[0].headRepaired).toBe(false);
+
+        // Verify post-migration state: alternates and remote now point to atlas path
+        const atlasRepoPath = path.join(atlasDataDir, 'projects', 'legacy-a', 'repo.git');
+        const atlasWorkdirPath = path.join(atlasRepoPath, 'workdir');
+        await verifyAlternatesPath(atlasWorkdirPath, atlasDataDir);
+        await verifyRemoteUrl(atlasWorkdirPath, atlasDataDir);
+        await verifyHead(atlasRepoPath, 'main');
+      });
+    });
+
+    it('repairs HEAD from master to main during migration', async () => {
+      await withXdgRoots(async ({ configHome, dataHome }) => {
+        const legacyConfigDir = path.join(configHome, 'docu-guard');
+        const legacyDataDir = path.join(dataHome, 'docu-guard');
+        const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+
+        await writeRegistry(legacyConfigDir, legacyDataDir, ['legacy-a']);
+
+        // Use the helper with headRef: 'master' to create a legacy repo
+        // that has HEAD pointing to master and a workdir with stale paths
+        const { repoPath } = await createProjectWithRealGitRepo(
+          legacyDataDir,
+          'legacy-a',
+          { headRef: 'master' },
+        );
+
+        // Verify pre-migration: HEAD points to master
+        await verifyHead(repoPath, 'master');
+
+        const result = await applyStorageMigration();
+
+        expect(result.gitMetadataRepairs).toHaveLength(1);
+        expect(result.gitMetadataRepairs[0].headRepaired).toBe(true);
+        expect(result.gitMetadataRepairs[0].alternatesRepaired).toBe(true);
+        expect(result.gitMetadataRepairs[0].remoteUrlRepaired).toBe(true);
+
+        const atlasRepoPath = path.join(atlasDataDir, 'projects', 'legacy-a', 'repo.git');
+        await verifyHead(atlasRepoPath, 'main');
+      });
+    });
+
+    it('handles project without workdir gracefully', async () => {
+      await withXdgRoots(async ({ configHome, dataHome }) => {
+        const legacyConfigDir = path.join(configHome, 'docu-guard');
+        const legacyDataDir = path.join(dataHome, 'docu-guard');
+        const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+
+        await writeRegistry(legacyConfigDir, legacyDataDir, ['legacy-a']);
+
+        // Create a bare repo but NO workdir
+        const repoPath = path.join(legacyDataDir, 'projects', 'legacy-a', 'repo.git');
+        await fs.promises.mkdir(repoPath, { recursive: true });
+        const bareGit = simpleGit({ baseDir: repoPath });
+        await bareGit.init(true);
+        await fs.promises.writeFile(path.join(repoPath, 'HEAD'), 'ref: refs/heads/main\n', 'utf-8');
+
+        // Also write events.sqlite so validation passes
+        await fs.promises.mkdir(path.join(legacyDataDir, 'projects', 'legacy-a'), { recursive: true });
+        await fs.promises.writeFile(
+          path.join(legacyDataDir, 'projects', 'legacy-a', 'events.sqlite'),
+          'sqlite-placeholder',
+          'utf-8',
+        );
+
+        const result = await applyStorageMigration();
+
+        // Should have one repair result with no repairs performed (no workdir to fix)
+        expect(result.gitMetadataRepairs).toHaveLength(1);
+        expect(result.gitMetadataRepairs[0].alternatesRepaired).toBe(false);
+        expect(result.gitMetadataRepairs[0].remoteUrlRepaired).toBe(false);
+        expect(result.gitMetadataRepairs[0].headRepaired).toBe(false);
+        expect(result.gitMetadataRepairs[0].errors).toHaveLength(0);
+
+        // Migration still completes successfully
+        expect(result.copiedProjectIds).toEqual(['legacy-a']);
+        const atlasRepoPath = path.join(atlasDataDir, 'projects', 'legacy-a', 'repo.git');
+        await expect(fs.promises.stat(atlasRepoPath)).resolves.toBeDefined();
+      });
     });
   });
 });
