@@ -33,7 +33,27 @@ documents:
   - path: docs/README.md
     role: reference
     priority: high
-    summary: Project documentation overview
+    summary: Project documentation overview with links to reference docs
+
+  - path: docs/atlas/setup.md
+    role: reference
+    priority: high
+    summary: Install, build, test, and validation commands
+
+  - path: docs/atlas/daemon-mcp.md
+    role: reference
+    priority: high
+    summary: Daemon lifecycle and MCP client configuration
+
+  - path: docs/atlas/storage-migration.md
+    role: reference
+    priority: high
+    summary: Storage inspection and legacy migration workflow
+
+  - path: docs/atlas/release-checklist.md
+    role: reference
+    priority: high
+    summary: Pre-release validation checklist and release steps
 
   - path: docs/implementation-checklist.md
     role: roadmap
