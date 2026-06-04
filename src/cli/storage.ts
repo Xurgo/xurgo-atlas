@@ -1,7 +1,9 @@
 import { inspectManagedStorage } from '../core/storage-inspect.js';
 import {
+  applyStorageMigration,
   planStorageMigration,
   type StorageMigrationClassification,
+  type StorageMigrationApplyResult,
 } from '../core/storage-migration.js';
 import type { StorageConfig } from '../core/storage.js';
 
@@ -13,6 +15,7 @@ Legacy alias: docu-guard (temporary)
 USAGE:
   xurgo-atlas storage inspect [options]
   xurgo-atlas storage migrate --dry-run [options]
+  xurgo-atlas storage migrate --apply [options]
 
 SUBCOMMANDS:
   inspect
@@ -24,15 +27,20 @@ SUBCOMMANDS:
   migrate --dry-run
     Plan a future legacy-to-Atlas storage migration without creating
     directories, copying files, modifying registries, or touching runtime.
+  migrate --apply
+    Copy legacy managed storage into empty Atlas roots, skipping runtime
+    artifacts and leaving legacy roots untouched.
     --config-dir <path>   Inspect with an explicit config directory override
     --data-dir <path>     Inspect with an explicit data directory override
 
 EXAMPLES:
   xurgo-atlas storage inspect
   xurgo-atlas storage migrate --dry-run
+  xurgo-atlas storage migrate --apply
   xurgo-atlas storage inspect --config-dir ~/.config/xurgo-atlas --data-dir ~/.local/share/xurgo-atlas
 
-This command is read-only. It does not migrate, create, copy, update, or delete storage files.
+storage inspect and storage migrate --dry-run are read-only.
+storage migrate --apply is copy-only and leaves legacy roots untouched.
 `;
 }
 
@@ -153,8 +161,8 @@ export async function storageInspectCommand(
 
 export function getStorageMigrationNotImplementedMessage(): string {
   return (
-    'Write-capable storage migration is not implemented yet. ' +
-    'Rerun with --dry-run to inspect the migration plan.'
+    'Choose exactly one of --dry-run or --apply for `xurgo-atlas storage migrate`. ' +
+    'Start with --dry-run to inspect the migration plan first.'
   );
 }
 
@@ -229,13 +237,47 @@ export function formatStorageMigrationPlan(
   return lines.join('\n');
 }
 
+export function formatStorageMigrationApplyResult(
+  result: StorageMigrationApplyResult,
+): string {
+  const lines = [
+    'Xurgo Atlas storage migration applied',
+    'Mode: apply (copy-only)',
+    '',
+    'Legacy source roots:',
+    `  configDir: ${result.source.configDir}`,
+    `  dataDir: ${result.source.dataDir}`,
+    '',
+    'Atlas target roots:',
+    `  configDir: ${result.target.configDir}`,
+    `  dataDir: ${result.target.dataDir}`,
+    '',
+    `Projects copied: ${result.copiedProjectIds.length}`,
+    `Runtime artifacts skipped: ${result.runtimeArtifactsSkipped.length}`,
+    ...formatListSection('Copy actions:', result.copyActions),
+    ...formatListSection('Skipped runtime artifacts:', result.runtimeArtifactsSkipped),
+    ...formatListSection('Warnings:', result.warnings),
+    'Atlas target roots were written.',
+    'Legacy roots were left untouched.',
+  ];
+
+  return lines.join('\n');
+}
+
 export async function storageMigrateCommand(
   options: StorageConfig = {},
   dryRun = false,
+  apply = false,
 ): Promise<void> {
-  if (!dryRun) {
+  if (dryRun === apply) {
     throw new Error(getStorageMigrationNotImplementedMessage());
   }
 
-  console.log(formatStorageMigrationPlan(options));
+  if (dryRun) {
+    console.log(formatStorageMigrationPlan(options));
+    return;
+  }
+
+  const result = await applyStorageMigration(options);
+  console.log(formatStorageMigrationApplyResult(result));
 }

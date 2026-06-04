@@ -8,6 +8,7 @@ import {
   type SelectedStorageInspection,
   type StorageNamespaceInspection,
 } from './storage-inspect.js';
+import type { RegistryData } from './registry.js';
 import { StoragePaths, normalizeStorageRoot, type StorageConfig } from './storage.js';
 
 export type StorageMigrationClassification =
@@ -58,12 +59,47 @@ export interface StorageMigrationPlan {
   noChangesMade: true;
 }
 
+export interface StorageMigrationApplyResult {
+  mode: 'apply';
+  source: StorageMigrationNamespaceCandidate;
+  target: StorageMigrationNamespaceCandidate;
+  copiedProjectIds: string[];
+  runtimeArtifactsSkipped: string[];
+  copyActions: string[];
+  warnings: string[];
+  legacyRootsUntouched: true;
+  wroteAtlasTargetRoots: true;
+}
+
+export class StorageMigrationCommandError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StorageMigrationCommandError';
+  }
+}
+
 function isErrno(error: unknown, code: string): boolean {
   return (
     error instanceof Error &&
     'code' in error &&
     (error as NodeJS.ErrnoException).code === code
   );
+}
+
+function isDirectory(dirPath: string): boolean {
+  try {
+    return fs.statSync(dirPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function isFile(filePath: string): boolean {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function parseRegistryInspection(
@@ -239,6 +275,316 @@ function getNextAction(plan: StorageMigrationPlan): string {
   );
 }
 
+function addRefusalBlocker(blockers: string[], value: string): void {
+  addUnique(blockers, value);
+}
+
+function getApplyBlockers(plan: StorageMigrationPlan): string[] {
+  const blockers = [...plan.blockers];
+
+  if (plan.classifications.includes('no-legacy-roots-found')) {
+    addRefusalBlocker(
+      blockers,
+      'No legacy managed storage roots were found to copy into Atlas.',
+    );
+  }
+
+  if (plan.classifications.includes('partial-legacy-config-only')) {
+    addRefusalBlocker(
+      blockers,
+      'Legacy migration source is incomplete: the legacy registry exists, but the legacy data root is missing or empty.',
+    );
+  }
+
+  if (plan.classifications.includes('partial-legacy-data-only')) {
+    addRefusalBlocker(
+      blockers,
+      'Legacy migration source is incomplete: the legacy data root is populated, but the legacy registry file is missing.',
+    );
+  }
+
+  if (plan.classifications.includes('both-atlas-and-legacy-present')) {
+    addRefusalBlocker(
+      blockers,
+      'Atlas and legacy managed storage are both present. This apply step refuses merge or overwrite scenarios.',
+    );
+  }
+
+  if (plan.classifications.includes('atlas-target-populated')) {
+    addRefusalBlocker(
+      blockers,
+      'Atlas target roots are already populated. This apply step only supports copying into empty Atlas roots.',
+    );
+  }
+
+  if (!plan.source.registry.exists) {
+    addRefusalBlocker(
+      blockers,
+      'Legacy migration source is missing projects.json, so Atlas has no safe registry to copy.',
+    );
+  }
+
+  if (!plan.source.dataDirExists || !plan.source.dataDirPopulated) {
+    addRefusalBlocker(
+      blockers,
+      'Legacy migration source does not have populated managed project data to copy.',
+    );
+  }
+
+  if (plan.source.registry.projectIds == null) {
+    addRefusalBlocker(
+      blockers,
+      'Legacy projects.json could not be parsed into project IDs, so apply mode cannot validate the copy.',
+    );
+  }
+
+  if (plan.target.registry.exists && plan.target.registry.projectIds == null) {
+    addRefusalBlocker(
+      blockers,
+      'Atlas target projects.json exists but could not be parsed, so apply mode will not touch it.',
+    );
+  }
+
+  if (plan.source.runtime.activePidFilePresent || plan.target.runtime.activePidFilePresent) {
+    addRefusalBlocker(
+      blockers,
+      'A daemon PID file is present in managed storage. Stop active runtime use before running --apply.',
+    );
+  }
+
+  return blockers;
+}
+
+function formatApplyRefusal(
+  plan: StorageMigrationPlan,
+  blockers: string[],
+): string {
+  const lines = [
+    'Xurgo Atlas storage migration apply refused',
+    'Mode: apply (copy-only)',
+    '',
+    'Legacy source roots:',
+    `  configDir: ${plan.source.configDir}`,
+    `  dataDir: ${plan.source.dataDir}`,
+    '',
+    'Atlas target roots:',
+    `  configDir: ${plan.target.configDir}`,
+    `  dataDir: ${plan.target.dataDir}`,
+    '',
+    'Blockers:',
+    ...(blockers.length > 0 ? blockers.map((blocker) => `  - ${blocker}`) : ['  - none']),
+  ];
+
+  if (plan.warnings.length > 0) {
+    lines.push('', 'Warnings:', ...plan.warnings.map((warning) => `  - ${warning}`));
+  }
+
+  lines.push(
+    '',
+    'No changes were made.',
+    'Run `xurgo-atlas storage migrate --dry-run` to inspect the copy-only plan before retrying.',
+  );
+
+  return lines.join('\n');
+}
+
+function toProjectsRecord(parsed: Record<string, unknown>): RegistryData['projects'] {
+  if (
+    parsed.projects &&
+    typeof parsed.projects === 'object' &&
+    !Array.isArray(parsed.projects)
+  ) {
+    return parsed.projects as RegistryData['projects'];
+  }
+
+  return {};
+}
+
+function loadRegistryDataOrThrow(
+  registryPath: string,
+  fallbackConfigDir: string,
+  fallbackDataDir: string,
+): RegistryData {
+  const raw = fs.readFileSync(registryPath, 'utf-8');
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
+
+  if (parsed.version === 2) {
+    return {
+      version: 2,
+      configDir: typeof parsed.configDir === 'string'
+        ? normalizeStorageRoot(parsed.configDir)
+        : fallbackConfigDir,
+      dataDir: typeof parsed.dataDir === 'string'
+        ? normalizeStorageRoot(parsed.dataDir)
+        : fallbackDataDir,
+      defaultProjectId: typeof parsed.defaultProjectId === 'string'
+        ? parsed.defaultProjectId
+        : null,
+      projects: toProjectsRecord(parsed),
+    };
+  }
+
+  if (parsed.version === 1 || parsed.version == null) {
+    return {
+      version: 2,
+      configDir: fallbackConfigDir,
+      dataDir: fallbackDataDir,
+      defaultProjectId: typeof parsed.defaultProjectId === 'string'
+        ? parsed.defaultProjectId
+        : null,
+      projects: toProjectsRecord(parsed),
+    };
+  }
+
+  throw new Error(`Unsupported registry schema version: ${String(parsed.version)}`);
+}
+
+function createTargetRegistryData(
+  sourceRegistry: RegistryData,
+  target: StorageMigrationNamespaceCandidate,
+): RegistryData {
+  return {
+    ...sourceRegistry,
+    version: 2,
+    configDir: target.configDir,
+    dataDir: target.dataDir,
+    projects: { ...sourceRegistry.projects },
+  };
+}
+
+function buildMigrationTempDir(finalDir: string): string {
+  const suffix = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return path.join(path.dirname(finalDir), `.${path.basename(finalDir)}.migrate-${suffix}`);
+}
+
+function isRuntimeArtifactPath(candidatePath: string, runtimeDir: string): boolean {
+  const relative = path.relative(runtimeDir, candidatePath);
+  return candidatePath === runtimeDir || (relative !== '' && !relative.startsWith('..'));
+}
+
+async function copyDirectoryExcludingRuntime(
+  sourceDir: string,
+  targetDir: string,
+  runtimeDir: string,
+): Promise<void> {
+  await fs.promises.cp(sourceDir, targetDir, {
+    recursive: true,
+    errorOnExist: true,
+    force: false,
+    filter: (candidatePath) => !isRuntimeArtifactPath(candidatePath, runtimeDir),
+  });
+}
+
+async function removeIfExists(targetPath: string): Promise<void> {
+  await fs.promises.rm(targetPath, { recursive: true, force: true });
+}
+
+async function ensureMissingOrEmptyDirectory(dirPath: string, description: string): Promise<void> {
+  try {
+    const stat = await fs.promises.stat(dirPath);
+    if (!stat.isDirectory()) {
+      throw new StorageMigrationCommandError(
+        `${description} exists at ${dirPath}, but it is not a directory.`,
+      );
+    }
+
+    const entries = await fs.promises.readdir(dirPath);
+    if (entries.length > 0) {
+      throw new StorageMigrationCommandError(
+        `${description} at ${dirPath} is already populated. Re-run --dry-run to inspect blockers.`,
+      );
+    }
+  } catch (error) {
+    if (isErrno(error, 'ENOENT')) {
+      return;
+    }
+    throw error;
+  }
+}
+
+function validateProjectStoreOrThrow(
+  dataDir: string,
+  projectId: string,
+): void {
+  const projectDir = path.join(dataDir, 'projects', projectId);
+  const repoPath = path.join(projectDir, 'repo.git');
+  const eventsPath = path.join(projectDir, 'events.sqlite');
+
+  if (!isDirectory(projectDir)) {
+    throw new StorageMigrationCommandError(
+      `Copied project store is missing for "${projectId}" at ${projectDir}.`,
+    );
+  }
+
+  if (!isDirectory(repoPath)) {
+    throw new StorageMigrationCommandError(
+      `Copied project store for "${projectId}" is missing repo.git at ${repoPath}.`,
+    );
+  }
+
+  if (!isFile(eventsPath)) {
+    throw new StorageMigrationCommandError(
+      `Copied project store for "${projectId}" is missing events.sqlite at ${eventsPath}.`,
+    );
+  }
+}
+
+function validateTargetRegistryOrThrow(
+  registryPath: string,
+  expectedConfigDir: string,
+  expectedDataDir: string,
+  expectedProjectIds: string[],
+): void {
+  const registry = loadRegistryDataOrThrow(registryPath, expectedConfigDir, expectedDataDir);
+  const actualProjectIds = Object.keys(registry.projects).sort();
+
+  if (registry.configDir !== expectedConfigDir) {
+    throw new StorageMigrationCommandError(
+      `Migrated Atlas registry points to ${registry.configDir}, expected ${expectedConfigDir}.`,
+    );
+  }
+
+  if (registry.dataDir !== expectedDataDir) {
+    throw new StorageMigrationCommandError(
+      `Migrated Atlas registry points to ${registry.dataDir}, expected ${expectedDataDir}.`,
+    );
+  }
+
+  if (actualProjectIds.join('\n') !== [...expectedProjectIds].sort().join('\n')) {
+    throw new StorageMigrationCommandError(
+      'Migrated Atlas registry project IDs do not match the legacy registry project IDs.',
+    );
+  }
+}
+
+async function finalizeMigrationRoots(
+  tempDataDir: string,
+  finalDataDir: string,
+  tempConfigDir: string,
+  finalConfigDir: string,
+): Promise<void> {
+  await fs.promises.mkdir(path.dirname(finalDataDir), { recursive: true });
+  await fs.promises.mkdir(path.dirname(finalConfigDir), { recursive: true });
+  await ensureMissingOrEmptyDirectory(finalDataDir, 'Atlas target data directory');
+  await ensureMissingOrEmptyDirectory(finalConfigDir, 'Atlas target config directory');
+
+  if (isDirectory(finalDataDir)) {
+    await fs.promises.rmdir(finalDataDir);
+  }
+  if (isDirectory(finalConfigDir)) {
+    await fs.promises.rmdir(finalConfigDir);
+  }
+
+  await fs.promises.rename(tempDataDir, finalDataDir);
+
+  try {
+    await fs.promises.rename(tempConfigDir, finalConfigDir);
+  } catch (error) {
+    await removeIfExists(finalDataDir);
+    throw error;
+  }
+}
+
 export function planStorageMigration(
   config: StorageConfig = {},
 ): StorageMigrationPlan {
@@ -393,4 +739,92 @@ export function planStorageMigration(
   plan.nextAction = getNextAction(plan);
 
   return plan;
+}
+
+export async function applyStorageMigration(
+  config: StorageConfig = {},
+): Promise<StorageMigrationApplyResult> {
+  const plan = planStorageMigration(config);
+  const blockers = getApplyBlockers(plan);
+
+  if (blockers.length > 0) {
+    throw new StorageMigrationCommandError(formatApplyRefusal(plan, blockers));
+  }
+
+  const sourceRegistry = loadRegistryDataOrThrow(
+    plan.source.registry.path,
+    plan.source.configDir,
+    plan.source.dataDir,
+  );
+  const copiedProjectIds = Object.keys(sourceRegistry.projects).sort();
+  const tempConfigDir = buildMigrationTempDir(plan.target.configDir);
+  const tempDataDir = buildMigrationTempDir(plan.target.dataDir);
+  const tempRegistryPath = path.join(tempConfigDir, 'projects.json');
+  const targetRegistry = createTargetRegistryData(sourceRegistry, plan.target);
+  const runtimeArtifactsSkipped = [...plan.source.runtime.presentArtifacts].sort();
+  const copyActions: string[] = [];
+
+  await fs.promises.mkdir(path.dirname(tempConfigDir), { recursive: true });
+  await fs.promises.mkdir(path.dirname(tempDataDir), { recursive: true });
+
+  try {
+    await ensureMissingOrEmptyDirectory(plan.target.configDir, 'Atlas target config directory');
+    await ensureMissingOrEmptyDirectory(plan.target.dataDir, 'Atlas target data directory');
+
+    await fs.promises.cp(plan.source.configDir, tempConfigDir, {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+    });
+    copyActions.push(`Copied legacy config root to staging directory: ${tempConfigDir}`);
+
+    await copyDirectoryExcludingRuntime(
+      plan.source.dataDir,
+      tempDataDir,
+      plan.source.runtime.runtimeDir,
+    );
+    copyActions.push(`Copied legacy data root to staging directory: ${tempDataDir}`);
+
+    await fs.promises.mkdir(tempConfigDir, { recursive: true });
+    await fs.promises.writeFile(
+      tempRegistryPath,
+      JSON.stringify(targetRegistry, null, 2) + '\n',
+      'utf-8',
+    );
+    copyActions.push(`Rewrote staged Atlas registry for target roots: ${tempRegistryPath}`);
+
+    validateTargetRegistryOrThrow(
+      tempRegistryPath,
+      plan.target.configDir,
+      plan.target.dataDir,
+      copiedProjectIds,
+    );
+
+    for (const projectId of copiedProjectIds) {
+      validateProjectStoreOrThrow(tempDataDir, projectId);
+    }
+
+    await finalizeMigrationRoots(
+      tempDataDir,
+      plan.target.dataDir,
+      tempConfigDir,
+      plan.target.configDir,
+    );
+  } catch (error) {
+    await removeIfExists(tempConfigDir);
+    await removeIfExists(tempDataDir);
+    throw error;
+  }
+
+  return {
+    mode: 'apply',
+    source: plan.source,
+    target: plan.target,
+    copiedProjectIds,
+    runtimeArtifactsSkipped,
+    copyActions,
+    warnings: [...plan.warnings],
+    legacyRootsUntouched: true,
+    wroteAtlasTargetRoots: true,
+  };
 }

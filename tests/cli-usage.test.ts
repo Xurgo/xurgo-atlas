@@ -42,6 +42,16 @@ async function withXdgRoots<T>(
   }
 }
 
+async function writeProjectStore(dataDir: string, projectId: string): Promise<void> {
+  const projectDir = path.join(dataDir, 'projects', projectId);
+  await fs.promises.mkdir(path.join(projectDir, 'repo.git'), { recursive: true });
+  await fs.promises.writeFile(
+    path.join(projectDir, 'events.sqlite'),
+    'sqlite-placeholder',
+    'utf-8',
+  );
+}
+
 describe('CLI usage text', () => {
   it('shows atlas defaults and legacy discovery in the main help text', () => {
     const output = getUsageText();
@@ -98,8 +108,9 @@ describe('CLI usage text', () => {
 
     expect(output).toContain('xurgo-atlas storage inspect [options]');
     expect(output).toContain('xurgo-atlas storage migrate --dry-run [options]');
-    expect(output).toContain('This command is read-only.');
-    expect(output).toContain('does not migrate, create, copy, update, or delete storage files');
+    expect(output).toContain('xurgo-atlas storage migrate --apply [options]');
+    expect(output).toContain('storage inspect and storage migrate --dry-run are read-only.');
+    expect(output).toContain('storage migrate --apply is copy-only and leaves legacy roots untouched.');
   });
 
   it('prints storage inspection output with no-migration wording', async () => {
@@ -197,9 +208,111 @@ describe('CLI usage text', () => {
     });
   });
 
-  it('fails clearly when storage migrate is invoked without --dry-run', async () => {
+  it('prints storage migration apply output with copy-only wording', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+      const runtimeDir = path.join(legacyDataDir, 'runtime');
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+      await fs.promises.mkdir(runtimeDir, { recursive: true });
+      await fs.promises.mkdir(legacyConfigDir, { recursive: true });
+      await fs.promises.writeFile(
+        path.join(legacyConfigDir, 'projects.json'),
+        JSON.stringify({
+          version: 2,
+          configDir: legacyConfigDir,
+          dataDir: legacyDataDir,
+          defaultProjectId: null,
+          projects: {
+            alpha: {
+              projectId: 'alpha',
+              projectRoot: '/tmp/alpha',
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+            },
+          },
+        }, null, 2),
+        'utf-8',
+      );
+      await writeProjectStore(legacyDataDir, 'alpha');
+      await fs.promises.writeFile(
+        path.join(runtimeDir, 'xurgo-atlas-daemon.log'),
+        'legacy log',
+        'utf-8',
+      );
+
+      try {
+        await storageMigrateCommand({}, false, true);
+        const output = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+
+        expect(output).toContain('Xurgo Atlas storage migration applied');
+        expect(output).toContain('Mode: apply (copy-only)');
+        expect(output).toContain('Projects copied: 1');
+        expect(output).toContain('Runtime artifacts skipped:');
+        expect(output).toContain('Atlas target roots were written.');
+        expect(output).toContain('Legacy roots were left untouched.');
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+  });
+
+  it('fails clearly when storage migrate is invoked without --dry-run or --apply', async () => {
     await expect(storageMigrateCommand()).rejects.toThrow(
       getStorageMigrationNotImplementedMessage(),
     );
+  });
+
+  it('fails clearly when storage migrate is invoked with both --dry-run and --apply', async () => {
+    await expect(storageMigrateCommand({}, true, true)).rejects.toThrow(
+      getStorageMigrationNotImplementedMessage(),
+    );
+  });
+
+  it('prints refusal guidance when apply mode is blocked', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const atlasConfigDir = path.join(configHome, 'xurgo-atlas');
+      const atlasDataDir = path.join(dataHome, 'xurgo-atlas');
+      const legacyConfigDir = path.join(configHome, 'docu-guard');
+      const legacyDataDir = path.join(dataHome, 'docu-guard');
+
+      await fs.promises.mkdir(legacyConfigDir, { recursive: true });
+      await fs.promises.writeFile(
+        path.join(legacyConfigDir, 'projects.json'),
+        JSON.stringify({
+          version: 2,
+          configDir: legacyConfigDir,
+          dataDir: legacyDataDir,
+          defaultProjectId: null,
+          projects: {
+            alpha: {
+              projectId: 'alpha',
+              projectRoot: '/tmp/alpha',
+              createdAt: '2026-01-01T00:00:00.000Z',
+              updatedAt: '2026-01-01T00:00:00.000Z',
+            },
+          },
+        }, null, 2),
+        'utf-8',
+      );
+      await writeProjectStore(legacyDataDir, 'alpha');
+      await fs.promises.mkdir(atlasConfigDir, { recursive: true });
+      await fs.promises.writeFile(
+        path.join(atlasConfigDir, 'projects.json'),
+        JSON.stringify({
+          version: 2,
+          configDir: atlasConfigDir,
+          dataDir: atlasDataDir,
+          defaultProjectId: null,
+          projects: {},
+        }, null, 2),
+        'utf-8',
+      );
+
+      await expect(storageMigrateCommand({}, false, true)).rejects.toThrow(
+        'Run `xurgo-atlas storage migrate --dry-run` to inspect the copy-only plan before retrying.',
+      );
+    });
   });
 });
