@@ -98,9 +98,21 @@ export async function initCommand(options: InitOptions): Promise<void> {
   console.log(`✓ Registered project in ${storage.registryPath()}`);
   console.log(`\n✅ Xurgo Atlas project "${options.projectId}" initialized successfully.\n`);
 
-  console.log(`  1. Start the server:  xurgo-atlas server --project-root .`);
-  console.log(`  2. Configure your MCP client to connect to the server`);
-  console.log(`  3. Use docs.list, docs.read, and docs.propose_patch tools`);
+  // Build optional storage flags for follow-up commands
+  const storageFlags = [
+    options.configDir ? `--config-dir ${options.configDir}` : '',
+    options.dataDir ? `--data-dir ${options.dataDir}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const suffix = storageFlags ? ` ${storageFlags}` : '';
+
+  console.log(`  Next steps:`);
+  console.log(`  xurgo-atlas daemon start${suffix}`);
+  console.log(`  MCP endpoint: http://127.0.0.1:3737/mcp`);
+  console.log(`  xurgo-atlas daemon status`);
+  console.log(`  xurgo-atlas project list`);
 }
 
 /**
