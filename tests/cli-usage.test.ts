@@ -557,9 +557,9 @@ describe('init success output', () => {
 
       const output = logLines.join('\n');
       expect(output).toContain(`xurgo-atlas daemon start --config-dir ${configDir} --data-dir ${dataDir}`);
+      expect(output).toContain(`xurgo-atlas daemon status --config-dir ${configDir} --data-dir ${dataDir}`);
+      expect(output).toContain(`xurgo-atlas project list --config-dir ${configDir} --data-dir ${dataDir}`);
       expect(output).toContain('MCP endpoint: http://127.0.0.1:3737/mcp');
-      expect(output).toContain('xurgo-atlas daemon status');
-      expect(output).toContain('xurgo-atlas project list');
     } finally {
       logSpy.mockRestore();
       errSpy.mockRestore();
