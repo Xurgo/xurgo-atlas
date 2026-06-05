@@ -328,6 +328,12 @@ export async function main(): Promise<void> {
         process.exit(1);
       }
 
+      // --help on a subcommand must print help and exit 0 without running
+      if (hasHelpFlag(rawArgs)) {
+        printStorageUsage();
+        process.exit(0);
+      }
+
       if (subcommand === 'inspect') {
         await storageInspectCommand({ configDir, dataDir });
         break;

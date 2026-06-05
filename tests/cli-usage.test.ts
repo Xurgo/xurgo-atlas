@@ -4,7 +4,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { getUsageText, main } from '../src/index.js';
 import { getDaemonUsageText } from '../src/cli/daemon.js';
+import * as daemonCli from '../src/cli/daemon.js';
 import * as initCli from '../src/cli/init.js';
+import { Project } from '../src/core/project.js';
+import { Registry } from '../src/core/registry.js';
 import { getProjectUsageText, parseProjectArgs, printProjectUsage } from '../src/cli/project.js';
 import {
   getStorageMigrationNotImplementedMessage,
@@ -12,6 +15,7 @@ import {
   storageInspectCommand,
   storageMigrateCommand,
 } from '../src/cli/storage.js';
+import * as storageCli from '../src/cli/storage.js';
 import * as storageCore from '../src/core/storage.js';
 
 afterEach(() => {
@@ -443,5 +447,125 @@ describe('CLI usage text', () => {
         'Run `xurgo-atlas storage migrate --dry-run` to inspect the copy-only plan before retrying.',
       );
     });
+  });
+
+  it('daemon --help exits 0 and does not start or bind', async () => {
+    const daemonSpy = vi.spyOn(daemonCli, 'daemonCommand').mockResolvedValue(undefined);
+    const storageSpy = vi.spyOn(storageCore, 'emitStorageDiagnostics').mockImplementation(() => undefined);
+
+    const result = await runMainWithArgs(['node', 'xurgo-atlas', 'daemon', '--help']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Manage the Xurgo Atlas daemon');
+    expect(result.stderr).toBe('');
+    expect(daemonSpy).not.toHaveBeenCalled();
+    expect(storageSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['storage inspect --help', ['node', 'xurgo-atlas', 'storage', 'inspect', '--help']],
+    ['storage inspect -h', ['node', 'xurgo-atlas', 'storage', 'inspect', '-h']],
+  ])('exits 0 without running inspection for %s', async (_label, argv) => {
+    const inspectSpy = vi.spyOn(storageCli, 'storageInspectCommand').mockResolvedValue(undefined);
+
+    const result = await runMainWithArgs(argv);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('xurgo-atlas storage inspect [options]');
+    expect(result.stderr).toBe('');
+    expect(inspectSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['storage migrate --help', ['node', 'xurgo-atlas', 'storage', 'migrate', '--help']],
+    ['storage migrate -h', ['node', 'xurgo-atlas', 'storage', 'migrate', '-h']],
+    ['storage migrate --dry-run --help', ['node', 'xurgo-atlas', 'storage', 'migrate', '--dry-run', '--help']],
+    ['storage migrate --apply --help', ['node', 'xurgo-atlas', 'storage', 'migrate', '--apply', '--help']],
+  ])('exits 0 without running migration for %s', async (_label, argv) => {
+    const migrateSpy = vi.spyOn(storageCli, 'storageMigrateCommand').mockResolvedValue(undefined);
+
+    const result = await runMainWithArgs(argv);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('xurgo-atlas storage inspect [options]');
+    expect(result.stdout).toContain('xurgo-atlas storage migrate');
+    expect(result.stderr).toBe('');
+    expect(migrateSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('init success output', () => {
+  it('shows daemon/MCP next steps after successful init', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-init-next-'));
+    const logLines: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+      logLines.push(args.join(' '));
+    });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const projectInitSpy = vi.spyOn(Project, 'init').mockResolvedValue({} as any);
+    const registryLoadSpy = vi.spyOn(Registry, 'load').mockResolvedValue({
+      addProject: vi.fn().mockResolvedValue(undefined),
+    } as any);
+
+    try {
+      await initCli.initCommand({
+        projectRoot: root,
+        projectId: 'test-project',
+      });
+
+      const output = logLines.join('\n');
+      expect(output).toContain('✅ Xurgo Atlas project "test-project" initialized successfully');
+      expect(output).toContain('xurgo-atlas daemon start');
+      expect(output).toContain('MCP endpoint: http://127.0.0.1:3737/mcp');
+      expect(output).toContain('xurgo-atlas daemon status');
+      expect(output).toContain('xurgo-atlas project list');
+      expect(output).not.toContain('xurgo-atlas server --project-root .');
+      expect(output).not.toContain('--config-dir');
+      expect(output).not.toContain('--data-dir');
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+      projectInitSpy.mockRestore();
+      registryLoadSpy.mockRestore();
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('includes --config-dir and --data-dir in suggested commands when explicitly provided', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-init-cfg-'));
+    const configDir = path.join(root, 'my-config');
+    const dataDir = path.join(root, 'my-data');
+    const logLines: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+      logLines.push(args.join(' '));
+    });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const projectInitSpy = vi.spyOn(Project, 'init').mockResolvedValue({} as any);
+    const registryLoadSpy = vi.spyOn(Registry, 'load').mockResolvedValue({
+      addProject: vi.fn().mockResolvedValue(undefined),
+    } as any);
+
+    try {
+      await initCli.initCommand({
+        projectRoot: root,
+        projectId: 'test-project',
+        configDir,
+        dataDir,
+      });
+
+      const output = logLines.join('\n');
+      expect(output).toContain(`xurgo-atlas daemon start --config-dir ${configDir} --data-dir ${dataDir}`);
+      expect(output).toContain(`xurgo-atlas daemon status --config-dir ${configDir} --data-dir ${dataDir}`);
+      expect(output).toContain(`xurgo-atlas project list --config-dir ${configDir} --data-dir ${dataDir}`);
+      expect(output).toContain('MCP endpoint: http://127.0.0.1:3737/mcp');
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+      projectInitSpy.mockRestore();
+      registryLoadSpy.mockRestore();
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
   });
 });
