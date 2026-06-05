@@ -17,6 +17,8 @@ import {
 } from '../src/cli/storage.js';
 import * as storageCli from '../src/cli/storage.js';
 import * as storageCore from '../src/core/storage.js';
+import * as statusCli from '../src/cli/status.js';
+import { getStatusUsageText, statusCommand } from '../src/cli/status.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -124,6 +126,23 @@ describe('CLI usage text', () => {
     expect(output).toContain('xurgo-atlas daemon [options]');
     expect(output).toContain('xurgo-atlas daemon start [options]');
     expect(output).toContain('[no subcommand]        Start the daemon in foreground mode');
+  });
+
+  it('lists status in the main help text', () => {
+    const output = getUsageText();
+
+    expect(output).toContain('status     Show the current setup status (read-only)');
+    expect(output).toContain('xurgo-atlas status');
+  });
+
+  it('shows dedicated status help text', () => {
+    const output = getStatusUsageText();
+
+    expect(output).toContain('Show the current Xurgo Atlas setup status');
+    expect(output).toContain('xurgo-atlas status [options]');
+    expect(output).toContain('read-only');
+    expect(output).toContain('--config-dir');
+    expect(output).toContain('--data-dir');
   });
 
   it.each([
@@ -449,6 +468,17 @@ describe('CLI usage text', () => {
     });
   });
 
+  it('status --help exits 0 and does not start or mutate', async () => {
+    const statusSpy = vi.spyOn(statusCli, 'statusCommand');
+
+    const result = await runMainWithArgs(['node', 'xurgo-atlas', 'status', '--help']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('xurgo-atlas status [options]');
+    expect(result.stderr).toBe('');
+    expect(statusSpy).not.toHaveBeenCalled();
+  });
+
   it('daemon --help exits 0 and does not start or bind', async () => {
     const daemonSpy = vi.spyOn(daemonCli, 'daemonCommand').mockResolvedValue(undefined);
     const storageSpy = vi.spyOn(storageCore, 'emitStorageDiagnostics').mockImplementation(() => undefined);
@@ -567,6 +597,157 @@ describe('init success output', () => {
       registryLoadSpy.mockRestore();
       await fs.promises.rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+// ── Status command ────────────────────────────────────────────────────────
+
+describe('status command', () => {
+  it('exits 0 with default roots even when no registry exists', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+      try {
+        await statusCommand();
+        const output = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+
+        expect(output).toContain('Xurgo Atlas setup status');
+        expect(output).toContain('Mode: read-only');
+        expect(output).toContain(`config dir: ${path.join(configHome, 'xurgo-atlas')}`);
+        expect(output).toContain(`data dir: ${path.join(dataHome, 'xurgo-atlas')}`);
+        expect(output).toContain('config source: Atlas default');
+        expect(output).toContain('data source: Atlas default');
+        expect(output).toContain('exists: no');
+        expect(output).toContain('registered projects: 0');
+        expect(output).toContain('status: not running');
+        expect(output).toContain('default MCP endpoint: http://127.0.0.1:3737/mcp');
+        expect(output).toContain('No files were modified');
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+  });
+
+  it('reports registered project count and default for an isolated registry', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-status-reg-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await fs.promises.mkdir(configDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(configDir, 'projects.json'),
+      JSON.stringify({
+        version: 2,
+        configDir,
+        dataDir,
+        defaultProjectId: 'my-app',
+        projects: {
+          'my-app': {
+            projectId: 'my-app',
+            projectRoot: '/tmp/my-app',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+          'other-app': {
+            projectId: 'other-app',
+            projectRoot: '/tmp/other-app',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        },
+      }, null, 2),
+      'utf-8',
+    );
+
+    try {
+      await statusCommand({ configDir, dataDir });
+      const output = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+
+      expect(output).toContain('config source: CLI flag');
+      expect(output).toContain('data source: CLI flag');
+      expect(output).toContain('exists: yes');
+      expect(output).toContain('registered projects: 2');
+      expect(output).toContain('default project: my-app');
+      expect(output).toContain('- my-app');
+      expect(output).toContain('- other-app');
+      expect(output).toContain('default MCP endpoint: http://127.0.0.1:3737/mcp');
+      expect(output).toContain('No files were modified');
+    } finally {
+      logSpy.mockRestore();
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('output includes default MCP endpoint hint regardless of daemon state', async () => {
+    await withXdgRoots(async () => {
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+      try {
+        await statusCommand();
+        const output = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+
+        expect(output).toContain('default MCP endpoint: http://127.0.0.1:3737/mcp');
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+  });
+});
+
+describe('status with env var roots', () => {
+  it('reports env source when env vars are set', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const envConfigDir = path.join(configHome, 'status-env');
+      const envDataDir = path.join(dataHome, 'status-env');
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+      await fs.promises.mkdir(envConfigDir, { recursive: true });
+
+      await withAtlasEnv(
+        { XURGO_ATLAS_CONFIG_DIR: envConfigDir, XURGO_ATLAS_DATA_DIR: envDataDir },
+        async () => {
+          try {
+            await statusCommand();
+            const output = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+
+            expect(output).toContain(`config dir: ${envConfigDir}`);
+            expect(output).toContain(`data dir: ${envDataDir}`);
+            expect(output).toContain('config source: environment variable');
+            expect(output).toContain('data source: environment variable');
+            expect(output).toContain('No files were modified');
+          } finally {
+            logSpy.mockRestore();
+          }
+        },
+      );
+    });
+  });
+
+  it('prefers CLI flags over env vars', async () => {
+    await withXdgRoots(async () => {
+      const cliConfigDir = '/tmp/status-cli-cfg';
+      const cliDataDir = '/tmp/status-cli-dat';
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+      await withAtlasEnv(
+        { XURGO_ATLAS_CONFIG_DIR: '/tmp/status-env-cfg', XURGO_ATLAS_DATA_DIR: '/tmp/status-env-dat' },
+        async () => {
+          try {
+            await statusCommand({ configDir: cliConfigDir, dataDir: cliDataDir });
+            const output = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+
+            expect(output).toContain(`config dir: ${path.resolve(cliConfigDir)}`);
+            expect(output).toContain(`data dir: ${path.resolve(cliDataDir)}`);
+            expect(output).toContain('config source: CLI flag');
+            expect(output).toContain('data source: CLI flag');
+            expect(output).toContain('No files were modified');
+          } finally {
+            logSpy.mockRestore();
+          }
+        },
+      );
+    });
   });
 });
 
@@ -785,6 +966,14 @@ describe('env var root overrides', () => {
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain('xurgo-atlas init [options]');
       expect(initSpy).not.toHaveBeenCalled();
+    });
+
+    it('status --help still exits 0 without running status', async () => {
+      const statusSpy = vi.spyOn(statusCli, 'statusCommand');
+      const result = await runMainWithArgs(['node', 'xurgo-atlas', 'status', '--help']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('xurgo-atlas status [options]');
+      expect(statusSpy).not.toHaveBeenCalled();
     });
   });
 });
