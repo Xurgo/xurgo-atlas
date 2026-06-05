@@ -113,8 +113,8 @@ describe('CLI usage text', () => {
 
     expect(output).toContain('xurgo-atlas — Xurgo Atlas');
     expect(output).toContain('storage    Inspect Atlas-vs-legacy managed storage (read-only)');
-    expect(output).toContain('default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered');
-    expect(output).toContain('default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered');
+    expect(output).toContain('default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered');
+    expect(output).toContain('default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered');
   });
 
   it('shows dedicated daemon help text without requiring foreground startup', () => {
@@ -205,18 +205,18 @@ describe('CLI usage text', () => {
       const output = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
       expect(output).toContain('Manage registered Xurgo Atlas projects.');
       expect(output).toContain('xurgo-atlas project <subcommand> [options]');
-      expect(output).toContain('default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered');
-      expect(output).toContain('default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered');
+      expect(output).toContain('default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered');
+      expect(output).toContain('default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered');
     } finally {
       logSpy.mockRestore();
     }
   });
 
-  it('shows legacy docu-guard root discovery in project help text', () => {
+  it('shows legacy root discovery in project help text', () => {
     const output = getProjectUsageText();
 
     expect(output).toContain('Manage registered Xurgo Atlas projects.');
-    expect(output).toContain('legacy docu-guard roots auto-discovered');
+    expect(output).toContain('legacy roots auto-discovered');
   });
 
   it('parses config-dir and data-dir for project subcommands', () => {
@@ -567,5 +567,224 @@ describe('init success output', () => {
       registryLoadSpy.mockRestore();
       await fs.promises.rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+// ── Environment variable root overrides ─────────────────────────────────
+
+/**
+ * Run a callback with specific XURGO_ATLAS_* env vars set, restoring
+ * the previous state in a finally block.
+ */
+async function withAtlasEnv<T>(
+  env: { XURGO_ATLAS_CONFIG_DIR?: string; XURGO_ATLAS_DATA_DIR?: string },
+  run: () => Promise<T>,
+): Promise<T> {
+  const prevConfig = process.env.XURGO_ATLAS_CONFIG_DIR;
+  const prevData = process.env.XURGO_ATLAS_DATA_DIR;
+
+  if (env.XURGO_ATLAS_CONFIG_DIR !== undefined) {
+    process.env.XURGO_ATLAS_CONFIG_DIR = env.XURGO_ATLAS_CONFIG_DIR;
+  } else {
+    delete process.env.XURGO_ATLAS_CONFIG_DIR;
+  }
+  if (env.XURGO_ATLAS_DATA_DIR !== undefined) {
+    process.env.XURGO_ATLAS_DATA_DIR = env.XURGO_ATLAS_DATA_DIR;
+  } else {
+    delete process.env.XURGO_ATLAS_DATA_DIR;
+  }
+
+  try {
+    return await run();
+  } finally {
+    if (prevConfig !== undefined) {
+      process.env.XURGO_ATLAS_CONFIG_DIR = prevConfig;
+    } else {
+      delete process.env.XURGO_ATLAS_CONFIG_DIR;
+    }
+    if (prevData !== undefined) {
+      process.env.XURGO_ATLAS_DATA_DIR = prevData;
+    } else {
+      delete process.env.XURGO_ATLAS_DATA_DIR;
+    }
+  }
+}
+
+describe('env var root overrides', () => {
+  describe('resolveStorageRoots precedence', () => {
+    it('uses default roots when no CLI flags or env vars are provided', async () => {
+      await withXdgRoots(async ({ configHome, dataHome }) => {
+        const result = storageCore.resolveStorageRoots();
+        expect(result.configDir).toBe(path.join(configHome, 'xurgo-atlas'));
+        expect(result.dataDir).toBe(path.join(dataHome, 'xurgo-atlas'));
+        expect(result.configSource).toBe('atlas-default');
+        expect(result.dataSource).toBe('atlas-default');
+      });
+    });
+
+    it('uses env vars when no CLI flags are provided', async () => {
+      await withXdgRoots(async () => {
+        await withAtlasEnv(
+          { XURGO_ATLAS_CONFIG_DIR: '/tmp/env-cfg', XURGO_ATLAS_DATA_DIR: '/tmp/env-dat' },
+          async () => {
+            const result = storageCore.resolveStorageRoots();
+            expect(result.configDir).toBe(path.resolve('/tmp/env-cfg'));
+            expect(result.dataDir).toBe(path.resolve('/tmp/env-dat'));
+            expect(result.configSource).toBe('env');
+            expect(result.dataSource).toBe('env');
+          },
+        );
+      });
+    });
+
+    it('prefers CLI flags over env vars', async () => {
+      await withXdgRoots(async () => {
+        await withAtlasEnv(
+          { XURGO_ATLAS_CONFIG_DIR: '/tmp/env-cfg', XURGO_ATLAS_DATA_DIR: '/tmp/env-dat' },
+          async () => {
+            const result = storageCore.resolveStorageRoots({
+              configDir: '/tmp/cli-cfg',
+              dataDir: '/tmp/cli-dat',
+            });
+            expect(result.configDir).toBe(path.resolve('/tmp/cli-cfg'));
+            expect(result.dataDir).toBe(path.resolve('/tmp/cli-dat'));
+            expect(result.configSource).toBe('explicit');
+            expect(result.dataSource).toBe('explicit');
+          },
+        );
+      });
+    });
+
+    it('ignores empty env var values', () => {
+      const prevConfig = process.env.XURGO_ATLAS_CONFIG_DIR;
+      const prevData = process.env.XURGO_ATLAS_DATA_DIR;
+      try {
+        process.env.XURGO_ATLAS_CONFIG_DIR = '';
+        process.env.XURGO_ATLAS_DATA_DIR = '';
+        const result = storageCore.resolveStorageRoots();
+        // Should fall through to default — just verify source is not 'env'
+        expect(result.configSource).not.toBe('env');
+        expect(result.dataSource).not.toBe('env');
+      } finally {
+        if (prevConfig !== undefined) {
+          process.env.XURGO_ATLAS_CONFIG_DIR = prevConfig;
+        } else {
+          delete process.env.XURGO_ATLAS_CONFIG_DIR;
+        }
+        if (prevData !== undefined) {
+          process.env.XURGO_ATLAS_DATA_DIR = prevData;
+        } else {
+          delete process.env.XURGO_ATLAS_DATA_DIR;
+        }
+      }
+    });
+  });
+
+  describe('storage inspect with env vars', () => {
+    it('reports env source when env vars are set', async () => {
+      await withXdgRoots(async ({ configHome, dataHome }) => {
+        const envConfigDir = path.join(configHome, 'atlas-test');
+        const envDataDir = path.join(dataHome, 'atlas-test');
+        await fs.promises.mkdir(envConfigDir, { recursive: true });
+        await fs.promises.mkdir(envDataDir, { recursive: true });
+
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+        await withAtlasEnv(
+          { XURGO_ATLAS_CONFIG_DIR: envConfigDir, XURGO_ATLAS_DATA_DIR: envDataDir },
+          async () => {
+            try {
+              await storageInspectCommand();
+              const output = logSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+              expect(output).toContain(`configDir: ${envConfigDir}`);
+              expect(output).toContain(`dataDir: ${envDataDir}`);
+              expect(output).toContain('source: env');
+              expect(output).toContain('No files were modified.');
+            } finally {
+              logSpy.mockRestore();
+            }
+          },
+        );
+      });
+    });
+  });
+
+  describe('init with env vars', () => {
+    it('uses env-selected roots and shows simple next steps with env notice', async () => {
+      const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-init-env-'));
+      const logLines: string[] = [];
+      const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+        logLines.push(args.join(' '));
+      });
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const projectInitSpy = vi.spyOn(Project, 'init').mockResolvedValue({} as any);
+      const registryLoadSpy = vi.spyOn(Registry, 'load').mockResolvedValue({
+        addProject: vi.fn().mockResolvedValue(undefined),
+      } as any);
+
+      try {
+        await withAtlasEnv(
+          { XURGO_ATLAS_CONFIG_DIR: '/tmp/env-init', XURGO_ATLAS_DATA_DIR: '/tmp/env-init-data' },
+          async () => {
+            await initCli.initCommand({
+              projectRoot: root,
+              projectId: 'test-env',
+            });
+
+            const output = logLines.join('\n');
+            expect(output).toContain('✅ Xurgo Atlas project "test-env" initialized successfully');
+            // No flags in suggested commands (env vars handle it)
+            expect(output).toContain('xurgo-atlas daemon start');
+            expect(output).toContain('xurgo-atlas daemon status');
+            expect(output).toContain('xurgo-atlas project list');
+            // No --config-dir or --data-dir flags since none were passed
+            expect(output).not.toContain('--config-dir');
+            expect(output).not.toContain('--data-dir');
+            // Env notice present
+            expect(output).toContain('XURGO_ATLAS_CONFIG_DIR and XURGO_ATLAS_DATA_DIR from environment.');
+          },
+        );
+      } finally {
+        logSpy.mockRestore();
+        errSpy.mockRestore();
+        projectInitSpy.mockRestore();
+        registryLoadSpy.mockRestore();
+        await fs.promises.rm(root, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('help behavior regression', () => {
+    it('storage inspect --help still exits 0 without running inspection', async () => {
+      const inspectSpy = vi.spyOn(storageCli, 'storageInspectCommand').mockResolvedValue(undefined);
+      const result = await runMainWithArgs(['node', 'xurgo-atlas', 'storage', 'inspect', '--help']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('xurgo-atlas storage inspect [options]');
+      expect(inspectSpy).not.toHaveBeenCalled();
+    });
+
+    it('storage migrate --help still exits 0 without mode error', async () => {
+      const migrateSpy = vi.spyOn(storageCli, 'storageMigrateCommand').mockResolvedValue(undefined);
+      const result = await runMainWithArgs(['node', 'xurgo-atlas', 'storage', 'migrate', '--help']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('xurgo-atlas storage migrate');
+      expect(migrateSpy).not.toHaveBeenCalled();
+    });
+
+    it('daemon --help still exits 0 without starting', async () => {
+      const daemonSpy = vi.spyOn(daemonCli, 'daemonCommand').mockResolvedValue(undefined);
+      const result = await runMainWithArgs(['node', 'xurgo-atlas', 'daemon', '--help']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Manage the Xurgo Atlas daemon');
+      expect(daemonSpy).not.toHaveBeenCalled();
+    });
+
+    it('init --help still exits 0 without running init', async () => {
+      const initSpy = vi.spyOn(initCli, 'initCommand').mockResolvedValue(undefined);
+      const result = await runMainWithArgs(['node', 'xurgo-atlas', 'init', '--help']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('xurgo-atlas init [options]');
+      expect(initSpy).not.toHaveBeenCalled();
+    });
   });
 });
