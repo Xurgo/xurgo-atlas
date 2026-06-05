@@ -111,8 +111,8 @@ export async function initCommand(options: InitOptions): Promise<void> {
   console.log(`  Next steps:`);
   console.log(`  xurgo-atlas daemon start${suffix}`);
   console.log(`  MCP endpoint: http://127.0.0.1:3737/mcp`);
-  console.log(`  xurgo-atlas daemon status`);
-  console.log(`  xurgo-atlas project list`);
+  console.log(`  xurgo-atlas daemon status${suffix}`);
+  console.log(`  xurgo-atlas project list${suffix}`);
 }
 
 /**
