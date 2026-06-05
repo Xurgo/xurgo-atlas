@@ -28,6 +28,7 @@ import {
   storageInspectCommand,
   storageMigrateCommand,
 } from './cli/storage.js';
+import { statusCommand, printStatusUsage } from './cli/status.js';
 import { emitStorageDiagnostics, resolveStorageRoots } from './core/storage.js';
 
 export function getUsageText(): string {
@@ -62,6 +63,10 @@ COMMANDS:
     --project-root <path>   Optional: project root (used with --project-id)
     Without a subcommand, starts the foreground daemon exactly as before.
 
+  status     Show the current setup status (read-only)
+    --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+    --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
+
   storage    Inspect Atlas-vs-legacy managed storage (read-only)
     inspect                 Show selected roots, candidates, registry state, and runtime artifacts
     migrate --dry-run       Plan a future legacy-to-Atlas migration without making changes
@@ -94,6 +99,7 @@ EXAMPLES:
   xurgo-atlas daemon
   xurgo-atlas daemon start
   xurgo-atlas daemon status
+  xurgo-atlas status
   xurgo-atlas storage inspect
   xurgo-atlas storage migrate --dry-run
   xurgo-atlas storage migrate --apply
@@ -358,6 +364,15 @@ export async function main(): Promise<void> {
         }
         throw error;
       }
+      break;
+    }
+
+    case 'status': {
+      if (hasHelpFlag(rawArgs)) {
+        printStatusUsage();
+        process.exit(0);
+      }
+      await statusCommand({ configDir, dataDir });
       break;
     }
 
