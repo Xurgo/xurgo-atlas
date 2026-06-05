@@ -44,27 +44,27 @@ SUBCOMMANDS:
   add       Register a new project
     --project-id <id>     Unique identifier for the project
     --project-root <path> Path to the project root
-    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
-    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
 
   remove    Remove a project from the registry
     --project-id <id>     Project identifier
-    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
-    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
 
   list      List all registered projects
-    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
-    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
 
   show      Show details for a registered project
     --project-id <id>     Project identifier
-    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
-    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
 
   default   Set the default project (used when projectId is omitted)
     --project-id <id>     Project identifier
-    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
-    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
 
 EXAMPLES:
   xurgo-atlas project add --project-id my-app --project-root /path/to/my-app

@@ -79,8 +79,8 @@ MODES:
 OPTIONS:
   --host <host>          Host to bind to (default: 127.0.0.1)
   --port <port>          Port to listen on (default: 3737)
-  --config-dir <path>    Config directory override
-  --data-dir <path>      Data directory override
+  --config-dir <path>    Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR)
+  --data-dir <path>      Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR)
   --project-id <id>      Optional: register a project on startup
   --project-root <path>  Optional: project root (used with --project-id)
 

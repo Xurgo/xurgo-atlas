@@ -20,8 +20,8 @@ SUBCOMMANDS:
   inspect
     Show Atlas-vs-legacy storage discovery, selected roots, registry state,
     and runtime artifact presence without migrating or modifying files.
-    --config-dir <path>   Inspect with an explicit config directory override
-    --data-dir <path>     Inspect with an explicit data directory override
+    --config-dir <path>   Config directory override (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+    --data-dir <path>     Data directory override (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
 
   migrate --dry-run
     Plan a future legacy-to-Atlas storage migration without creating
@@ -29,8 +29,8 @@ SUBCOMMANDS:
   migrate --apply
     Copy legacy managed storage into empty Atlas roots, skipping runtime
     artifacts and leaving legacy roots untouched.
-    --config-dir <path>   Inspect with an explicit config directory override
-    --data-dir <path>     Inspect with an explicit data directory override
+    --config-dir <path>   Config directory override (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+    --data-dir <path>     Data directory override (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
 
 EXAMPLES:
   xurgo-atlas storage inspect
