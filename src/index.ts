@@ -41,14 +41,14 @@ COMMANDS:
   init       Initialize a Xurgo Atlas project
     --project-root <path>   Path to the project root (default: .)
     --project-id <id>       Unique identifier for the project
-    --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
-    --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+    --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
 
   server     Start the MCP server
     --project-root <path>   Path to the project root (default: .)
     --project-id <id>       Project identifier (optional, defaults to dir name)
-    --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
-    --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+    --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
 
   daemon     Manage the daemon (HTTP MCP server)
     start                   Start the daemon in the background
@@ -56,8 +56,8 @@ COMMANDS:
     status                  Show background daemon status
     --host <host>           Host to bind to (default: 127.0.0.1)
     --port <port>           Port to listen on (default: 3737)
-    --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
-    --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
+    --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+    --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
     --project-id <id>       Optional: register a project on startup
     --project-root <path>   Optional: project root (used with --project-id)
     Without a subcommand, starts the foreground daemon exactly as before.

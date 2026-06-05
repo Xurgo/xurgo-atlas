@@ -55,11 +55,13 @@ export interface StorageDiagnostic {
   message: string;
 }
 
+export type RootSource = 'explicit' | 'env' | 'atlas-default' | 'legacy-default';
+
 export interface ResolvedStorageRoots {
   configDir: string;
   dataDir: string;
-  configSource: 'explicit' | 'atlas-default' | 'legacy-default';
-  dataSource: 'explicit' | 'atlas-default' | 'legacy-default';
+  configSource: RootSource;
+  dataSource: RootSource;
   candidates: StorageRootCandidates;
   discovery: StorageDiscoveryState;
   diagnostics: StorageDiagnostic[];
@@ -208,12 +210,29 @@ export function emitStorageDiagnostics(
   }
 }
 
+// ── Environment variable helpers ────────────────────────────────────────
+
+/** Read XURGO_ATLAS_CONFIG_DIR, returning undefined when absent or empty. */
+export function getEnvConfigDir(): string | undefined {
+  const val = process.env.XURGO_ATLAS_CONFIG_DIR;
+  return val != null && val.trim().length > 0 ? val.trim() : undefined;
+}
+
+/** Read XURGO_ATLAS_DATA_DIR, returning undefined when absent or empty. */
+export function getEnvDataDir(): string | undefined {
+  const val = process.env.XURGO_ATLAS_DATA_DIR;
+  return val != null && val.trim().length > 0 ? val.trim() : undefined;
+}
+
 /**
  * Resolve the effective config/data roots for the current process.
  *
- * Explicit overrides always win. Otherwise, atlas-named roots are preferred
- * when present, legacy roots are discovered for backward compatibility, and
- * fresh installs default to atlas-named roots.
+ * Precedence (highest to lowest):
+ *   1. explicit CLI flags: --config-dir, --data-dir
+ *   2. environment variables: XURGO_ATLAS_CONFIG_DIR, XURGO_ATLAS_DATA_DIR
+ *   3. default behavior: atlas-named roots preferred when present,
+ *      legacy roots discovered for backward compatibility,
+ *      fresh installs default to atlas-named roots.
  */
 export function resolveStorageRoots(config: StorageConfig = {}): ResolvedStorageRoots {
   const candidates = getStorageRootCandidates();
@@ -230,15 +249,28 @@ export function resolveStorageRoots(config: StorageConfig = {}): ResolvedStorage
         source: 'legacy-default' as const,
       };
 
+  // 1. CLI flags (highest priority)
+  // 2. Environment variables (middle priority)
+  // 3. Default / legacy discovery (fallback)
+  const effectiveConfig =
+    config.configDir != null
+      ? { configDir: normalizeStorageRoot(config.configDir), source: 'explicit' as const }
+      : getEnvConfigDir() != null
+        ? { configDir: normalizeStorageRoot(getEnvConfigDir()!), source: 'env' as const }
+        : { configDir: selectedDefaultRoots.configDir, source: selectedDefaultRoots.source };
+
+  const effectiveData =
+    config.dataDir != null
+      ? { dataDir: normalizeStorageRoot(config.dataDir), source: 'explicit' as const }
+      : getEnvDataDir() != null
+        ? { dataDir: normalizeStorageRoot(getEnvDataDir()!), source: 'env' as const }
+        : { dataDir: selectedDefaultRoots.dataDir, source: selectedDefaultRoots.source };
+
   return {
-    configDir: config.configDir != null
-      ? normalizeStorageRoot(config.configDir)
-      : selectedDefaultRoots.configDir,
-    dataDir: config.dataDir != null
-      ? normalizeStorageRoot(config.dataDir)
-      : selectedDefaultRoots.dataDir,
-    configSource: config.configDir != null ? 'explicit' : selectedDefaultRoots.source,
-    dataSource: config.dataDir != null ? 'explicit' : selectedDefaultRoots.source,
+    configDir: effectiveConfig.configDir,
+    dataDir: effectiveData.dataDir,
+    configSource: effectiveConfig.source,
+    dataSource: effectiveData.source,
     candidates,
     discovery,
     diagnostics: buildStorageDiagnostics(discovery),

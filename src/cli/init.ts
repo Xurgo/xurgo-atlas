@@ -23,8 +23,8 @@ USAGE:
 OPTIONS:
   --project-root <path>   Path to the project root (default: .)
   --project-id <id>       Unique identifier for the project
-  --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; legacy docu-guard roots auto-discovered)
-  --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; legacy docu-guard roots auto-discovered)
+  --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+  --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
 
 EXAMPLES:
   xurgo-atlas init --project-root . --project-id my-project
@@ -113,6 +113,16 @@ export async function initCommand(options: InitOptions): Promise<void> {
   console.log(`  MCP endpoint: http://127.0.0.1:3737/mcp`);
   console.log(`  xurgo-atlas daemon status${suffix}`);
   console.log(`  xurgo-atlas project list${suffix}`);
+
+  // Let users know when env vars are active without explicit CLI flags
+  if (!options.configDir && !options.dataDir) {
+    const envParts: string[] = [];
+    if (process.env.XURGO_ATLAS_CONFIG_DIR) envParts.push('XURGO_ATLAS_CONFIG_DIR');
+    if (process.env.XURGO_ATLAS_DATA_DIR) envParts.push('XURGO_ATLAS_DATA_DIR');
+    if (envParts.length > 0) {
+      console.log(`  ${envParts.join(' and ')} from environment.`);
+    }
+  }
 }
 
 /**
