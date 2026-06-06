@@ -31,6 +31,16 @@ POST http://127.0.0.1:3737/mcp
 Raw `POST /mcp` requests should send compatible `Accept` headers that include `application/json` and `text/event-stream`, or the daemon may reply with `406 Not Acceptable`.
 Prefer `xurgo-atlas daemon status` and actual MCP tool calls when verifying the daemon, rather than treating a browser `GET /mcp` check as authoritative.
 
+## Quick Config Snippet
+
+Run `xurgo-atlas mcp-config` to print a generic copy/paste MCP client configuration snippet:
+
+```text
+$ xurgo-atlas mcp-config
+```
+
+Use `xurgo-atlas mcp-config --json` for machine-readable JSON output. The command is read-only and does not write client config files.
+
 ## MCP Client Configuration
 
 ### opencode

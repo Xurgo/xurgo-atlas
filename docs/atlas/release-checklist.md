@@ -49,6 +49,7 @@
 ## Post-Release Verification
 
 - [ ] `npm install -g xurgo-atlas` succeeds
+- [ ] `xurgo-atlas mcp-config` prints MCP endpoint and config snippet
 - [ ] `xurgo-atlas --help` lists expected commands
 - [ ] MCP server starts in stdio mode
 - [ ] Daemon starts and MCP endpoint responds
