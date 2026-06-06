@@ -474,11 +474,23 @@ async function main() {
 
     // Temp cleanup — only if --keep not set
     if (!keep) {
-      try {
-        fs.rmSync(tmpRoot, { recursive: true, force: true });
-        console.log(`${DIM}Temp workspace cleaned up.${RESET}`);
-      } catch (e) {
-        console.error(`${DIM}Cleanup warning: ${e.message}${RESET}`);
+      // Defensive: never delete a path we didn't create
+      const tmpdir = os.tmpdir();
+      const base   = tmpRoot ? path.basename(tmpRoot) : '';
+      const safe   = tmpRoot
+        && tmpRoot.startsWith(tmpdir)
+        && tmpRoot !== tmpdir
+        && base.startsWith('xa-smoke-');
+      if (!safe) {
+        console.error(`${RED}Refusing to rm -rf path that does not look like` +
+          ` the smoke temp workspace: ${tmpRoot}${RESET}`);
+      } else {
+        try {
+          fs.rmSync(tmpRoot, { recursive: true, force: true });
+          console.log(`${DIM}Temp workspace cleaned up.${RESET}`);
+        } catch (e) {
+          console.error(`${DIM}Cleanup warning: ${e.message}${RESET}`);
+        }
       }
     } else {
       console.log(`${DIM}Temp workspace preserved: ${tmpRoot}${RESET}`);
