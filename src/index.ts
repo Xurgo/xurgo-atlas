@@ -29,6 +29,10 @@ import {
   storageMigrateCommand,
 } from './cli/storage.js';
 import { statusCommand, printStatusUsage } from './cli/status.js';
+import {
+  mcpConfigCommand,
+  printMcpConfigUsage,
+} from './cli/mcp-config.js';
 import { emitStorageDiagnostics, resolveStorageRoots } from './core/storage.js';
 
 export function getUsageText(): string {
@@ -81,6 +85,11 @@ COMMANDS:
     show --project-id <id>
     default --project-id <id>
 
+  mcp-config Print MCP client connection guidance (read-only)
+    --host <host>           MCP server host (default: 127.0.0.1)
+    --port <port>           MCP server port (default: 3737)
+    --json                  Print output as machine-readable JSON only
+
   list       List tracked documentation files
     --project-root <path>   Path to the project root (default: .)
 
@@ -105,6 +114,8 @@ EXAMPLES:
   xurgo-atlas storage migrate --apply
   xurgo-atlas project add --project-id my-app --project-root /path/to/my-app
   xurgo-atlas project list
+  xurgo-atlas mcp-config
+  xurgo-atlas mcp-config --json
   xurgo-atlas list
   xurgo-atlas history docs/README.md
   xurgo-atlas export --branch main
@@ -373,6 +384,19 @@ export async function main(): Promise<void> {
         process.exit(0);
       }
       await statusCommand({ configDir, dataDir });
+      break;
+    }
+
+    case 'mcp-config': {
+      if (hasHelpFlag(rawArgs)) {
+        printMcpConfigUsage();
+        process.exit(0);
+      }
+      mcpConfigCommand({
+        host: args['host'] as string | undefined,
+        port: args['port'] ? parseInt(args['port'] as string, 10) : undefined,
+        json: rawArgs.includes('--json'),
+      });
       break;
     }
 
