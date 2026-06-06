@@ -1,0 +1,483 @@
+#!/usr/bin/env node
+
+// ═══════════════════════════════════════════════════════════════
+//  Xurgo Atlas — Private RC Artifact Script
+//
+//  Creates a private release-candidate tarball artifact bundle
+//  from the current checkout, with validation gates and an
+//  isolated installed-package smoke check.
+//
+//  USAGE:
+//    node scripts/private-rc-artifact.mjs
+//    node scripts/private-rc-artifact.mjs --skip-full-validation
+//    node scripts/private-rc-artifact.mjs --keep-temp
+//    node scripts/private-rc-artifact.mjs --out ./my-artifacts
+//    node scripts/private-rc-artifact.mjs --allow-diverged
+//
+//  FLAGS:
+//    --skip-full-validation   Skip `npm run validate:full` (unsafe for
+//                             real RC, intended for dev iteration)
+//    --keep-temp              Preserve temp install/smoke workspaces
+//    --out <dir>              Artifact output directory (default:
+//                             artifacts/private-rc/<ts>-<short-head>/)
+//    --allow-diverged         Proceed even if local HEAD differs from
+//                             origin/main (unsafe for real RC)
+//
+//  The script does NOT tag, push, publish, modify package version,
+//  modify source files, or run public release commands.
+// ═══════════════════════════════════════════════════════════════
+
+import { execSync } from 'node:child_process';
+import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
+
+// ─── Paths ────────────────────────────────────────────────────
+const __dirname      = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT      = path.resolve(__dirname, '..');
+const DEFAULT_OUT    = path.join(REPO_ROOT, 'artifacts', 'private-rc');
+
+// ─── Formatting ───────────────────────────────────────────────
+const BOLD  = '\x1b[1m';
+const DIM   = '\x1b[2m';
+const GREEN = '\x1b[32m';
+const RED   = '\x1b[31m';
+const RESET = '\x1b[0m';
+
+function info(label, value) {
+  console.log(`  ${DIM}${label}:${RESET} ${value}`);
+}
+
+function heading(text) {
+  const line = '─'.repeat(Math.min(text.length + 4, 72));
+  console.log(`\n${line}\n  ${text}\n${line}`);
+}
+
+function step(label, fn) {
+  try {
+    fn();
+    console.log(`  ${GREEN}✓${RESET} ${label}`);
+    return true;
+  } catch (e) {
+    console.log(`  ${RED}✗${RESET} ${label}`);
+    console.error(`    ${DIM}${e.message || e}${RESET}`);
+    return false;
+  }
+}
+
+function fail(label, msg) {
+  console.log(`  ${RED}✗${RESET} ${label}`);
+  console.error(`    ${DIM}${msg}${RESET}`);
+  process.exit(1);
+}
+
+// ─── Shell helpers ────────────────────────────────────────────
+function run(cmd, opts = {}) {
+  return execSync(cmd, {
+    cwd:      opts.cwd || REPO_ROOT,
+    env:      opts.env || process.env,
+    stdio:    opts.silent ? 'pipe' : 'inherit',
+    timeout:  opts.timeout || 120_000,
+    encoding: 'utf-8',
+  });
+}
+
+function runOutput(cmd, opts = {}) {
+  return execSync(cmd, {
+    cwd:      opts.cwd || REPO_ROOT,
+    env:      opts.env || process.env,
+    stdio:    'pipe',
+    timeout:  opts.timeout || 30_000,
+    encoding: 'utf-8',
+    maxBuffer: 1024 * 1024,
+  });
+}
+
+// ─── Git helpers ──────────────────────────────────────────────
+function git(args) {
+  return runOutput(`git ${args}`).toString().trim();
+}
+
+// ─── Crypto ───────────────────────────────────────────────────
+function sha256(filePath) {
+  const buf = fs.readFileSync(filePath);
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+// ─── Timestamp ────────────────────────────────────────────────
+function isoNow() {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+// ─── Main ─────────────────────────────────────────────────────
+function main() {
+  const argv = process.argv.slice(2);
+  const skipFullValidation = argv.includes('--skip-full-validation');
+  const keepTemp           = argv.includes('--keep-temp');
+  const allowDiverged      = argv.includes('--allow-diverged');
+  const outIdx             = argv.indexOf('--out');
+  const customOutDir       = outIdx !== -1 && argv[outIdx + 1] ? path.resolve(argv[outIdx + 1]) : null;
+
+  const isValidating = !skipFullValidation;
+
+  // ── Gate: clean working tree ────────────────────────────────
+  console.log(`${BOLD}\n  Xurgo Atlas — Private RC Artifact${RESET}\n`);
+
+  const statusShort = git('status --short');
+  if (statusShort) {
+    console.log(`${RED}Working tree is not clean:${RESET}`);
+    for (const line of statusShort.split('\n').filter(Boolean)) {
+      console.log(`  ${line}`);
+    }
+    process.exit(1);
+  }
+
+  // ── Gather git info ─────────────────────────────────────────
+  const branch      = git('rev-parse --abbrev-ref HEAD');
+  const head        = git('rev-parse HEAD');
+  const shortHead   = head.slice(0, 7);
+
+  let originMain = null;
+  try {
+    originMain = git('rev-parse origin/main');
+  } catch { /* not all checkouts have a remote */ }
+
+  // Warn if not on main
+  if (branch !== 'main') {
+    console.log(`  ${DIM}Note: on branch "${branch}", not "main".${RESET}`);
+  }
+
+  // Warn / gate on divergence
+  if (originMain && head !== originMain) {
+    const behind = parseInt(git('rev-list --count HEAD..origin/main'), 10);
+    const ahead  = parseInt(git('rev-list --count origin/main..HEAD'), 10);
+    const parts = [];
+    if (behind > 0) parts.push(`${behind} behind`);
+    if (ahead  > 0) parts.push(`${ahead} ahead`);
+    const msg = `Local HEAD differs from origin/main (${parts.join(', ')})`;
+    if (allowDiverged) {
+      console.log(`  ${DIM}Warning: ${msg} (--allow-diverged, continuing)${RESET}`);
+    } else {
+      fail('origin/main synced', `${msg}. Use --allow-diverged to override (unsafe for real RC).`);
+    }
+  }
+
+  info('Branch', branch);
+  info('HEAD', head);
+  if (originMain) info('origin/main', originMain);
+  info('Flags', `${skipFullValidation ? '--skip-full-validation ' : ''}${keepTemp ? '--keep-temp ' : ''}${allowDiverged ? '--allow-diverged ' : ''}`.trim() || '(none)');
+
+  const validationSteps = [];
+  const smokeSteps      = [];
+
+  try {
+    // ═══════ PHASE 1: VALIDATION GATES ═══════
+    heading('Validation gates');
+
+    let allValidationsPass = true;
+
+    allValidationsPass = step('git diff --check HEAD', () => {
+      const out = git('diff --check HEAD');
+      // git diff --check returns nothing on success, exits 0
+    }) && allValidationsPass;
+    validationSteps.push('git diff --check HEAD');
+
+    allValidationsPass = step('npm audit', () => {
+      const out = runOutput('npm audit', { timeout: 60_000 });
+      // if vulnerabilities found, npm audit exits non-zero
+    }) && allValidationsPass;
+    validationSteps.push('npm audit');
+
+    if (isValidating) {
+      allValidationsPass = step('npm run validate:full', () => {
+        run('npm run validate:full', { timeout: 180_000 });
+      }) && allValidationsPass;
+      validationSteps.push('npm run validate:full');
+
+      allValidationsPass = step('npm run smoke:happy-path', () => {
+        run('npm run smoke:happy-path', { timeout: 300_000 });
+      }) && allValidationsPass;
+      smokeSteps.push('npm run smoke:happy-path');
+    } else {
+      // Lightweight checks when full validation is skipped
+      allValidationsPass = step('npm run validate:quick (--skip-full-validation)', () => {
+        run('npm run validate:quick', { timeout: 60_000 });
+      }) && allValidationsPass;
+      validationSteps.push('npm run validate:quick');
+
+      allValidationsPass = step('npm run build (--skip-full-validation)', () => {
+        run('npm run build', { timeout: 60_000 });
+      }) && allValidationsPass;
+      validationSteps.push('npm run build');
+    }
+
+    if (!allValidationsPass) {
+      fail('Validation', 'One or more validation gates failed. Aborting.');
+    }
+
+    // ═══════ PHASE 2: CREATE ARTIFACT ═══════
+    const ts      = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const outDir  = customOutDir || path.join(DEFAULT_OUT, `${ts}-${shortHead}`);
+    fs.mkdirSync(outDir, { recursive: true });
+
+    heading('Package artifact');
+
+    step('npm pack', () => {
+      run(`npm pack --pack-destination "${outDir}"`, { timeout: 60_000 });
+    });
+
+    const tarballs = fs.readdirSync(outDir).filter(f => f.endsWith('.tgz'));
+    if (tarballs.length === 0) {
+      fail('Tarball', 'No tarball produced by npm pack');
+    }
+    if (tarballs.length > 1) {
+      // Multiple tarballs — unexpected; log but use the first by name
+      console.log(`  ${DIM}Multiple tarballs found: ${tarballs.join(', ')}${RESET}`);
+    }
+
+    const tarballName = tarballs[0];
+    const tarballPath = path.join(outDir, tarballName);
+    const stat        = fs.statSync(tarballPath);
+    const sha         = sha256(tarballPath);
+
+    info('Tarball', tarballName);
+    info('Size', `${(stat.size / 1024).toFixed(1)} kB`);
+    info('SHA-256', sha);
+
+    // ═══════ PHASE 3: INSTALLED-PACKAGE SMOKE ═══════
+    heading('Installed-package smoke');
+
+    const tmpConsumer = fs.mkdtempSync(path.join(os.tmpdir(), 'xa-rc-consumer-'));
+    let installSmokeOk = true;
+
+    try {
+      step('npm init consumer', () => {
+        run('npm init -y', { cwd: tmpConsumer, silent: true });
+      });
+
+      step('npm install tarball', () => {
+        run(`npm install "${tarballPath}"`, { cwd: tmpConsumer, timeout: 120_000, silent: true });
+      });
+
+      const binPath = path.join(tmpConsumer, 'node_modules', '.bin', 'xurgo-atlas');
+      const hasBin  = fs.existsSync(binPath);
+      step('binary installed', () => {
+        if (!hasBin) throw new Error(`binary not found at ${binPath}`);
+      });
+      installSmokeOk = installSmokeOk && hasBin;
+
+      const consumerEnv = {
+        ...process.env,
+        XURGO_ATLAS_CONFIG_DIR: path.join(tmpConsumer, 'xa-config'),
+        XURGO_ATLAS_DATA_DIR:   path.join(tmpConsumer, 'xa-data'),
+      };
+
+      // Helper: invoke the installed binary
+      function xaCheck(stepLabel, args, expectContains) {
+        const ok = step(stepLabel, () => {
+          const out = runOutput(`"${binPath}" ${args}`, {
+            env: consumerEnv, cwd: tmpConsumer,
+          });
+          if (expectContains && !out.includes(expectContains)) {
+            throw new Error(`Expected output to contain "${expectContains}"`);
+          }
+        });
+        installSmokeOk = installSmokeOk && ok;
+        return ok;
+      }
+
+      xaCheck('xurgo-atlas --help',              '--help',              null);
+      xaCheck('xurgo-atlas status --help',        'status --help',      null);
+      xaCheck('xurgo-atlas mcp-config --help',    'mcp-config --help',   null);
+
+      // mcp-config --json: validate valid JSON with expected structure
+      step('xurgo-atlas mcp-config --json', () => {
+        const out = runOutput(`"${binPath}" mcp-config --json`, { env: consumerEnv, cwd: tmpConsumer });
+        let parsed;
+        try { parsed = JSON.parse(out.trim()); } catch {
+          throw new Error('mcp-config --json output is not valid JSON');
+        }
+        if (!parsed.mcpServers?.['xurgo-atlas']?.url) {
+          throw new Error('mcpServers.xurgo-atlas.url missing in JSON output');
+        }
+      });
+
+    } finally {
+      // Clean up temp consumer unless --keep-temp
+      if (!keepTemp) {
+        const tmpdir = os.tmpdir();
+        const base   = path.basename(tmpConsumer);
+        const safe   = tmpConsumer.startsWith(tmpdir)
+                    && tmpConsumer !== tmpdir
+                    && base.startsWith('xa-rc-consumer-');
+        if (safe) {
+          try { fs.rmSync(tmpConsumer, { recursive: true, force: true }); }
+          catch { /* best effort */ }
+        }
+      } else {
+        console.log(`  ${DIM}Temp consumer preserved: ${tmpConsumer}${RESET}`);
+      }
+    }
+
+    // ═══════ PHASE 4: WRITE ARTIFACT FILES ═══════
+    heading('Artifact files');
+
+    const manifest = {
+      package_name:    'xurgo-atlas',
+      package_version: '0.1.0',
+      tarball:         tarballName,
+      tarball_size:    stat.size,
+      sha256:          sha,
+      git_branch:      branch,
+      git_head:        head,
+      git_origin_main: originMain,
+      created:         isoNow(),
+      validations:     validationSteps,
+      smoke_commands:  smokeSteps,
+      note: 'Private RC artifact — not a public release. No tag, no push, no npm publish.',
+    };
+
+    // MANIFEST.json
+    const manifestPath = path.join(outDir, 'MANIFEST.json');
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    step('MANIFEST.json', () => {
+      if (!fs.existsSync(manifestPath)) throw new Error('MANIFEST.json not written');
+    });
+
+    // SHA256SUMS.txt
+    const sumsPath = path.join(outDir, 'SHA256SUMS.txt');
+    fs.writeFileSync(sumsPath, `${sha}  ${tarballName}\n`);
+    step('SHA256SUMS.txt', () => {
+      if (!fs.existsSync(sumsPath)) throw new Error('SHA256SUMS.txt not written');
+    });
+
+    // PRIVATE_RC_SUMMARY.md
+    const summaryPath = path.join(outDir, 'PRIVATE_RC_SUMMARY.md');
+    fs.writeFileSync(summaryPath, [
+      `# Xurgo Atlas — Private RC Artifact`,
+      ``,
+      `- **Package:** \`${manifest.package_name}\` v${manifest.package_version}`,
+      `- **Tarball:** \`${tarballName}\``,
+      `- **SHA-256:** \`${sha}\``,
+      `- **Git branch:** \`${branch}\``,
+      `- **Git head:** \`${head}\``,
+      originMain ? `- **origin/main:** \`${originMain}\`` : null,
+      `- **Created:** ${manifest.created}`,
+      ``,
+      `## Validation`,
+      ``,
+      validationSteps.length
+        ? validationSteps.map(s => `- [x] ${s}`).join('\n')
+        : '- (none)',
+      ``,
+      `## Smoke`,
+      ``,
+      smokeSteps.length
+        ? smokeSteps.map(s => `- [x] ${s}`).join('\n')
+        : '(skipped)',
+      ``,
+      `## Installed-package smoke`,
+      ``,
+      installSmokeOk ? '- [x] PASS' : '- [ ] FAIL',
+      ``,
+      `## Status`,
+      ``,
+      `This is a **private RC** artifact for internal testing only.`,
+      `- No tag was created.`,
+      `- No \`npm publish\` was run.`,
+      `- No GitHub release was created.`,
+      `- No push was performed.`,
+      `- No package version was modified.`,
+      ``,
+      `Intended usage: copy the tarball to a private/internal test environment`,
+      `for manual pre-release verification.`,
+      ``,
+    ].filter(Boolean).join('\n') + '\n');
+    step('PRIVATE_RC_SUMMARY.md', () => {
+      if (!fs.existsSync(summaryPath)) throw new Error('PRIVATE_RC_SUMMARY.md not written');
+    });
+
+    // PRIVATE_REVIEWER_CHECKLIST.md
+    const checklistPath = path.join(outDir, 'PRIVATE_REVIEWER_CHECKLIST.md');
+    fs.writeFileSync(checklistPath, [
+      `# Private RC Reviewer Checklist`,
+      ``,
+      `**Package:** \`xurgo-atlas\` v0.1.0`,
+      `**Tarball:** \`${tarballName}\``,
+      `**SHA-256:** \`${sha}\``,
+      ``,
+      `This is a **private/internal RC test** — do not share publicly.`,
+      ``,
+      `## Checklist`,
+      ``,
+      `- [ ] Install from the tarball:`,
+      `      npm install ./${tarballName}`,
+      `- [ ] Run \`xurgo-atlas --help\` and verify usage text`,
+      `- [ ] Run \`xurgo-atlas init --project-root . --project-id <project-id>\``,
+      `- [ ] Run \`xurgo-atlas daemon start\``,
+      `- [ ] Run \`xurgo-atlas status\``,
+      `- [ ] Run \`xurgo-atlas mcp-config\` and note the endpoint`,
+      `- [ ] Configure MCP client using the printed endpoint/snippet`,
+      `- [ ] Verify MCP tools can read project docs`,
+      `- [ ] Report failures with exact command output`,
+      ``,
+      `If all checks pass, reply with a summary including:`,
+      `- Environment (OS, Node version)`,
+      `- Any configuration steps needed`,
+      `- Confirmation all checks passed`,
+      ``,
+      `If any check fails, include:`,
+      `- Exact command run`,
+      `- Full error output`,
+      `- Environment details`,
+      ``,
+    ].join('\n') + '\n');
+    step('PRIVATE_REVIEWER_CHECKLIST.md', () => {
+      if (!fs.existsSync(checklistPath)) throw new Error('PRIVATE_REVIEWER_CHECKLIST.md not written');
+    });
+
+    // ═══════ PHASE 5: FINAL STATUS CHECK ═══════
+    heading('Final repo status');
+    const finalStatus = git('status --short');
+    const clean = !finalStatus;
+    step('Working tree clean', () => {
+      if (!clean) throw new Error(`Working tree dirty:\n${finalStatus}`);
+    });
+
+    // ═══════ REPORT ═══════
+    console.log();
+    console.log(`${BOLD}  Private RC artifact created${RESET}`);
+    console.log(`  ${DIM}Output:${RESET} ${outDir}`);
+    console.log(`  ${DIM}Tarball:${RESET} ${tarballPath}`);
+    console.log(`  ${DIM}SHA-256:${RESET} ${sha}`);
+    console.log();
+    console.log(`  ${GREEN}✓${RESET} Validation passed`);
+    console.log(`  ${GREEN}✓${RESET} Installed-package smoke ${installSmokeOk ? 'passed' : 'failed'}`);
+    console.log(`  ${GREEN}✓${RESET} Artifact files written`);
+    console.log(`  ${GREEN}✓${RESET} No public release actions taken`);
+    console.log();
+
+    if (!installSmokeOk) {
+      console.error(`  ${RED}Installed-package smoke had failures.${RESET}`);
+      console.error(`  Please inspect the artifact manually before distribution.`);
+    }
+    if (skipFullValidation) {
+      console.log(`  ${DIM}Note: --skip-full-validation was used. Full validation was NOT run.${RESET}`);
+    }
+    if (allowDiverged) {
+      console.log(`  ${DIM}Note: --allow-diverged was used. Local HEAD may not match origin/main.${RESET}`);
+    }
+    if (keepTemp) {
+      console.log(`  ${DIM}Note: --keep-temp was used. Temp workspaces were preserved.${RESET}`);
+    }
+    console.log();
+
+  } catch (e) {
+    console.error(`\n${RED}UNEXPECTED ERROR${RESET}: ${e.message}`);
+    process.exit(1);
+  }
+}
+
+main();
