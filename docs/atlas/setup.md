@@ -20,16 +20,25 @@ The CLI binary is `xurgo-atlas` (via `npm start` or `node dist/index.js`).
 
 ## Quick Start
 
+Most users can follow this happy path without needing `--config-dir` or `--data-dir`.
+
 ```bash
 # Initialize a project
-xurgo-atlas init --project-id my-project --project-root /path/to/project
-
-# Start the MCP server in stdio mode
-xurgo-atlas server --project-root /path/to/project --project-id my-project
+xurgo-atlas init --project-id my-project --project-root .
 
 # Start the daemon in background
 xurgo-atlas daemon start
+
+# Check setup status
+xurgo-atlas status
+
+# Print MCP client connection guidance
+xurgo-atlas mcp-config
 ```
+
+Stop here for normal use. The daemon serves the MCP endpoint at `http://127.0.0.1:3737/mcp`. Configure your MCP client using the snippet printed by `xurgo-atlas mcp-config`.
+
+For advanced configuration — custom storage roots, daemon options, or legacy migration — see the reference docs linked from [docs/README.md](../README.md).
 
 ## Build & Test
 

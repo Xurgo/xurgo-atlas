@@ -15,15 +15,20 @@ cd xurgo-atlas
 npm install
 npm run build
 
-# Initialize a project
-xurgo-atlas init --project-id my-project --project-root /path/to/project
+# Initialize a project (most users do not need --config-dir or --data-dir)
+xurgo-atlas init --project-id my-project --project-root .
 
 # Start the MCP daemon
 xurgo-atlas daemon start
 
-# Check daemon status
-xurgo-atlas daemon status
+# Check setup status
+xurgo-atlas status
+
+# Print MCP client connection guidance
+xurgo-atlas mcp-config
 ```
+
+Configure your MCP client with the endpoint and JSON snippet printed by `xurgo-atlas mcp-config`.
 
 For detailed setup instructions, see [docs/atlas/setup.md](docs/atlas/setup.md).
 For daemon and MCP client configuration, see [docs/atlas/daemon-mcp.md](docs/atlas/daemon-mcp.md).
@@ -47,9 +52,9 @@ Xurgo Atlas provides two interfaces for managing documentation:
 - **stdio mode** (`xurgo-atlas server`): The MCP server runs on standard input/output, suitable for local development and direct integration with MCP clients.
 - **daemon mode** (`xurgo-atlas daemon`): The MCP server runs as an HTTP server using Streamable HTTP transport, allowing multiple agents to connect over HTTP. This mode supports multi-project setups via a global project registry.
 
-### Configurable managed storage
+### Managed storage (advanced)
 
-Managed state (Git repositories, event logs) lives outside the project tree in configurable directories:
+Managed state (Git repositories, event logs) lives outside the project tree in configurable directories. The defaults (`~/.config/xurgo-atlas` and `~/.local/share/xurgo-atlas`) work for most users.
 
 | Path | Default | Content |
 |------|---------|---------|
@@ -57,21 +62,13 @@ Managed state (Git repositories, event logs) lives outside the project tree in c
 | `<dataDir>/projects/<id>/repo.git` | `~/.local/share/xurgo-atlas/projects/<id>/repo.git` | Git bare repository (docs history) |
 | `<dataDir>/projects/<id>/events.sqlite` | `~/.local/share/xurgo-atlas/projects/<id>/events.sqlite` | Event/proposal database |
 
-Fresh installs default to the Xurgo Atlas XDG roots above. Legacy-only installs still fall back to the historical `docu-guard` config and data roots for compatibility. If both Atlas and legacy managed roots are already populated, Atlas roots are selected, nothing is merged automatically, and a warning/diagnostic is emitted so you can choose an explicit root with `--config-dir` or `--data-dir` if needed.
+Override defaults with `--config-dir` and `--data-dir` CLI flags on `init`, `server`, `daemon`, and `project` commands, or set `XURGO_ATLAS_CONFIG_DIR` / `XURGO_ATLAS_DATA_DIR` environment variables for CI, containers, or isolated testing.
 
-The project working tree contains only user-facing committed files: `docs/`, `AGENTS.md`, `.docs-policy.yml`. No `.docu-guard/` directory is created in the project. Existing project-local `.docu-guard/` folders are pre-v0.3 development artifacts and are warned about, not used as active storage.
-
-The config and data directory locations can be set with `--config-dir` and `--data-dir` flags on `init`, `server`, `daemon`, and `project` commands. The defaults follow XDG Base Directory conventions (`XDG_CONFIG_HOME` / `XDG_DATA_HOME`). For the simplest safe case, `xurgo-atlas storage migrate --apply` can now copy legacy managed storage into empty Atlas roots. The migration is intentionally copy-only: it leaves legacy roots untouched, skips runtime artifacts, and refuses populated Atlas targets or merge-like states.
-
-Use `xurgo-atlas storage inspect` to see the effective selected roots, Atlas-vs-legacy candidate state, registry presence, project counts when readable, and runtime PID/log artifact presence. The command is read-only and does not migrate or modify storage.
-Use `xurgo-atlas storage migrate --dry-run` first to inspect what migration would copy, what it would skip, any blockers or warnings, and the recommended next action. The dry run is explicitly read-only: it does not create directories, copy files, update registries, stop daemons, or delete legacy roots.
-Use `xurgo-atlas storage migrate --apply` only after the dry run shows the safe legacy-only-to-empty-Atlas case. This apply step copies data into Atlas roots, rewrites the Atlas registry for the new target paths, repairs internal Git metadata, skips runtime PID/log artifacts, and still never deletes or modifies the legacy roots.
-
-For a full workflow with examples, see [docs/atlas/storage-migration.md](docs/atlas/storage-migration.md).
+Legacy `docu-guard` roots are auto-discovered for migration compatibility. Use `xurgo-atlas status` to check your current setup. See [docs/atlas/storage-migration.md](docs/atlas/storage-migration.md) for legacy migration (advanced/admin).
 
 ### Global project registry
 
-The daemon mode uses a global project registry (located at `<configDir>/projects.json`, default `~/.config/xurgo-atlas/projects.json`) to map project IDs to project roots. Legacy-only installs still resolve through `~/.config/docu-guard/projects.json` until you explicitly point elsewhere. The location is configurable with `--config-dir`. This allows the daemon to serve multiple projects without needing to know their paths in advance.
+The daemon mode uses a global project registry at `<configDir>/projects.json` to map project IDs to project roots, allowing the daemon to serve multiple projects without knowing their paths in advance. The location is configurable with `--config-dir`.
 
 ### Git-backed docs history
 

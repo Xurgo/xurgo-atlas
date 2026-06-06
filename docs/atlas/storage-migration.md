@@ -4,6 +4,10 @@
 
 Xurgo Atlas managed storage lives outside the project tree in configurable directories.
 
+> **Note:** Storage migration is an advanced/admin operation. Most users will never need
+> `storage inspect` or `storage migrate`. The default storage roots work for normal usage —
+> run `xurgo-atlas status` to check your setup without diving into storage internals.
+
 | Path | Default | Content |
 |------|---------|---------|
 | `<configDir>/projects.json` | `~/.config/xurgo-atlas/projects.json` | Global project registry |
