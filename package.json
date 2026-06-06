@@ -25,6 +25,7 @@
     "validate:quick": "npm run test:fast && npm run build",
     "validate:full": "npm test && npm run build && npm_config_cache=/tmp/xurgo-atlas-npm-cache npm pack --dry-run",
     "smoke:happy-path": "node scripts/happy-path-smoke.mjs",
+    "rc:private": "node scripts/private-rc-artifact.mjs",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
