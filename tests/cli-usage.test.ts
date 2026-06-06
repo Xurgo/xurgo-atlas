@@ -19,6 +19,8 @@ import * as storageCli from '../src/cli/storage.js';
 import * as storageCore from '../src/core/storage.js';
 import * as statusCli from '../src/cli/status.js';
 import { getStatusUsageText, statusCommand } from '../src/cli/status.js';
+import * as mcpConfigCli from '../src/cli/mcp-config.js';
+import { getMcpConfigUsageText, mcpConfigCommand } from '../src/cli/mcp-config.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -133,6 +135,13 @@ describe('CLI usage text', () => {
 
     expect(output).toContain('status     Show the current setup status (read-only)');
     expect(output).toContain('xurgo-atlas status');
+  });
+
+  it('lists mcp-config in the main help text', () => {
+    const output = getUsageText();
+
+    expect(output).toContain('mcp-config Print MCP client connection guidance (read-only)');
+    expect(output).toContain('xurgo-atlas mcp-config');
   });
 
   it('shows dedicated status help text', () => {
@@ -524,6 +533,105 @@ describe('CLI usage text', () => {
   });
 });
 
+// ── MCP config guidance ────────────────────────────────────────────────────
+
+describe('mcp-config command', () => {
+  it('has dedicated help text that lists all options', () => {
+    const output = getMcpConfigUsageText();
+
+    expect(output).toContain('MCP client connection guidance');
+    expect(output).toContain('xurgo-atlas mcp-config [options]');
+    expect(output).toContain('--host');
+    expect(output).toContain('--port');
+    expect(output).toContain('--json');
+    expect(output).toContain('read-only');
+    expect(output).toContain('does not require a project to be initialized');
+  });
+
+  it('mcp-config --help exits 0 and is non-mutating', async () => {
+    const commandSpy = vi.spyOn(mcpConfigCli, 'mcpConfigCommand');
+    const result = await runMainWithArgs(['node', 'xurgo-atlas', 'mcp-config', '--help']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('xurgo-atlas mcp-config [options]');
+    expect(result.stderr).toBe('');
+    expect(commandSpy).not.toHaveBeenCalled();
+  });
+
+  it('exits 0 with default output including endpoint', async () => {
+    const logLines: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+      logLines.push(args.join(' '));
+    });
+
+    try {
+      mcpConfigCommand();
+      const output = logLines.join('\n');
+
+      expect(output).toContain('http://127.0.0.1:3737/mcp');
+      expect(output).toContain('Generic MCP client JSON');
+      expect(output).toContain('xurgo-atlas daemon start');
+      expect(output).toContain('read-only');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('respects custom --host and --port in output', async () => {
+    const logLines: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+      logLines.push(args.join(' '));
+    });
+
+    try {
+      mcpConfigCommand({ host: '0.0.0.0', port: 9999 });
+      const output = logLines.join('\n');
+
+      expect(output).toContain('http://0.0.0.0:9999/mcp');
+      expect(output).not.toContain('127.0.0.1');
+      expect(output).not.toContain(':3737');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('prints JSON-only output with --json flag', async () => {
+    const logLines: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+      logLines.push(args.join(' '));
+    });
+
+    try {
+      mcpConfigCommand({ json: true });
+      const output = logLines.join('\n');
+
+      // Should be valid JSON
+      const parsed = JSON.parse(output);
+      expect(parsed.mcpServers['xurgo-atlas'].url).toBe('http://127.0.0.1:3737/mcp');
+      expect(output).not.toContain('Endpoint:');
+      expect(output).not.toContain('Generic MCP client JSON');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it('does not require initialized storage roots (no storage access)', async () => {
+    // mcpConfigCommand is purely computational — it should not need storage
+    const logLines: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+      logLines.push(args.join(' '));
+    });
+
+    try {
+      // Should not throw regardless of environment
+      mcpConfigCommand({ host: '127.0.0.1', port: 3737 });
+      expect(logLines.join('\n')).toContain('http://127.0.0.1:3737/mcp');
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+});
+
 describe('init success output', () => {
   it('shows daemon/MCP next steps after successful init', async () => {
     const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-init-next-'));
@@ -548,6 +656,7 @@ describe('init success output', () => {
       expect(output).toContain('✅ Xurgo Atlas project "test-project" initialized successfully');
       expect(output).toContain('xurgo-atlas daemon start');
       expect(output).toContain('MCP endpoint: http://127.0.0.1:3737/mcp');
+      expect(output).toContain('MCP config snippet: xurgo-atlas mcp-config');
       expect(output).toContain('xurgo-atlas daemon status');
       expect(output).toContain('xurgo-atlas project list');
       expect(output).not.toContain('xurgo-atlas server --project-root .');
@@ -590,6 +699,7 @@ describe('init success output', () => {
       expect(output).toContain(`xurgo-atlas daemon status --config-dir ${configDir} --data-dir ${dataDir}`);
       expect(output).toContain(`xurgo-atlas project list --config-dir ${configDir} --data-dir ${dataDir}`);
       expect(output).toContain('MCP endpoint: http://127.0.0.1:3737/mcp');
+      expect(output).toContain('MCP config snippet: xurgo-atlas mcp-config');
     } finally {
       logSpy.mockRestore();
       errSpy.mockRestore();
