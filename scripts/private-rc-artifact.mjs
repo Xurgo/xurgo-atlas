@@ -111,6 +111,33 @@ function isoNow() {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
+// ─── Bundle wrapper generators ──────────────────────────────
+
+function generateBundlePackageJson() {
+  return JSON.stringify({
+    private: true,
+    name: 'xurgo-atlas-private-rc-bundle',
+    version: '0.0.0-private-rc',
+    description: 'Private Xurgo Atlas RC reviewer bundle. This is not the product package.',
+    type: 'module',
+    scripts: {
+      smoke: 'node REVIEWER_INSTALL_SMOKE.mjs',
+      'smoke:keep': 'node REVIEWER_INSTALL_SMOKE.mjs --keep',
+    },
+  }, null, 2) + '\n';
+}
+
+function generateNpmrc() {
+  return [
+    '# Private RC bundle — prevent accidental publish or lockfile noise.',
+    'save=false',
+    'package-lock=false',
+    'fund=false',
+    'audit=false',
+    '',
+  ].join('\n');
+}
+
 // ─── Reviewer installer script generator ─────────────────────
 function generateReviewerSmokeScript(tarballName) {
   return `#!/usr/bin/env node
@@ -517,6 +544,8 @@ function main() {
       'PRIVATE_RC_SUMMARY.md',
       'PRIVATE_REVIEWER_CHECKLIST.md',
       'REVIEWER_INSTALL_SMOKE.mjs',
+      'package.json',
+      '.npmrc',
     ];
 
     const manifest = {
@@ -559,6 +588,24 @@ function main() {
       if (!content.includes(tarballName)) throw new Error('reviewer script missing tarball reference');
     });
 
+    // package.json (bundle-level reviewer wrapper)
+    const bundlePkgPath = path.join(outDir, 'package.json');
+    fs.writeFileSync(bundlePkgPath, generateBundlePackageJson());
+    step('package.json (bundle wrapper)', () => {
+      if (!fs.existsSync(bundlePkgPath)) throw new Error('bundle package.json not written');
+      const pkg = JSON.parse(fs.readFileSync(bundlePkgPath, 'utf-8'));
+      if (pkg.private !== true) throw new Error('bundle package.json must be private');
+    });
+
+    // .npmrc (bundle-level safety)
+    const npmrcPath = path.join(outDir, '.npmrc');
+    fs.writeFileSync(npmrcPath, generateNpmrc());
+    step('.npmrc', () => {
+      if (!fs.existsSync(npmrcPath)) throw new Error('.npmrc not written');
+      const content = fs.readFileSync(npmrcPath, 'utf-8');
+      if (!content.includes('save=false')) throw new Error('.npmrc missing save=false');
+    });
+
     // PRIVATE_RC_SUMMARY.md
     const summaryPath = path.join(outDir, 'PRIVATE_RC_SUMMARY.md');
     fs.writeFileSync(summaryPath, [
@@ -588,14 +635,29 @@ function main() {
       ``,
       installSmokeOk ? '- [x] PASS' : '- [ ] FAIL',
       ``,
+      `## Bundle wrapper`,
+      ``,
+      `This bundle is a private/disposable reviewer workspace. It includes a`,
+      `\`package.json\` (marked \`"private": true\`) and an \`.npmrc\` file so that`,
+      `npm commands run inside this directory stay contained and do not climb`,
+      `into the parent \`xurgo-atlas\` repo context.`,
+      ``,
+      `The actual package under review is the \`.tgz\` file in this directory.`,
+      `All installs happen in an OS temp workspace, not in this bundle.`,
+      ``,
+      `You may copy this entire bundle folder outside the repo before running`,
+      `the smoke script, but this is not required.`,
+      ``,
       `## Reviewer smoke script`,
       ``,
       `This bundle includes \`REVIEWER_INSTALL_SMOKE.mjs\` — a standalone script`,
       `that automates tarball install and basic smoke testing in an isolated temp`,
-      `workspace.`,
+      `workspace, and npm convenience scripts:`,
       ``,
       '```bash',
-      'node REVIEWER_INSTALL_SMOKE.mjs       # install + smoke + cleanup',
+      'npm run smoke               # install + smoke + cleanup (via node script)',
+      'npm run smoke:keep           # preserve temp workspace',
+      'node REVIEWER_INSTALL_SMOKE.mjs       # direct invocation, no npm needed',
       'node REVIEWER_INSTALL_SMOKE.mjs --keep # preserve temp workspace',
       '```',
       `The script does NOT create any files in the artifact bundle directory.`,
@@ -633,18 +695,34 @@ function main() {
       `## Quick automated check (recommended)`,
       ``,
       '```bash',
+      'npm run smoke',
+      '```',
+      ``,
+      `Or, if you prefer to invoke the script directly without npm:`,
+      ``,
+      '```bash',
       'node REVIEWER_INSTALL_SMOKE.mjs',
       '```',
       ``,
-      `The script above creates a fresh temp consumer workspace, installs the`,
-      `tarball, and runs basic smoke tests. It does NOT create any files in this`,
-      `bundle directory. Use \`--keep\` to preserve the temp workspace for inspection.`,
+      `The script creates a fresh temp consumer workspace, installs the tarball,`,
+      `and runs basic smoke tests. It does NOT create any files in this bundle`,
+      `directory. Use \`npm run smoke:keep\` or \`node REVIEWER_INSTALL_SMOKE.mjs --keep\``,
+      `to preserve the temp workspace for inspection.`,
+      ``,
+      `## About this bundle`,
+      ``,
+      `This bundle is a **private/disposable reviewer workspace**. The included`,
+      `\`package.json\` is marked \`"private": true\` and exists solely to provide`,
+      `safe npm convenience scripts and prevent npm from climbing into a parent`,
+      `package context. It is NOT the product package. The product under review`,
+      `is the \`.tgz\` file.`,
+      ``,
+      `You may copy this bundle folder outside the repo before testing, but this`,
+      `is not required.`,
       ``,
       `## Manual checklist (fallback)`,
       ``,
-      `> **Important:** This artifact bundle is read-only output. It intentionally`,
-      `> does NOT include a \`package.json\`. Do NOT run \`npm install\` from inside this`,
-      `> bundle directory. Instead, create a separate consumer workspace:`,
+      `If the automated script is unavailable, create a separate consumer workspace:`,
       ``,
       '```bash',
       'mkdir -p /tmp/xa-review && cd /tmp/xa-review',
