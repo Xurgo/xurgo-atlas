@@ -127,11 +127,6 @@ The following files and directories are managed through Xurgo Atlas and must not
 | Export documentation | \`docs.export\` |
 `;
 
-const GENERATED_AGENTS_HEADERS = [
-  '# Agent Instructions for Xurgo Atlas',
-  '# Agent Instructions for docu-guard-mcp',
-];
-
 export interface ProjectConfig {
   projectRoot: string;
   projectId: string;
@@ -340,15 +335,8 @@ async function ensureStatusMd(projectRoot: string): Promise<void> {
 async function ensureAgentsMd(projectRoot: string): Promise<void> {
   const agentsPath = path.join(projectRoot, 'AGENTS.md');
   try {
-    const existing = await fs.promises.readFile(agentsPath, 'utf-8');
-    // Recognize both the new Atlas header and the legacy generated header.
-    if (!GENERATED_AGENTS_HEADERS.some((header) => existing.includes(header))) {
-      await fs.promises.writeFile(
-        agentsPath,
-        existing + '\n\n' + AGENTS_MD_SAFETY_RULES,
-        'utf-8',
-      );
-    }
+    await fs.promises.access(agentsPath);
+    // File exists — do not overwrite or append
   } catch {
     // File doesn't exist, create it
     await fs.promises.writeFile(agentsPath, AGENTS_MD_SAFETY_RULES, 'utf-8');

@@ -708,6 +708,47 @@ describe('init success output', () => {
       await fs.promises.rm(root, { recursive: true, force: true });
     }
   });
+
+  it('distinguishes created vs preserved files in output', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-init-output-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+    const logLines: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+      logLines.push(args.join(' '));
+    });
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      // Pre-create existing doc files so init reports "Preserved existing"
+      await fs.promises.writeFile(path.join(root, 'STATUS.md'), '# Pre-existing Status\n', 'utf-8');
+      await fs.promises.writeFile(path.join(root, 'AGENTS.md'), '# Pre-existing Agents\n', 'utf-8');
+
+      await initCli.initCommand({
+        projectRoot: root,
+        projectId: 'output-test',
+        configDir,
+        dataDir,
+      });
+
+      const output = logLines.join('\n');
+
+      // Files that existed before init
+      expect(output).toContain('Preserved existing STATUS.md');
+      expect(output).toContain('Preserved existing AGENTS.md');
+
+      // Files created by init
+      expect(output).toContain('Created .docs-policy.yml');
+      expect(output).toContain('Created docs/manifest.yml');
+
+      // Overall success
+      expect(output).toContain('✅ Xurgo Atlas project "output-test" initialized successfully');
+    } finally {
+      logSpy.mockRestore();
+      errSpy.mockRestore();
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 // ── Status command ────────────────────────────────────────────────────────
