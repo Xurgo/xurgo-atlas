@@ -19,8 +19,18 @@
 - [ ] Daemon/MCP configuration is documented ([docs/daemon-mcp.md](./daemon-mcp.md))
 - [ ] Storage migration flow is documented ([docs/storage-migration.md](./storage-migration.md))
 - [ ] Development workflow is documented ([docs/atlas/development-workflow.md](./development-workflow.md))
+- [ ] Init templates are documented (available templates, `--template`, `-t`, `--templates`, existing-doc preservation)
 - [ ] Release checklist is current
 - [ ] Guarded docs are current: `STATUS.md`, `AGENTS.md`, `docs/manifest.yml`, `.docs-policy.yml`
+
+## Private RC Workflow
+
+- [ ] Generated `PRIVATE_REVIEWER_CHECKLIST.md` covers bundle smoke, clone/install project test, template guidance, and MCP/opencode verification
+- [ ] Clone/install workflow: install tarball into cloned project, verify CLI, daemon, and MCP
+- [ ] Template guidance explains when to use or omit `--template` and that existing docs are preserved
+- [ ] MCP verification prompt instructs reviewer to verify through MCP tools, not filesystem reads
+- [ ] Bundle-local `npm run smoke` and `npm run smoke:keep` are the recommended reviewer commands
+- [ ] No stale repo-level command names (`smoke:installed`, `smoke:happy-path`, `artifact:private-rc`, `rc:private`) appear in generated docs
 
 ## Storage
 
