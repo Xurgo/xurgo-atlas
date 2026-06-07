@@ -75,6 +75,14 @@ export async function initCommand(options: InitOptions): Promise<void> {
     dataDir: options.dataDir,
   });
 
+  // Check which documentation files already exist before init
+  const existed = {
+    policy: await fileExists(path.join(resolvedRoot, '.docs-policy.yml')),
+    status: await fileExists(path.join(resolvedRoot, 'STATUS.md')),
+    agents: await fileExists(path.join(resolvedRoot, 'AGENTS.md')),
+    manifest: await fileExists(path.join(resolvedRoot, 'docs', 'manifest.yml')),
+  };
+
   console.log(`Initializing Xurgo Atlas in ${resolvedRoot}...`);
 
   const project = await Project.init({
@@ -90,10 +98,10 @@ export async function initCommand(options: InitOptions): Promise<void> {
 
   console.log(`✓ Initialized Git-backed docs store at ${storage.projectRepoPath(options.projectId)}`);
   console.log(`✓ Created event log at ${storage.projectEventsPath(options.projectId)}`);
-  console.log(`✓ Created .docs-policy.yml`);
-  console.log(`✓ Created STATUS.md`);
-  console.log(`✓ Created docs/ directory structure with manifest.yml`);
-  console.log(`✓ Created/updated AGENTS.md with documentation safety rules`);
+  console.log(`✓ ${existed.policy ? 'Preserved existing' : 'Created'} .docs-policy.yml`);
+  console.log(`✓ ${existed.status ? 'Preserved existing' : 'Created'} STATUS.md`);
+  console.log(`✓ ${existed.manifest ? 'Preserved existing' : 'Created'} docs/manifest.yml`);
+  console.log(`✓ ${existed.agents ? 'Preserved existing' : 'Created'} AGENTS.md`);
   console.log(`✓ Snapshotted initial documentation`);
   console.log(`✓ Registered project in ${storage.registryPath()}`);
   console.log(`\n✅ Xurgo Atlas project "${options.projectId}" initialized successfully.\n`);

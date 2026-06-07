@@ -680,6 +680,160 @@ Legacy generated content.
   });
 });
 
+// ── Existing doc preservation on first init ────────────────────────────
+
+describe('existing doc preservation on first init', () => {
+  it('should preserve existing STATUS.md on first init', async () => {
+    const customStatus = '# My Custom Status\n\nCustom content.\n';
+    await fs.promises.writeFile(path.join(tmpDir, 'STATUS.md'), customStatus, 'utf-8');
+
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const content = await fs.promises.readFile(path.join(tmpDir, 'STATUS.md'), 'utf-8');
+    expect(content).toBe(customStatus);
+  });
+
+  it('should preserve existing AGENTS.md on first init (user-authored, no generated header)', async () => {
+    const customAgents = '# My Custom Agents\n\nCustom agent instructions.\n';
+    await fs.promises.writeFile(path.join(tmpDir, 'AGENTS.md'), customAgents, 'utf-8');
+
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const content = await fs.promises.readFile(path.join(tmpDir, 'AGENTS.md'), 'utf-8');
+    // Must not append safety rules to user-authored content
+    expect(content).toBe(customAgents);
+    expect(content).not.toContain('Documentation Safety Rules');
+  });
+
+  it('should preserve existing docs/manifest.yml on first init', async () => {
+    const customManifest = 'custom: true\n';
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(path.join(tmpDir, 'docs', 'manifest.yml'), customManifest, 'utf-8');
+
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const content = await fs.promises.readFile(path.join(tmpDir, 'docs', 'manifest.yml'), 'utf-8');
+    expect(content).toBe(customManifest);
+  });
+
+  it('should preserve existing docs under docs/ on first init', async () => {
+    const customReadme = '# Custom Docs\n';
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(path.join(tmpDir, 'docs', 'custom.md'), customReadme, 'utf-8');
+
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const content = await fs.promises.readFile(path.join(tmpDir, 'docs', 'custom.md'), 'utf-8');
+    expect(content).toBe(customReadme);
+  });
+
+  it('should create only missing files when some already exist', async () => {
+    // Pre-create STATUS.md but not AGENTS.md or .docs-policy.yml
+    const customStatus = '# Only Status\n';
+    await fs.promises.writeFile(path.join(tmpDir, 'STATUS.md'), customStatus, 'utf-8');
+
+    await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // STATUS.md should be preserved
+    const statusContent = await fs.promises.readFile(path.join(tmpDir, 'STATUS.md'), 'utf-8');
+    expect(statusContent).toBe(customStatus);
+
+    // AGENTS.md should be created since it didn't exist
+    const agentsContent = await fs.promises.readFile(path.join(tmpDir, 'AGENTS.md'), 'utf-8');
+    expect(agentsContent).toContain('# Agent Instructions for Xurgo Atlas');
+
+    // .docs-policy.yml should be created since it didn't exist
+    await expect(fs.promises.stat(path.join(tmpDir, '.docs-policy.yml'))).resolves.toBeTruthy();
+  });
+
+  it('should snapshot existing docs into git store during init', async () => {
+    await fs.promises.writeFile(path.join(tmpDir, 'STATUS.md'), '# Pre-existing Status\n', 'utf-8');
+    await fs.promises.writeFile(path.join(tmpDir, 'AGENTS.md'), '# Pre-existing Agents\n', 'utf-8');
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(path.join(tmpDir, 'docs', 'custom.md'), '# Custom Doc\n', 'utf-8');
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'manifest.yml'),
+      'version: 1\ndocuments:\n  - path: docs/custom.md\n    role: notes\n    summary: Custom\n',
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // All files should be tracked in the git store
+    const trackedFiles = await project.getTrackedFiles();
+    expect(trackedFiles).toContain('STATUS.md');
+    expect(trackedFiles).toContain('AGENTS.md');
+    expect(trackedFiles).toContain('docs/custom.md');
+    expect(trackedFiles).toContain('docs/manifest.yml');
+
+    // Content should be preserved in the snapshot
+    const statusSnapshot = await project.readFile('main', 'STATUS.md');
+    expect(statusSnapshot.content).toBe('# Pre-existing Status\n');
+
+    const agentsSnapshot = await project.readFile('main', 'AGENTS.md');
+    expect(agentsSnapshot.content).toBe('# Pre-existing Agents\n');
+
+    const customSnapshot = await project.readFile('main', 'docs/custom.md');
+    expect(customSnapshot.content).toBe('# Custom Doc\n');
+  });
+
+  it('should register and snapshot a project with existing docs', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(path.join(tmpDir, 'STATUS.md'), '# Status\n', 'utf-8');
+    await fs.promises.writeFile(path.join(tmpDir, 'docs', 'guide.md'), '# Guide\n', 'utf-8');
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // Verify project is initialized
+    const trackedFiles = await project.getTrackedFiles();
+    expect(trackedFiles).toContain('STATUS.md');
+    expect(trackedFiles).toContain('docs/guide.md');
+
+    // Verify init event was logged
+    const initHistory = project.eventLog.getHistoryForPath(
+      'test-project',
+      '.xurgo-atlas/init',
+    );
+    expect(initHistory).toHaveLength(1);
+    expect(initHistory[0].summary).toContain('Initialized Xurgo Atlas project');
+  });
+});
+
 // ── v0.4 STATUS.md and docs/manifest.yml foundation ───────────────────
 
 describe('v0.4 project context files', () => {
