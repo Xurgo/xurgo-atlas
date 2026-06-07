@@ -35,6 +35,31 @@ For daemon and MCP client configuration, see [docs/atlas/daemon-mcp.md](docs/atl
 For storage migration guidance, see [docs/atlas/storage-migration.md](docs/atlas/storage-migration.md).
 For pre-release validation, see [docs/atlas/release-checklist.md](docs/atlas/release-checklist.md).
 
+### Init Templates
+
+`xurgo-atlas init` supports optional documentation templates for bootstrapping project docs:
+
+```bash
+# List available templates
+xurgo-atlas init --templates
+
+# Initialize with a template
+xurgo-atlas init --template saas --project-id my-project
+
+# Short form
+xurgo-atlas init -t mcp-server --project-id my-project
+```
+
+Templates are **documentation templates** (not app-code scaffolds). They create missing project docs only and preserve existing files:
+
+- `default` — Generic project
+- `saas` — SaaS product
+- `cli-tool` — CLI tool
+- `mcp-server` — MCP server
+- `web-app` — Web application
+
+For a cloned repo that already has project docs, omit `--template`. The template flag is useful for new/empty projects or when intentionally filling missing docs.
+
 ## How Xurgo Atlas Works
 
 Xurgo Atlas provides two interfaces for managing documentation:
