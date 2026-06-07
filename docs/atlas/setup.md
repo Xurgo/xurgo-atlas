@@ -54,23 +54,17 @@ npm run test:integration
 
 # Full test suite
 npm test
-
-# Quick validation — default dev loop
-npm run validate:quick
-
-# Full validation — before risky merges or release
-npm run validate:full
 ```
 
-## Validation Tiers
+## Working with the Full Workflow
 
-| Command | What it runs | When to use |
-|---------|-------------|-------------|
-| `npm run test:fast` | CLI + registry + storage-migration tests | During narrow edits |
-| `npm run test:integration` | Project + daemon + HTTP tests | Before daemon changes |
-| `npm test` | All tests | Before merge or release |
-| `npm run validate:quick` | Fast tests + build | Default development loop |
-| `npm run validate:full` | All tests + build + pack dry-run | Before risky merges or release |
+This project uses three layers beyond the test suite:
+
+- **`npm run validate:*`** — Repo-level validation gates (tests + build)
+- **`npm run verify:*`** — Installed-package runtime smoke checks
+- **`npm run bundle:*`** — Local private RC artifact bundle generation
+
+See [docs/atlas/development-workflow.md](./development-workflow.md) for the complete reference on validation tiers, smoke testing, artifact generation, and script naming conventions.
 
 ## NPM Pack (Dry Run)
 
