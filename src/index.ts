@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   initCommand,
   printInitUsage,
+  printTemplateList,
   serverCommand,
   listCommand,
   historyCommand,
@@ -48,6 +49,9 @@ COMMANDS:
     --project-id <id>       Unique identifier for the project
     --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
     --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
+    --template <name>       Documentation template (default: "default"); use --templates to list
+    -t <name>               Short form of --template
+    --templates             List available templates without initializing
 
   server     Start the MCP server
     --project-root <path>   Path to the project root (default: .)
@@ -104,6 +108,8 @@ COMMANDS:
 
 EXAMPLES:
   xurgo-atlas init --project-root . --project-id my-project
+  xurgo-atlas init --template saas --project-id clientpulse
+  xurgo-atlas init --templates
   xurgo-atlas server --project-root .
   xurgo-atlas daemon
   xurgo-atlas daemon start
@@ -170,6 +176,15 @@ function parseArgv(argv: string[]): Record<string, string | string[]> {
     } else if (arg === '--pid-file' && i + 1 < argv.length) {
       args['pid-file'] = argv[i + 1];
       i += 2;
+    } else if (arg === '--template' && i + 1 < argv.length) {
+      args['template'] = argv[i + 1];
+      i += 2;
+    } else if (arg === '-t' && i + 1 < argv.length) {
+      args['template'] = argv[i + 1];
+      i += 2;
+    } else if (arg === '--templates') {
+      args['templates'] = 'true';
+      i++;
     } else if (arg.startsWith('--')) {
       i++;
     } else {
@@ -206,12 +221,17 @@ export async function main(): Promise<void> {
         printInitUsage();
         process.exit(0);
       }
+      if (args['templates'] === 'true') {
+        printTemplateList();
+        process.exit(0);
+      }
       emitStorageDiagnostics(resolveStorageRoots({ configDir, dataDir }));
       if (!projectId) {
         console.error('Error: --project-id is required for init');
         process.exit(1);
       }
-      await initCommand({ projectRoot, projectId, configDir, dataDir });
+      const template = (args['template'] as string | undefined) || 'default';
+      await initCommand({ projectRoot, projectId, configDir, dataDir, template });
       break;
     }
 
