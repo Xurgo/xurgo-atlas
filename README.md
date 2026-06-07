@@ -476,10 +476,8 @@ The project uses a layered command convention for validation, smoke testing, and
 |---------|---------|
 | `npm run validate:quick` | Fast tests + build — default dev loop |
 | `npm run validate:full` | All tests + build + pack dry-run |
-| `npm run smoke:installed` | Pack and install into consumer workspace, exercise CLI/daemon/MCP |
-| `npm run artifact:private-rc` | Create a portable reviewer-ready private RC bundle |
-
-Backward-compatible aliases: `npm run smoke:happy-path`, `npm run rc:private`.
+| `npm run verify:installed` | Pack and install into consumer workspace, exercise CLI/daemon/MCP |
+| `npm run bundle:private-rc` | Create a portable reviewer-ready private RC bundle |
 
 See [docs/atlas/development-workflow.md](docs/atlas/development-workflow.md) for the full reference and [docs/atlas/release-checklist.md](docs/atlas/release-checklist.md) for pre-release steps.
 

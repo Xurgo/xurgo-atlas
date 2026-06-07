@@ -8,8 +8,8 @@ npm scripts follow a consistent category/scope naming scheme:
 |----------|---------|
 | `test:*` | Targeted test suites (unit, integration) |
 | `validate:*` | Repo-level validation gates |
-| `smoke:*` | Runtime / user-flow smoke checks |
-| `artifact:*` | Local generated artifact bundles (private RC) |
+| `verify:*` | Installed / runtime user-flow checks |
+| `bundle:*` | Local generated artifact bundles (private RC) |
 
 ## Commands Reference
 
@@ -33,7 +33,7 @@ npm scripts follow a consistent category/scope naming scheme:
 
 ---
 
-### `npm run smoke:installed`
+### `npm run verify:installed`
 
 **What it does:** Builds the package, packs it into a `.tgz`, creates an isolated consumer workspace, installs the tarball there, and exercises the CLI, daemon, and MCP endpoints. All work happens in an OS temp workspace (`/tmp/xa-smoke-*`). Temp workspace is cleaned up on success.
 
@@ -43,7 +43,7 @@ npm scripts follow a consistent category/scope naming scheme:
 
 ---
 
-### `npm run artifact:private-rc`
+### `npm run bundle:private-rc`
 
 **What it does:** Creates a private release-candidate artifact bundle under `artifacts/private-rc/<timestamp>-<short-head>/` with:
 
@@ -56,32 +56,23 @@ npm scripts follow a consistent category/scope naming scheme:
 - `package.json` — bundle wrapper (marked `"private": true`)
 - `.npmrc` — prevents npm from climbing into parent repo context
 
-Before creating the bundle, the script runs full validation (clean tree, `git diff --check`, `npm audit`, `validate:full`, `smoke:installed`).
+Before creating the bundle, the script runs full validation (clean tree, `git diff --check`, `npm audit`, `validate:full`, `verify:installed`).
 
 **What it does NOT do:** It does not tag, publish, push, or create a GitHub release. The generated `package.json` in the bundle is a disposable wrapper — it is not the product package.
 
 **When to use:** When you need a portable, reviewer-ready RC artifact for internal pre-release testing.
-
----
-
-### Aliases (backward-compatible)
-
-| Alias | Points to | Notes |
-|-------|-----------|-------|
-| `npm run smoke:happy-path` | Same as `smoke:installed` | Legacy name, kept for compatibility |
-| `npm run rc:private` | Same as `artifact:private-rc` | Legacy name, kept for compatibility |
 
 ## When to Run What
 
 | Scenario | Commands |
 |----------|----------|
 | Daily / local change | `npm run validate:quick` |
-| Runtime or packaging change | `npm run validate:quick` and `npm run smoke:installed` |
-| Full private RC confidence | `npm audit` + `npm run validate:full` + `npm run smoke:installed` + `npm run artifact:private-rc` |
+| Runtime or packaging change | `npm run validate:quick` and `npm run verify:installed` |
+| Full private RC confidence | `npm audit` + `npm run validate:full` + `npm run verify:installed` + `npm run bundle:private-rc` |
 
 ## Artifact Locations
 
-- **Smoke test workspace:** OS temp directory (`/tmp/xa-smoke-*`) — cleaned up on success.
+- **Verify workspace:** OS temp directory (`/tmp/xa-smoke-*`) — cleaned up on success.
 - **Private RC bundles:** `artifacts/private-rc/<timestamp>-<short-head>/` — gitignored, do not commit.
 
 ## Reviewer Bundle Workflow
@@ -100,8 +91,8 @@ The script creates an isolated temp consumer workspace, installs the `.tgz` into
 ## Why This Structure Exists
 
 - **Source-only tests** are fast but cannot catch packaging, binary-path, daemon-lifecycle, or MCP-communication issues.
-- **Installed-package smoke** (`smoke:installed`) packs and installs into a clean consumer workspace, exactly like an end user would do.
-- **Artifact bundle smoke** (`artifact:private-rc`) wraps the installed-package smoke into a portable bundle with reviewer instructions, checksums, and a standalone script — so someone else can verify without running a full build.
+- **Installed-package verify** (`verify:installed`) packs and installs into a clean consumer workspace, exactly like an end user would do.
+- **Artifact bundle** (`bundle:private-rc`) wraps the installed-package verify into a portable bundle with reviewer instructions, checksums, and a standalone script — so someone else can verify without running a full build.
 
 ## Boundaries
 

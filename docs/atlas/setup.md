@@ -61,8 +61,8 @@ npm test
 This project uses three layers beyond the test suite:
 
 - **`npm run validate:*`** — Repo-level validation gates (tests + build)
-- **`npm run smoke:*`** — Installed-package runtime smoke checks
-- **`npm run artifact:*`** — Local private RC artifact bundle generation
+- **`npm run verify:*`** — Installed-package runtime smoke checks
+- **`npm run bundle:*`** — Local private RC artifact bundle generation
 
 See [docs/atlas/development-workflow.md](./development-workflow.md) for the complete reference on validation tiers, smoke testing, artifact generation, and script naming conventions.
 
