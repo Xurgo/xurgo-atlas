@@ -3,6 +3,14 @@ import * as path from 'node:path';
 import { Project } from '../core/project.js';
 import { Registry } from '../core/registry.js';
 import { StoragePaths } from '../core/storage.js';
+import {
+  getTemplate,
+  getTemplateListText,
+  isValidTemplate,
+  TEMPLATE_NAMES,
+  buildManifestYaml,
+  type TemplateFile,
+} from '../core/templates.js';
 import { startMcpServer } from '../mcp/server.js';
 import { mergeHistory, type GitHistoryEntry, type EventHistoryEntry } from '../mcp/tools.js';
 
@@ -11,6 +19,7 @@ export interface InitOptions {
   projectId: string;
   configDir?: string;
   dataDir?: string;
+  template?: string;
 }
 
 export function getInitUsageText(): string {
@@ -25,9 +34,22 @@ OPTIONS:
   --project-id <id>       Unique identifier for the project
   --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
   --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
+  --template <name>       Documentation template to use (default: "default")
+  -t <name>               Short form of --template
+  --templates             List available templates and exit
+
+AVAILABLE TEMPLATES:
+  default      Generic project with standard Atlas docs and project brief
+  saas         SaaS product with product brief, MVP scope, and development workflow
+  cli-tool     CLI tool with command surface docs, packaging notes, and validation workflow
+  mcp-server   MCP server with tool/resource surface, daemon setup, and safety boundaries
+  web-app      Web application with product brief, route structure, and frontend architecture
 
 EXAMPLES:
   xurgo-atlas init --project-root . --project-id my-project
+  xurgo-atlas init --template saas --project-id clientpulse
+  xurgo-atlas init -t cli-tool --project-id my-cli
+  xurgo-atlas init --templates
 `;
 }
 
@@ -75,15 +97,52 @@ export async function initCommand(options: InitOptions): Promise<void> {
     dataDir: options.dataDir,
   });
 
+  // Resolve template
+  const templateName = options.template || 'default';
+  if (!isValidTemplate(templateName)) {
+    console.error(`Error: unknown template "${templateName}".`);
+    console.error('');
+    console.error(getTemplateListText());
+    process.exit(1);
+  }
+  const templateDef = getTemplate(templateName)!;
+
   // Check which documentation files already exist before init
-  const existed = {
+  const existed: Record<string, boolean> = {
     policy: await fileExists(path.join(resolvedRoot, '.docs-policy.yml')),
     status: await fileExists(path.join(resolvedRoot, 'STATUS.md')),
     agents: await fileExists(path.join(resolvedRoot, 'AGENTS.md')),
     manifest: await fileExists(path.join(resolvedRoot, 'docs', 'manifest.yml')),
   };
 
+  // Check existence of template-specific files
+  const templateFileStatus: { path: string; existed: boolean }[] = [];
+  for (const tf of templateDef.files) {
+    templateFileStatus.push({
+      path: tf.path,
+      existed: await fileExists(path.join(resolvedRoot, tf.path)),
+    });
+  }
+
   console.log(`Initializing Xurgo Atlas in ${resolvedRoot}...`);
+
+  // Install template-specific files (before Project.init so they get snapshotted)
+  for (const tf of templateDef.files) {
+    const fullPath = path.join(resolvedRoot, tf.path);
+    const fileExisted = await fileExists(fullPath);
+    if (!fileExisted) {
+      await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
+      await fs.promises.writeFile(fullPath, tf.content, 'utf-8');
+    }
+  }
+
+  // If manifest does not exist, create it now with template-specific entries
+  if (!existed.manifest) {
+    const manifestPath = path.join(resolvedRoot, 'docs', 'manifest.yml');
+    const manifestContent = buildManifestYaml(templateDef.files);
+    await fs.promises.mkdir(path.dirname(manifestPath), { recursive: true });
+    await fs.promises.writeFile(manifestPath, manifestContent, 'utf-8');
+  }
 
   const project = await Project.init({
     projectRoot: resolvedRoot,
@@ -102,8 +161,17 @@ export async function initCommand(options: InitOptions): Promise<void> {
   console.log(`✓ ${existed.status ? 'Preserved existing' : 'Created'} STATUS.md`);
   console.log(`✓ ${existed.manifest ? 'Preserved existing' : 'Created'} docs/manifest.yml`);
   console.log(`✓ ${existed.agents ? 'Preserved existing' : 'Created'} AGENTS.md`);
+
+  // Report template-specific files
+  for (const tfs of templateFileStatus) {
+    console.log(`✓ ${tfs.existed ? 'Preserved existing' : 'Created'} ${tfs.path}`);
+  }
+
   console.log(`✓ Snapshotted initial documentation`);
   console.log(`✓ Registered project in ${storage.registryPath()}`);
+  if (templateName !== 'default') {
+    console.log(`✓ Template: ${templateName}`);
+  }
   console.log(`\n✅ Xurgo Atlas project "${options.projectId}" initialized successfully.\n`);
 
   // Build optional storage flags for follow-up commands
@@ -132,6 +200,13 @@ export async function initCommand(options: InitOptions): Promise<void> {
       console.log(`  ${envParts.join(' and ')} from environment.`);
     }
   }
+}
+
+/**
+ * Print available templates and exit.
+ */
+export function printTemplateList(): void {
+  console.log(getTemplateListText());
 }
 
 /**

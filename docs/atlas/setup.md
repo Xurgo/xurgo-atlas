@@ -38,6 +38,33 @@ xurgo-atlas mcp-config
 
 Stop here for normal use. The daemon serves the MCP endpoint at `http://127.0.0.1:3737/mcp`. Configure your MCP client using the snippet printed by `xurgo-atlas mcp-config`.
 
+### Init Templates
+
+`xurgo-atlas init` supports optional documentation templates for bootstrapping project docs:
+
+```bash
+# List available templates
+xurgo-atlas init --templates
+
+# Initialize with a template
+xurgo-atlas init --template saas --project-id my-project
+
+# Short form
+xurgo-atlas init -t mcp-server --project-id my-project
+```
+
+Templates are **documentation/memory templates**, not app-code scaffolds. They create missing project docs only:
+
+| Template | Description |
+|----------|-------------|
+| `default` | Generic project with standard Atlas docs and project brief |
+| `saas` | SaaS product with product brief, MVP scope, and development workflow |
+| `cli-tool` | CLI tool with command surface docs, packaging notes, and validation workflow |
+| `mcp-server` | MCP server with tool/resource surface, daemon setup, and safety boundaries |
+| `web-app` | Web application with product brief, route structure, and frontend architecture |
+
+**Existing docs are preserved by default.** Templates create missing files only. For a cloned repo that already has project docs, usually omit `--template` — plain `init --project-id <id>` is the standard workflow. Use `--template <name>` for new/empty projects or when intentionally filling missing docs.
+
 For advanced configuration — custom storage roots, daemon options, or legacy migration — see the reference docs linked from [docs/README.md](../README.md).
 
 ## Build & Test
