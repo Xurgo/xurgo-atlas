@@ -468,13 +468,20 @@ The canonical safe workflow for agents to modify documentation is:
 > **Agent Instruction:**  
 > Use Xurgo Atlas for all documentation changes. Do not edit docs directly. Read the file first, use the returned baseRevision, propose a minimal patch, preview the diff, commit the proposal, then export.
 
-## Validation
+## Validation & Artifact Workflow
 
-Use `npm run validate:quick` during narrow edits. It runs the fast test tier plus `npm run build` without the slow integration-heavy project suite.
+The project uses a layered command convention for validation, smoke testing, and artifact generation:
 
-Use `npm run validate:full` before risky merges or release-style checks. It keeps the existing full `npm test` path, adds a build, and runs `npm pack --dry-run`.
+| Command | Purpose |
+|---------|---------|
+| `npm run validate:quick` | Fast tests + build — default dev loop |
+| `npm run validate:full` | All tests + build + pack dry-run |
+| `npm run smoke:installed` | Pack and install into consumer workspace, exercise CLI/daemon/MCP |
+| `npm run artifact:private-rc` | Create a portable reviewer-ready private RC bundle |
 
-See [docs/atlas/setup.md](docs/atlas/setup.md) for the full validation tier reference and [docs/atlas/release-checklist.md](docs/atlas/release-checklist.md) for pre-release steps.
+Backward-compatible aliases: `npm run smoke:happy-path`, `npm run rc:private`.
+
+See [docs/atlas/development-workflow.md](docs/atlas/development-workflow.md) for the full reference and [docs/atlas/release-checklist.md](docs/atlas/release-checklist.md) for pre-release steps.
 
 ## Creating New Documentation
 
