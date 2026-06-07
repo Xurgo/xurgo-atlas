@@ -55,6 +55,11 @@ documents:
     priority: high
     summary: Pre-release validation checklist and release steps
 
+  - path: docs/atlas/development-workflow.md
+    role: reference
+    priority: high
+    summary: Validation tiers, smoke testing, private RC artifact workflow, and script naming conventions
+
   - path: docs/implementation-checklist.md
     role: roadmap
     priority: high

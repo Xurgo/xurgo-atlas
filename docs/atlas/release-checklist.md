@@ -18,7 +18,7 @@
 - [ ] Setup/install instructions are up to date ([docs/setup.md](./setup.md))
 - [ ] Daemon/MCP configuration is documented ([docs/daemon-mcp.md](./daemon-mcp.md))
 - [ ] Storage migration flow is documented ([docs/storage-migration.md](./storage-migration.md))
-- [ ] Validation commands are documented
+- [ ] Development workflow is documented ([docs/atlas/development-workflow.md](./development-workflow.md))
 - [ ] Release checklist is current
 - [ ] Guarded docs are current: `STATUS.md`, `AGENTS.md`, `docs/manifest.yml`, `.docs-policy.yml`
 
