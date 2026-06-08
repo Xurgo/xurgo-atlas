@@ -98,6 +98,7 @@ export async function initCommand(options: InitOptions): Promise<void> {
   });
 
   // Resolve template
+  const isExplicitTemplate = options.template !== undefined;
   const templateName = options.template || 'default';
   if (!isValidTemplate(templateName)) {
     console.error(`Error: unknown template "${templateName}".`);
@@ -115,31 +116,34 @@ export async function initCommand(options: InitOptions): Promise<void> {
     manifest: await fileExists(path.join(resolvedRoot, 'docs', 'manifest.yml')),
   };
 
-  // Check existence of template-specific files
-  const templateFileStatus: { path: string; existed: boolean }[] = [];
-  for (const tf of templateDef.files) {
-    templateFileStatus.push({
-      path: tf.path,
-      existed: await fileExists(path.join(resolvedRoot, tf.path)),
-    });
-  }
-
   console.log(`Initializing Xurgo Atlas in ${resolvedRoot}...`);
 
-  // Install template-specific files (before Project.init so they get snapshotted)
-  for (const tf of templateDef.files) {
-    const fullPath = path.join(resolvedRoot, tf.path);
-    const fileExisted = await fileExists(fullPath);
-    if (!fileExisted) {
-      await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
-      await fs.promises.writeFile(fullPath, tf.content, 'utf-8');
+  // Only create template-specific files when the user explicitly
+  // specified a --template flag. Plain init never creates template
+  // docs, even on new/empty projects — only the standard foundation
+  // files (.docs-policy.yml, STATUS.md, AGENTS.md, docs/manifest.yml).
+  const shouldCreateTemplateDocs = isExplicitTemplate;
+
+  // Check existence of template-specific files
+  const templateFileStatus: { path: string; existed: boolean }[] = [];
+  if (shouldCreateTemplateDocs) {
+    for (const tf of templateDef.files) {
+      const fullPath = path.join(resolvedRoot, tf.path);
+      const fileExisted = await fileExists(fullPath);
+      templateFileStatus.push({ path: tf.path, existed: fileExisted });
+      if (!fileExisted) {
+        await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
+        await fs.promises.writeFile(fullPath, tf.content, 'utf-8');
+      }
     }
   }
 
   // If manifest does not exist, create it now with template-specific entries
+  // (or standard-only entries for plain init)
   if (!existed.manifest) {
     const manifestPath = path.join(resolvedRoot, 'docs', 'manifest.yml');
-    const manifestContent = buildManifestYaml(templateDef.files);
+    const manifestFiles = shouldCreateTemplateDocs ? templateDef.files : [];
+    const manifestContent = buildManifestYaml(manifestFiles);
     await fs.promises.mkdir(path.dirname(manifestPath), { recursive: true });
     await fs.promises.writeFile(manifestPath, manifestContent, 'utf-8');
   }
