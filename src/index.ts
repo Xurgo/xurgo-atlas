@@ -230,7 +230,7 @@ export async function main(): Promise<void> {
         console.error('Error: --project-id is required for init');
         process.exit(1);
       }
-      const template = (args['template'] as string | undefined) || 'default';
+      const template = args['template'] as string | undefined;
       await initCommand({ projectRoot, projectId, configDir, dataDir, template });
       break;
     }
