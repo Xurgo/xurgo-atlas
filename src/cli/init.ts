@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Project } from '../core/project.js';
-import { Registry } from '../core/registry.js';
+import { Registry, RegistryError } from '../core/registry.js';
 import { StoragePaths } from '../core/storage.js';
 import {
   getTemplate,
@@ -256,9 +256,11 @@ export async function listCommand(
   const resolvedRoot = path.resolve(projectRoot);
   await requireInit(resolvedRoot);
 
+  const projectId = await resolveProjectId(resolvedRoot, configDir, dataDir);
+
   const project = await Project.load({
     projectRoot: resolvedRoot,
-    projectId: path.basename(resolvedRoot),
+    projectId,
     configDir,
     dataDir,
   });
@@ -275,7 +277,7 @@ export async function listCommand(
     })),
   );
 
-  console.log(JSON.stringify({ projectId: path.basename(resolvedRoot), branch: 'main', revision: branchRevision, files }, null, 2));
+  console.log(JSON.stringify({ projectId, branch: 'main', revision: branchRevision, files }, null, 2));
 }
 
 /**
@@ -290,16 +292,18 @@ export async function historyCommand(
   const resolvedRoot = path.resolve(projectRoot);
   await requireInit(resolvedRoot);
 
+  const projectId = await resolveProjectId(resolvedRoot, configDir, dataDir);
+
   const project = await Project.load({
     projectRoot: resolvedRoot,
-    projectId: path.basename(resolvedRoot),
+    projectId,
     configDir,
     dataDir,
   });
 
   const gitHistory = await project.gitStore.getHistory(filePath);
   const events = project.eventLog.getHistoryForPath(
-    path.basename(resolvedRoot),
+    projectId,
     filePath,
   );
 
@@ -322,9 +326,11 @@ export async function exportCommand(
   const resolvedRoot = path.resolve(projectRoot);
   await requireInit(resolvedRoot);
 
+  const projectId = await resolveProjectId(resolvedRoot, configDir, dataDir);
+
   const project = await Project.load({
     projectRoot: resolvedRoot,
-    projectId: path.basename(resolvedRoot),
+    projectId,
     configDir,
     dataDir,
   });
@@ -352,6 +358,50 @@ export async function exportCommand(
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Resolve the projectId for a given project root by searching the registry.
+ *
+ * Exits with a clear actionable message if:
+ *  - the project is not found in the registry (must run init first).
+ *  - the project is found but the managed store is not initialized.
+ *
+ * This replaces the fragile `path.basename(projectRoot)` approach and
+ * prevents GitConstructError stack traces from missing managed repos.
+ */
+async function resolveProjectId(
+  projectRoot: string,
+  configDir?: string,
+  dataDir?: string,
+): Promise<string> {
+  const registry = await Registry.load(configDir, dataDir);
+  const projects = registry.listProjects();
+  const resolvedRoot = path.resolve(projectRoot);
+
+  // Try to find the project by exact projectRoot match
+  const matching = projects.find((p) => p.projectRoot === resolvedRoot);
+  if (!matching) {
+    console.error(
+      `Error: project at "${resolvedRoot}" is not registered.\n` +
+        `Run "xurgo-atlas init --project-id <id>" first, or register an existing project with\n` +
+        `"xurgo-atlas project add --project-id <id> --project-root ${resolvedRoot}".`,
+    );
+    process.exit(1);
+  }
+
+  // Validate the project is fully initialized (managed store exists)
+  try {
+    await registry.resolve(matching.projectId);
+  } catch (err) {
+    if (err instanceof RegistryError) {
+      console.error(err.message);
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  return matching.projectId;
+}
 
 /**
  * Require that a project has been initialized. Exits with a clear message if not.

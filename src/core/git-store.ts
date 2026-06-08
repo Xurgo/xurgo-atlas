@@ -690,8 +690,8 @@ export class GitStore {
    * List all files tracked in a branch.
    */
   async listFiles(branch = 'main'): Promise<string[]> {
-    const bareGit = simpleGit({ baseDir: this.repoPath });
     try {
+      const bareGit = simpleGit({ baseDir: this.repoPath });
       const result = await bareGit.raw(['ls-tree', '-r', '--name-only', branch]);
       return result
         .split('\n')
