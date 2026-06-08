@@ -62,6 +62,15 @@ Before creating the bundle, the script runs full validation (clean tree, `git di
 
 **When to use:** When you need a portable, reviewer-ready RC artifact for internal pre-release testing.
 
+## Public Release Gate
+
+`prepublishOnly` in `package.json` guards against accidental `npm publish`:
+
+- If `npm_command` is not `publish` (e.g. `npm pack`, `npm pack --dry-run`), the guard passes silently — packaging workflows are never blocked.
+- If `npm_command` is `publish`, the guard requires `XURGO_ATLAS_PUBLISH=1` in the environment. Without it, `npm publish` fails immediately with a clear message.
+
+To publish: `XURGO_ATLAS_PUBLISH=1 npm publish`
+
 ## When to Run What
 
 | Scenario | Commands |
@@ -69,6 +78,7 @@ Before creating the bundle, the script runs full validation (clean tree, `git di
 | Daily / local change | `npm run validate:quick` |
 | Runtime or packaging change | `npm run validate:quick` and `npm run verify:installed` |
 | Full private RC confidence | `npm audit` + `npm run validate:full` + `npm run verify:installed` + `npm run bundle:private-rc` |
+| Public npm release | `npm run validate:full` → `XURGO_ATLAS_PUBLISH=1 npm publish` (requires **explicit approval**) |
 
 ## Artifact Locations
 
