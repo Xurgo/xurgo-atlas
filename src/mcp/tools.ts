@@ -1906,9 +1906,13 @@ async function handleExport(
   const targetDir = args.targetDir ?? project.root;
   let exportedFiles: string[];
   try {
+    // Export only current owned/tracked docs to prevent stale or
+    // unmanifested files from leaking into the working tree.
+    const ownedFiles = await project.getOwnedFiles(args.branch);
     exportedFiles = await project.gitStore.exportBranch(
       args.branch,
       targetDir,
+      ownedFiles,
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

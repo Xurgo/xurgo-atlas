@@ -630,8 +630,15 @@ export class GitStore {
 
   /**
    * Export files from a branch to a target directory.
+   *
+   * @param branch - The managed branch to export from.
+   * @param targetDir - The filesystem directory to write files into.
+   * @param files - Optional explicit list of files to export. When provided,
+   *                only these files are written (useful for filtering to
+   *                current owned/tracked docs). When omitted, every file
+   *                tracked in the managed branch is exported (legacy behavior).
    */
-  async exportBranch(branch: string, targetDir: string): Promise<string[]> {
+  async exportBranch(branch: string, targetDir: string, files?: string[]): Promise<string[]> {
     const branchExists = await this.branchExists(branch);
     if (!branchExists) {
       throw new Error(
@@ -647,17 +654,25 @@ export class GitStore {
     }
 
     return this.withWorkDir(branch, async (_git: SimpleGit, _workDir: string) => {
-      // List all tracked files in the branch
-      const bareGit = simpleGit({ baseDir: this.repoPath });
-      const filesOutput = await bareGit.raw(['ls-tree', '-r', '--name-only', branch]);
-      const files = filesOutput
-        .split('\n')
-        .map((f: string) => f.trim())
-        .filter((f: string) => f.length > 0);
+      // Determine which files to export
+      let filesToExport: string[];
+
+      if (files) {
+        // Use the caller-provided file list (typically current owned/tracked docs)
+        filesToExport = files;
+      } else {
+        // Legacy: list all tracked files in the branch
+        const bareGit = simpleGit({ baseDir: this.repoPath });
+        const filesOutput = await bareGit.raw(['ls-tree', '-r', '--name-only', branch]);
+        filesToExport = filesOutput
+          .split('\n')
+          .map((f: string) => f.trim())
+          .filter((f: string) => f.length > 0);
+      }
 
       const exported: string[] = [];
 
-      for (const file of files) {
+      for (const file of filesToExport) {
         const content = await this.readFileAtRevision(branch, file);
         if (content !== null) {
           const fullPath = path.join(targetDir, file);
