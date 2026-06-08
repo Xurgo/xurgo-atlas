@@ -56,6 +56,10 @@ npx xurgo-atlas mcp-config
 
 Configure your MCP client with the endpoint and JSON snippet printed by `xurgo-atlas mcp-config`.
 
+## License
+
+MIT — see [LICENSE](LICENSE) for the full text.
+
 For detailed setup instructions, see [docs/atlas/setup.md](docs/atlas/setup.md).
 For daemon and MCP client configuration, see [docs/atlas/daemon-mcp.md](docs/atlas/daemon-mcp.md).
 For storage migration guidance, see [docs/atlas/storage-migration.md](docs/atlas/storage-migration.md).
