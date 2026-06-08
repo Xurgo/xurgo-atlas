@@ -3962,6 +3962,86 @@ describe('exporting documentation', () => {
     expect(data.branch).toBe('main');
     expect(await fs.promises.readFile(statusPath, 'utf-8')).toBe(updatedStatus);
   });
+
+  it('should exclude stale unmanifested documents from export', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // Create a file in the managed store that is NOT listed in docs/manifest.yml
+    // and not in the always-owned paths.
+    await project.gitStore.applyAndCommit(
+      'main',
+      'docs/stale-unlisted-file.md',
+      '# Stale Unlisted File\n',
+      'Add stale unlisted doc',
+    );
+
+    // Also add a file that IS in the manifest (docs/atlas/setup.md) and
+    // a file that is always-owned (STATUS.md) to confirm they still export.
+    await project.gitStore.applyAndCommit(
+      'main',
+      'docs/atlas/setup.md',
+      '# Setup\n\nUpdated setup content.\n',
+      'Update manifest-listed doc',
+    );
+
+    // Get owned files and export only those
+    const ownedFiles = await project.getOwnedFiles('main');
+    const exportDir = path.join(tmpDir, 'export-filtered');
+
+    // Owned files should NOT include the stale unlisted file
+    expect(ownedFiles).not.toContain('docs/stale-unlisted-file.md');
+
+    // Owned files SHOULD include files from the manifest
+    expect(ownedFiles).toContain('docs/atlas/setup.md');
+
+    // Owned files SHOULD include always-owned paths
+    expect(ownedFiles).toContain('STATUS.md');
+
+    // Export with owned files filter
+    const exportedFiles = await project.gitStore.exportBranch('main', exportDir, ownedFiles);
+
+    // The stale file must not be exported
+    const staleFilePath = path.join(exportDir, 'docs/stale-unlisted-file.md');
+    await expect(fs.promises.stat(staleFilePath)).rejects.toThrow();
+
+    // Manifest-listed files must still be exported
+    const setupPath = path.join(exportDir, 'docs/atlas/setup.md');
+    await expect(fs.promises.stat(setupPath)).resolves.toBeDefined();
+
+    const statusExportPath = path.join(exportDir, 'STATUS.md');
+    await expect(fs.promises.stat(statusExportPath)).resolves.toBeDefined();
+  });
+
+  it('should export all files (legacy behavior) when no file filter is passed', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    // Add an unmanifested file to the managed store
+    await project.gitStore.applyAndCommit(
+      'main',
+      'docs/unlisted-legacy-file.md',
+      '# Unlisted Legacy File\n',
+      'Add unlisted doc to test legacy export',
+    );
+
+    // Export without file filter (legacy behavior)
+    const exportDir = path.join(tmpDir, 'export-legacy');
+    const exportedFiles = await project.gitStore.exportBranch('main', exportDir);
+
+    // Legacy export should still include the unlisted file
+    expect(exportedFiles).toContain('docs/unlisted-legacy-file.md');
+    const legacyPath = path.join(exportDir, 'docs/unlisted-legacy-file.md');
+    await expect(fs.promises.stat(legacyPath)).resolves.toBeDefined();
+  });
 });
 
 describe('GitStore workdir cleanup', () => {
