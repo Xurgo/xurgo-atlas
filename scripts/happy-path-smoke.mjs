@@ -320,6 +320,7 @@ async function main() {
       if (!out.includes('successfully')) throw new Error('init did not report success');
     });
     xaCheck('project list', 'project list', projectId);
+    xaCheck('docs list', `list --project-root "${projectDir}"`, ['projectId', 'branch', 'files']);
 
     // ═══════════ 6. STATUS (no daemon) ────────────────────────
     heading('Pre-daemon checks');
