@@ -516,55 +516,181 @@ describe('existing doc preservation during template init', () => {
   });
 });
 
-// ── Default init still works without --template ─────────────────────────
+// ── Plain init vs explicit --template flag ────────────────────────────
 
-describe('default init without --template flag', () => {
-  it('produces same files as --template default', async () => {
-    const root1 = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-noflag-'));
-    const root2 = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-flag-'));
-    const configDir = path.join(root1, 'config');
-    const dataDir = path.join(root1, 'data');
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+describe('plain init does not create template-specific docs', () => {
+  it('plain init on empty project creates standard files only, no template docs', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-plain-empty-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
 
     try {
-      // Init without --template
+      // Init without --template on empty project
       await initCommand({
-        projectRoot: root1,
-        projectId: 'noflag',
+        projectRoot: root,
+        projectId: 'plain-empty',
         configDir,
         dataDir,
       });
 
-      // Init with --template default
+      // Standard foundation files should exist
+      expect(await fileExists(path.join(root, 'STATUS.md'))).toBe(true);
+      expect(await fileExists(path.join(root, 'AGENTS.md'))).toBe(true);
+      expect(await fileExists(path.join(root, '.docs-policy.yml'))).toBe(true);
+      expect(await fileExists(path.join(root, 'docs', 'manifest.yml'))).toBe(true);
+
+      // Template-specific docs should NOT exist on plain init
+      expect(await fileExists(path.join(root, 'docs', 'project-brief.md'))).toBe(false);
+
+      // Manifest should NOT contain template-specific paths
+      const manifestContent = await fs.promises.readFile(
+        path.join(root, 'docs', 'manifest.yml'), 'utf-8',
+      );
+      expect(manifestContent).not.toContain('project-brief');
+    } finally {
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('--template default on empty project creates standard + template docs', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-explicit-default-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+
+    try {
+      // Init with explicit --template default
       await initCommand({
-        projectRoot: root2,
-        projectId: 'flag',
-        configDir: path.join(root2, 'config'),
-        dataDir: path.join(root2, 'data'),
+        projectRoot: root,
+        projectId: 'explicit-default',
+        configDir,
+        dataDir,
         template: 'default',
       });
 
-      // Both should have the same files (STATUS.md, AGENTS.md, .docs-policy.yml, manifest, README, etc.)
-      const files1 = await fs.promises.readdir(root1).then((entries) => entries.sort());
-      const files2 = await fs.promises.readdir(root2).then((entries) => entries.sort());
+      // Standard foundation files should exist
+      expect(await fileExists(path.join(root, 'STATUS.md'))).toBe(true);
+      expect(await fileExists(path.join(root, 'AGENTS.md'))).toBe(true);
+      expect(await fileExists(path.join(root, '.docs-policy.yml'))).toBe(true);
 
-      // Both should have at least the core project files
-      expect(await fileExists(path.join(root1, 'STATUS.md'))).toBe(true);
-      expect(await fileExists(path.join(root2, 'STATUS.md'))).toBe(true);
-      expect(await fileExists(path.join(root1, 'AGENTS.md'))).toBe(true);
-      expect(await fileExists(path.join(root2, 'AGENTS.md'))).toBe(true);
-      expect(await fileExists(path.join(root1, '.docs-policy.yml'))).toBe(true);
-      expect(await fileExists(path.join(root2, '.docs-policy.yml'))).toBe(true);
+      // Template-specific docs SHOULD exist with explicit --template default
+      expect(await fileExists(path.join(root, 'docs', 'project-brief.md'))).toBe(true);
 
-      // Both should have project-brief.md (default template creates it)
-      expect(await fileExists(path.join(root1, 'docs', 'project-brief.md'))).toBe(true);
-      expect(await fileExists(path.join(root2, 'docs', 'project-brief.md'))).toBe(true);
+      // Manifest should include the template-specific path
+      const manifestContent = await fs.promises.readFile(
+        path.join(root, 'docs', 'manifest.yml'), 'utf-8',
+      );
+      expect(manifestContent).toContain('project-brief');
     } finally {
-      logSpy.mockRestore();
-      errSpy.mockRestore();
-      await fs.promises.rm(root1, { recursive: true, force: true });
-      await fs.promises.rm(root2, { recursive: true, force: true });
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('plain init on existing documented repo does not create template docs', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-plain-existing-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+
+    try {
+      // Set up an existing documented repo (pre-create standard files + manifest)
+      await fs.promises.mkdir(path.join(root, 'docs'), { recursive: true });
+      await fs.promises.writeFile(path.join(root, 'STATUS.md'), '# Existing Status\n', 'utf-8');
+      await fs.promises.writeFile(path.join(root, 'AGENTS.md'), '# Existing Agents\n', 'utf-8');
+      await fs.promises.writeFile(path.join(root, '.docs-policy.yml'), 'version: 1\n', 'utf-8');
+      await fs.promises.writeFile(path.join(root, 'docs', 'manifest.yml'), 'version: 1\ndocuments: []\n', 'utf-8');
+
+      // Plain init — should not create template-specific files
+      await initCommand({
+        projectRoot: root,
+        projectId: 'plain-existing',
+        configDir,
+        dataDir,
+      });
+
+      // Standard files preserved, no template docs created
+      expect(await fileExists(path.join(root, 'docs', 'project-brief.md'))).toBe(false);
+      expect(await fileExists(path.join(root, 'docs', 'product-brief.md'))).toBe(false);
+      expect(await fileExists(path.join(root, 'docs', 'cli-surface.md'))).toBe(false);
+
+      // Manifest preserved unchanged
+      const manifestContent = await fs.promises.readFile(
+        path.join(root, 'docs', 'manifest.yml'), 'utf-8',
+      );
+      expect(manifestContent).toContain('documents: []');
+    } finally {
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('explicit --template on existing repo creates missing template docs', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-explicit-existing-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+
+    try {
+      // Set up an existing documented repo
+      await fs.promises.mkdir(path.join(root, 'docs'), { recursive: true });
+      await fs.promises.writeFile(path.join(root, 'STATUS.md'), '# Existing Status\n', 'utf-8');
+      await fs.promises.writeFile(path.join(root, 'AGENTS.md'), '# Existing Agents\n', 'utf-8');
+      await fs.promises.writeFile(path.join(root, '.docs-policy.yml'), 'version: 1\n', 'utf-8');
+      await fs.promises.writeFile(path.join(root, 'docs', 'manifest.yml'), 'version: 1\ndocuments: []\n', 'utf-8');
+
+      // Init with explicit --template saas
+      await initCommand({
+        projectRoot: root,
+        projectId: 'explicit-existing',
+        configDir,
+        dataDir,
+        template: 'saas',
+      });
+
+      // Template docs should be created
+      expect(await fileExists(path.join(root, 'docs', 'product-brief.md'))).toBe(true);
+      expect(await fileExists(path.join(root, 'docs', 'development-workflow.md'))).toBe(true);
+
+      // Existing standard files preserved
+      const statusContent = await fs.promises.readFile(path.join(root, 'STATUS.md'), 'utf-8');
+      expect(statusContent).toContain('Existing Status');
+
+      // Existing manifest preserved (not overwritten with template entries)
+      const manifestContent = await fs.promises.readFile(
+        path.join(root, 'docs', 'manifest.yml'), 'utf-8',
+      );
+      expect(manifestContent).toContain('documents: []');
+    } finally {
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('--template default on existing repo creates project-brief.md', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-default-existing-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+
+    try {
+      // Set up an existing documented repo (no project-brief yet)
+      await fs.promises.mkdir(path.join(root, 'docs'), { recursive: true });
+      await fs.promises.writeFile(path.join(root, 'STATUS.md'), '# Existing\n', 'utf-8');
+      await fs.promises.writeFile(path.join(root, 'docs', 'manifest.yml'), 'version: 1\ndocuments: []\n', 'utf-8');
+
+      // Init with --template default
+      await initCommand({
+        projectRoot: root,
+        projectId: 'default-existing',
+        configDir,
+        dataDir,
+        template: 'default',
+      });
+
+      // project-brief.md should be created
+      expect(await fileExists(path.join(root, 'docs', 'project-brief.md'))).toBe(true);
+
+      // Manifest preserved
+      const manifestContent = await fs.promises.readFile(
+        path.join(root, 'docs', 'manifest.yml'), 'utf-8',
+      );
+      expect(manifestContent).toContain('documents: []');
+    } finally {
+      await fs.promises.rm(root, { recursive: true, force: true });
     }
   });
 

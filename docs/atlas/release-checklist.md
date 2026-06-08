@@ -48,13 +48,26 @@
 
 ## Release Steps
 
+### Private RC (Local Bundle)
+
 1. [ ] Run `npm run validate:full` on a clean working tree at the target commit
-2. [ ] Update version in `package.json` (if releasing)
-3. [ ] Create release commit
-4. [ ] Tag the release
-5. [ ] Push tag
-6. [ ] Publish to npm (only with **explicit approval**)
-7. [ ] Verify installed package works end-to-end
+2. [ ] Run `npm run verify:installed` to confirm installed-package behavior
+3. [ ] Run `npm run bundle:private-rc` to generate a reviewer-ready artifact bundle
+4. [ ] Send the bundle directory (`artifacts/private-rc/<timestamp>-<short-head>/`) to reviewer
+5. [ ] Reviewer runs `npm run smoke` or `npm run smoke:keep` inside the bundle directory
+6. [ ] Reviewer marks approval (or documents issues found)
+
+### Public npm Release
+
+1. [ ] Run `npm run validate:full` on a clean working tree at the target commit
+2. [ ] Run `npm run verify:installed` to confirm installed-package behavior
+3. [ ] Confirm `XURGO_ATLAS_PUBLISH=1` is set in the environment — `prepublishOnly` blocks `npm publish` without it
+4. [ ] Update version in `package.json` (if releasing)
+5. [ ] Create release commit
+6. [ ] Tag the release
+7. [ ] Push tag
+8. [ ] Run `npm publish` (only with **explicit approval**, requires `XURGO_ATLAS_PUBLISH=1`)
+9. [ ] Verify installed package works end-to-end (`npm install -g xurgo-atlas`)
 
 ## Post-Release Verification
 
