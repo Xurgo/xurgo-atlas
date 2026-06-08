@@ -463,6 +463,145 @@ describe('storage discovery workflows', () => {
   });
 });
 
+// ── Pre-init error handling ────────────────────────────────────────
+
+describe('pre-init error handling', () => {
+  it('should exit with a clear message when list is run before init', async () => {
+    const projectRoot = path.join(tmpDir, 'never-initialized');
+    await fs.promises.mkdir(projectRoot, { recursive: true });
+
+    // Create project files so requireInit passes, but no registry entry exists
+    await fs.promises.writeFile(
+      path.join(projectRoot, '.docs-policy.yml'),
+      'protected_paths:\n  - docs/**\n',
+      'utf-8',
+    );
+    await fs.promises.mkdir(path.join(projectRoot, 'docs'), { recursive: true });
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    });
+
+    try {
+      await expect(
+        listCommand(projectRoot, path.join(tmpDir, 'config'), path.join(tmpDir, 'data')),
+      ).rejects.toThrow('process.exit(1)');
+
+      // Should print an actionable error about running init
+      const output = errorSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+      expect(output).toContain('not registered');
+      expect(output).toContain('xurgo-atlas init');
+    } finally {
+      errorSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+  });
+
+  it('should exit with a clear message when list is run from outside a project root', async () => {
+    const nonProjectDir = path.join(tmpDir, 'non-project');
+    await fs.promises.mkdir(nonProjectDir, { recursive: true });
+    // No project files here
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    });
+
+    try {
+      await expect(
+        listCommand(nonProjectDir, path.join(tmpDir, 'config'), path.join(tmpDir, 'data')),
+      ).rejects.toThrow('process.exit(1)');
+
+      // requireInit should catch this — no project files
+      const output = errorSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+      expect(output).toContain('not been initialized');
+      expect(output).toContain('xurgo-atlas init');
+    } finally {
+      errorSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+  });
+
+  it('should exit with a clear message when history is run before init', async () => {
+    const projectRoot = path.join(tmpDir, 'uninit-history');
+    await fs.promises.mkdir(projectRoot, { recursive: true });
+    // No project files
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    });
+
+    try {
+      await expect(
+        historyCommand(projectRoot, 'docs/README.md', path.join(tmpDir, 'config'), path.join(tmpDir, 'data')),
+      ).rejects.toThrow('process.exit(1)');
+
+      const output = errorSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+      expect(output).toContain('not been initialized');
+    } finally {
+      errorSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+  });
+
+  it('should exit with a clear message when export is run before init', async () => {
+    const projectRoot = path.join(tmpDir, 'uninit-export');
+    await fs.promises.mkdir(projectRoot, { recursive: true });
+    // No project files
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    });
+
+    try {
+      await expect(
+        exportCommand(projectRoot, 'main', path.join(tmpDir, 'config'), path.join(tmpDir, 'data')),
+      ).rejects.toThrow('process.exit(1)');
+
+      const output = errorSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+      expect(output).toContain('not been initialized');
+    } finally {
+      errorSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+  });
+
+  it('should not throw an unhandled GitConstructError stack trace from list', async () => {
+    const projectRoot = path.join(tmpDir, 'git-construct-test');
+    await fs.promises.mkdir(projectRoot, { recursive: true });
+    // Only project files but no init
+    await fs.promises.writeFile(
+      path.join(projectRoot, '.docs-policy.yml'),
+      'protected_paths:\n  - docs/**\n',
+      'utf-8',
+    );
+    await fs.promises.mkdir(path.join(projectRoot, 'docs'), { recursive: true });
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    });
+
+    try {
+      const err = await listCommand(
+        projectRoot,
+        path.join(tmpDir, 'config'),
+        path.join(tmpDir, 'data'),
+      ).catch((e) => e);
+
+      // Must never throw GitConstructError
+      expect(String(err)).not.toContain('GitConstructError');
+      expect(String(err)).not.toContain('Cannot use simple-git on a directory that does not exist');
+    } finally {
+      errorSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+  });
+});
+
 // ── Project initialization (v0.3 managed storage) ────────────────────
 
 describe('project initialization', () => {
