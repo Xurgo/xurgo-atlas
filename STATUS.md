@@ -18,7 +18,7 @@ relatedDocs:
   - docs/atlas/daemon-mcp.md
   - docs/atlas/storage-migration.md
   - docs/atlas/release-checklist.md
-lastUpdated: "2026-06-04"
+lastUpdated: "2026-06-08"
 ---
 
 # Project Status
@@ -34,6 +34,7 @@ The repeat audit passed as a conditional go for a private RC workflow in the act
 Storage migration readiness is solid for a private RC. `xurgo-atlas storage migrate --apply` remains intentionally conservative and copy-only: it never deletes legacy roots, never overwrites or merges into populated or conflicting Atlas targets, skips runtime artifacts, validates copied stores, and repairs copied Git metadata such as bare `HEAD`, workdir alternates, and origin remote URLs. Existing protected-doc behavior remains intact: traversal, malformed or prose-only patch input, stale base revisions, and non-applyable patch validation are still enforced, and branch-safe export still refuses cross-branch sync drift.
 
 ## Recently Completed
+- Private RC validation passed: bundle smoke, clone/install, opencode MCP read, init templates, and existing-doc preservation all verified successfully.
 - `eb9a758 merge: private rc readiness fixes` merges `9685855 fix: resolve private rc readiness blockers`, landing the release-facing setup/doc sync, daemon help, MCP endpoint guidance, and reduced default MCP request logging fixes on `main` and `origin/main`.
 - Managed docs main was resynced after the merge via the guarded restore workflow so `docs.status` / `docs.read` now match the intended source `HEAD` content again for the key release-facing docs.
 - A repeat read-only private RC readiness audit passed with a conditional-go recommendation for a private RC workflow in the active local development environment and confirmed validation, CLI/daemon behavior, MCP HTTP behavior, logging posture, package hygiene, and storage-migration readiness.
