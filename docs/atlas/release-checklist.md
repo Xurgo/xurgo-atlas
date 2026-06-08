@@ -62,12 +62,13 @@
 1. [ ] Run `npm run validate:full` on a clean working tree at the target commit
 2. [ ] Run `npm run verify:installed` to confirm installed-package behavior
 3. [ ] Confirm `XURGO_ATLAS_PUBLISH=1` is set in the environment — `prepublishOnly` blocks `npm publish` without it
-4. [ ] Update version in `package.json` (if releasing)
-5. [ ] Create release commit
-6. [ ] Tag the release
-7. [ ] Push tag
-8. [ ] Run `npm publish` (only with **explicit approval**, requires `XURGO_ATLAS_PUBLISH=1`)
-9. [ ] Verify installed package works end-to-end (`npm install -g xurgo-atlas`)
+4. [ ] `LICENSE` file exists and `package.json` license field is `MIT`
+5. [ ] Update version in `package.json` (if releasing)
+6. [ ] Create release commit
+7. [ ] Tag the release
+8. [ ] Push tag
+9. [ ] Run `npm publish` (only with **explicit approval**, requires `XURGO_ATLAS_PUBLISH=1`)
+10. [ ] Verify installed package works end-to-end (`npm install -g xurgo-atlas`)
 
 ## Post-Release Verification
 

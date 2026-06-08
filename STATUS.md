@@ -6,7 +6,7 @@ currentFocus: "Private RC readiness audit passed as a conditional go for a priva
 nextActions:
   - "A private RC workflow may proceed conditionally after this status sync; re-verify install and setup guidance in the active local development environment before broadening confidence"
   - "Keep legacy backup directories in place until more normal Atlas workflows complete, and keep storage migration conservative: `storage migrate --apply` remains copy-only, never deletes legacy roots, refuses populated or conflicting Atlas targets, skips runtime artifacts, validates copied stores, and repairs copied Git metadata as needed"
-  - "Track future hardening separately: reusable managed workdirs should self-heal or be recreated when stored Git metadata points at missing legacy paths, and public-release-only polish such as publish guards or LICENSE / packaging cleanup remains later"
+  - "Track future hardening separately: reusable managed workdirs should self-heal or be recreated when stored Git metadata points at missing legacy paths, and public-release-only polish such as publish guards and packaging cleanup remains later"
 blockers:
 doNotDo:
   - "Do not edit STATUS.md, manifest.yml, or .docs-policy.yml directly"
@@ -47,7 +47,7 @@ Storage migration readiness is solid for a private RC. `xurgo-atlas storage migr
 - Proceed with a private RC workflow conditionally in the active local development environment; re-verify install and setup behavior there before broadening confidence
 - Keep legacy backup directories until more normal Atlas workflows complete, rather than cleaning them up early
 - Keep future storage migration hardening conservative, especially around reusable managed workdir self-healing or clean recreation when stored Git metadata points at missing legacy paths
-- Keep public-release-only hardening for later: publish guards and LICENSE / packaging polish if the project moves beyond a private RC
+- Keep public-release-only hardening for later: publish guards and packaging polish if the project moves beyond a private RC
 
 ## Blockers
 - None for a private RC workflow; no public tag, publish, or release should occur without explicit approval
