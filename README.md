@@ -2,31 +2,57 @@
 
 Safe, versioned, auditable documentation management for AI-assisted projects.
 
-> **⚠️ Pre-release.** This project is not publicly released. Do not publish, tag, or release without explicit approval.
+> **⚠️ Pre-release — private RC.** This project is not publicly published. Use the private RC tarball for testing. Do not publish, tag, or release without explicit approval.
 
 ## Quick Start
+
+### Private RC (current)
+
+For private RC testing, clone the repo, build, and install from the workspace. The `bundle:private-rc` script generates a portable reviewer-ready artifact.
 
 ```bash
 # Prerequisites: Node.js >= 22, npm
 
-# Install and build
 git clone <repo-url>
 cd xurgo-atlas
 npm install
 npm run build
 
-# Initialize a project (most users do not need --config-dir or --data-dir)
-xurgo-atlas init --project-id my-project --project-root .
+# Run full validation (optional but recommended)
+npm run validate:full
 
-# Start the MCP daemon
-xurgo-atlas daemon start
+# Quick smoke check
+npm run verify:installed
 
-# Check setup status
-xurgo-atlas status
-
-# Print MCP client connection guidance
-xurgo-atlas mcp-config
+# Generate a private RC reviewer bundle
+npm run bundle:private-rc
 ```
+
+After installing the tarball into a cloned project, `npx xurgo-atlas` resolves from the local install:
+
+```bash
+npm install -D /path/to/xurgo-atlas-0.1.0.tgz
+npx xurgo-atlas init --project-id my-project --project-root .
+npx xurgo-atlas daemon start
+npx xurgo-atlas mcp-config
+```
+
+### Public npm (future)
+
+After public npm publication (not yet):
+
+```bash
+# Install globally or as a project dependency
+npm install -g xurgo-atlas
+# or: npm install -D xurgo-atlas
+
+# Then npx resolves from the npm registry
+npx xurgo-atlas init --project-id my-project --project-root .
+npx xurgo-atlas daemon start
+npx xurgo-atlas mcp-config
+```
+
+> No public release has happened yet. All current usage is via the private RC tarball workflow.
 
 Configure your MCP client with the endpoint and JSON snippet printed by `xurgo-atlas mcp-config`.
 
