@@ -335,9 +335,14 @@ export async function exportCommand(
 
   console.log(`Exporting branch "${branch}" to "${exportTarget}"...`);
 
+  // Export only current owned/tracked docs to prevent stale or
+  // unmanifested files from leaking into the working tree.
+  const ownedFiles = await project.getOwnedFiles(branch);
+
   const exportedFiles = await project.gitStore.exportBranch(
     branch,
     exportTarget,
+    ownedFiles,
   );
 
   console.log(`Exported ${exportedFiles.length} files:`);
