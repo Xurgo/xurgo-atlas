@@ -23,14 +23,38 @@
 - [ ] Release checklist is current
 - [ ] Guarded docs are current: `STATUS.md`, `AGENTS.md`, `docs/manifest.yml`, `.docs-policy.yml`
 
-## Private RC Workflow
+## Private RC Bundle Dummy-Project Reviewer Workflow
 
-- [ ] Generated `PRIVATE_REVIEWER_CHECKLIST.md` covers bundle smoke, clone/install project test, template guidance, and MCP/opencode verification
-- [ ] Clone/install workflow: install tarball into cloned project, verify CLI, daemon, and MCP
-- [ ] Template guidance explains when to use or omit `--template` and that existing docs are preserved
-- [ ] MCP verification prompt instructs reviewer to verify through MCP tools, not filesystem reads
-- [ ] Bundle-local `npm run smoke` and `npm run smoke:keep` are the recommended reviewer commands
-- [ ] No stale repo-level command names (`smoke:installed`, `smoke:happy-path`, `artifact:private-rc`, `rc:private`) appear in generated docs
+- **Source repo:** run `npm run bundle:private-rc` here, keep the tree clean, and do not use this checkout as the dummy consumer project.
+- **Private RC bundle directory:** use `artifacts/private-rc/<timestamp>-<short-head>/` as the generated artifact bundle. It contains `xurgo-atlas-0.1.0.tgz`, `PRIVATE_REVIEWER_CHECKLIST.md`, `REVIEWER_INSTALL_SMOKE.mjs`, `SHA256SUMS.txt`, `MANIFEST.json`, `PRIVATE_RC_SUMMARY.md`, and related bundle files. Run bundle-local `npm run smoke` here. Do not treat this directory as the project being documented.
+- **Dummy consumer project:** use a fresh isolated project, preferably under `/tmp`, install the tarball with `npm install -D "$TARBALL"`, and review `npx xurgo-atlas` help, init, list, status, daemon, and MCP behavior here.
+
+High-level command sequence:
+
+```sh
+BUNDLE_DIR="$(ls -td artifacts/private-rc/* | head -1)"
+TARBALL="$BUNDLE_DIR/xurgo-atlas-0.1.0.tgz"
+
+cd "$BUNDLE_DIR"
+npm run smoke
+
+rm -rf /tmp/xurgo-atlas-rc-review
+mkdir -p /tmp/xurgo-atlas-rc-review/dummy-project
+cd /tmp/xurgo-atlas-rc-review/dummy-project
+git init -b main
+npm init -y
+npm install -D "$TARBALL"
+npx xurgo-atlas --help
+npx xurgo-atlas list
+npx xurgo-atlas init --template mcp-server --project-id dummy-rc-review
+npx xurgo-atlas list
+npx xurgo-atlas status
+npx xurgo-atlas mcp-config
+```
+
+- Expected pre-init `list` behavior: clear actionable error, no unhandled stack trace, and no `GitConstructError`.
+- Existing-doc preservation expectations: `STATUS.md`, `AGENTS.md`, and `docs/manifest.yml` are preserved; template init only creates missing docs.
+- MCP/opencode verification expectations: verify through MCP tools only, do not read files directly from the filesystem for MCP verification, do not modify files, do not propose patches, and do not commit during reviewer verification.
 
 ## Storage
 
@@ -54,8 +78,9 @@
 2. [ ] Run `npm run verify:installed` to confirm installed-package behavior
 3. [ ] Run `npm run bundle:private-rc` to generate a reviewer-ready artifact bundle
 4. [ ] Send the bundle directory (`artifacts/private-rc/<timestamp>-<short-head>/`) to reviewer
-5. [ ] Reviewer runs `npm run smoke` or `npm run smoke:keep` inside the bundle directory
-6. [ ] Reviewer marks approval (or documents issues found)
+5. [ ] Reviewer runs `npm run smoke` inside the bundle directory, then verifies the dummy consumer project flow outside the bundle
+6. [ ] Reviewer confirms the bundle checklist separates the source repo, bundle directory, and dummy consumer project
+7. [ ] Reviewer marks approval (or documents issues found)
 
 ### Public npm Release
 
