@@ -37,6 +37,10 @@ npx xurgo-atlas daemon start
 npx xurgo-atlas mcp-config
 ```
 
+`init` writes a local `.xurgo-atlas/project.json` marker in the project root. That marker is sticky: rerunning `init` with the same project id is safe, but Atlas will fail clearly instead of silently rebinding the project root to a different id. Project ids are also globally unique in the registry, so `init` will refuse to register an existing id to a different root.
+
+After init, the normal happy path can run from the project root or a nested subdirectory without repeating `--project-id` and `--project-root`. Explicit flags still work for advanced cases, but Atlas now fails clearly if an explicit project id conflicts with the current project marker or the provided `--project-root`.
+
 ### Public npm (future)
 
 After public npm publication (not yet):
@@ -105,7 +109,7 @@ Xurgo Atlas provides two interfaces for managing documentation:
 ### stdio mode vs daemon mode
 
 - **stdio mode** (`xurgo-atlas server`): The MCP server runs on standard input/output, suitable for local development and direct integration with MCP clients.
-- **daemon mode** (`xurgo-atlas daemon`): The MCP server runs as an HTTP server using Streamable HTTP transport, allowing multiple agents to connect over HTTP. This mode supports multi-project setups via a global project registry.
+- **daemon mode** (`xurgo-atlas daemon`): The MCP server runs as an HTTP server using Streamable HTTP transport, allowing multiple agents to connect over HTTP. The daemon resolves the current project from the local project marker, an ancestor marker, or an explicit project registration, so the normal start command works from inside an initialized project without repeating flags. If the current directory resolves to one project and explicit flags point at another, startup fails clearly instead of silently serving the wrong project.
 
 ### Managed storage (advanced)
 
@@ -120,6 +124,8 @@ Managed state (Git repositories, event logs) lives outside the project tree in c
 Override defaults with `--config-dir` and `--data-dir` CLI flags on `init`, `server`, `daemon`, and `project` commands, or set `XURGO_ATLAS_CONFIG_DIR` / `XURGO_ATLAS_DATA_DIR` environment variables for CI, containers, or isolated testing.
 
 Legacy `docu-guard` roots are auto-discovered for migration compatibility. Use `xurgo-atlas status` to check your current setup. See [docs/atlas/storage-migration.md](docs/atlas/storage-migration.md) for legacy migration (advanced/admin).
+
+Each initialized project also gets a local `.xurgo-atlas/project.json` marker that records the project id only. That marker lets later commands find the current project from the project root or a nested subdirectory without storing an absolute project root in the repo. Atlas preserves a matching marker, refuses to overwrite a conflicting marker, and refuses to register the same project id to multiple roots.
 
 ### Global project registry
 

@@ -55,6 +55,11 @@ documents:
     priority: high
     summary: Pre-release validation checklist and release steps
 
+  - path: docs/atlas/project-resolution-hardening.md
+    role: roadmap
+    priority: high
+    summary: Tracks project-resolution hardening follow-ups from the 0.1.0 RC process
+
   - path: docs/atlas/development-workflow.md
     role: reference
     priority: high
