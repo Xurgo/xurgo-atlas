@@ -18,6 +18,16 @@ xurgo-atlas daemon
 
 The daemon runs on `http://127.0.0.1:3737` by default.
 
+## Project Resolution
+
+When a project has been initialized, `daemon start` can resolve the current project from the local `.xurgo-atlas/project.json` marker in the project root or any nested subdirectory. Startup output prints the resolved project id, project root, and whether the resolution came from explicit flags, a local marker, an ancestor marker, or registry lookup.
+
+Project identity is sticky. If the current directory resolves to project `A`, `daemon start --project-id B` now fails clearly instead of silently serving `B`. If that advanced workflow is intentional, pass both a matching `--project-id` and `--project-root` for the intended project.
+
+`daemon start` also no longer falls back silently to the registry default from an unrelated non-project directory. If project resolution fails, the daemon exits before binding a port and prints a human-readable message that explains how to initialize or point at the correct project root.
+
+If you start from the wrong directory, move to the current project root and rerun the command there. For advanced workflows outside the current project, pass a matching `--project-id` and `--project-root` (or a nested path inside that project) so the daemon can resolve the intended project explicitly.
+
 ## MCP Endpoint
 
 The daemon exposes a Streamable HTTP MCP endpoint:
