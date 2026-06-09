@@ -38,6 +38,10 @@ xurgo-atlas mcp-config
 
 Stop here for normal use. The daemon serves the MCP endpoint at `http://127.0.0.1:3737/mcp`. Configure your MCP client using the snippet printed by `xurgo-atlas mcp-config`.
 
+`init` writes a local `.xurgo-atlas/project.json` marker in the project root. The marker stores the project id only, not an absolute project root. That identity is sticky: Atlas preserves the matching marker for the same project id, fails clearly instead of overwriting it with a different project id, and refuses to register the same project id to a different root.
+
+After init, `daemon start`, `list`, `history`, and `export` can resolve the current project from the project root or a nested subdirectory without repeating `--project-id` or `--project-root`. Explicit flags still work for advanced cases, but conflicting project identity fails clearly instead of silently serving the wrong project.
+
 ### Init Templates
 
 `xurgo-atlas init` supports optional documentation templates for bootstrapping project docs:

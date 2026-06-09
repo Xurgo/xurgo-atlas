@@ -7,7 +7,7 @@ import { Project } from '../src/core/project.js';
 import { Registry } from '../src/core/registry.js';
 import { StoragePaths } from '../src/core/storage.js';
 
-const PORT = 37375;
+let port = 0;
 
 function requestRaw(body: unknown): Promise<{ status: number; body: unknown }> {
   return new Promise((resolve, reject) => {
@@ -15,7 +15,7 @@ function requestRaw(body: unknown): Promise<{ status: number; body: unknown }> {
     const req = http.request(
       {
         hostname: '127.0.0.1',
-        port: PORT,
+        port,
         path: '/mcp',
         method: 'POST',
         headers: {
@@ -167,8 +167,13 @@ describe('Daemon integration', () => {
       res.end(JSON.stringify({ error: 'Not found' }));
     });
 
-    await new Promise<void>((resolve) => server.listen(PORT, '127.0.0.1', resolve));
-  });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Failed to resolve daemon test server address');
+    }
+    port = address.port;
+  }, 30000);
 
   afterAll(async () => {
     if (server) {

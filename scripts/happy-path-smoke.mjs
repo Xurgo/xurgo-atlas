@@ -341,7 +341,7 @@ async function main() {
     heading('Daemon');
 
     syncStep('daemon start', () => {
-      const out = xa(`daemon start --host ${DAEMON_HOST} --port ${port}`);
+      const out = xa(`daemon start --host ${DAEMON_HOST} --port ${port}`, { cwd: projectDir });
       if (!out.includes('Started') && !out.includes('already running')) {
         throw new Error('daemon did not start');
       }

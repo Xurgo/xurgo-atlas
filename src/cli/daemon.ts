@@ -3,7 +3,13 @@ import * as fs from 'node:fs';
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Project } from '../core/project.js';
-import { Registry } from '../core/registry.js';
+import { Registry, RegistryError } from '../core/registry.js';
+import {
+  formatProjectResolutionSource,
+  ProjectResolution,
+  ProjectResolutionError,
+  resolveProjectContext,
+} from '../core/project-resolution.js';
 import { StoragePaths } from '../core/storage.js';
 import { createMcpServer } from '../mcp/create-server.js';
 import { startHttpServer, closeHttpServer } from '../mcp/http.js';
@@ -81,8 +87,8 @@ OPTIONS:
   --port <port>          Port to listen on (default: 3737)
   --config-dir <path>    Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR)
   --data-dir <path>      Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR)
-  --project-id <id>      Optional: register a project on startup
-  --project-root <path>  Optional: project root (used with --project-id)
+  --project-id <id>      Optional: resolve a specific project on startup
+  --project-root <path>  Optional: project root or nested path used for auto-resolution
 
 EXAMPLES:
   xurgo-atlas daemon
@@ -116,6 +122,7 @@ export function getDaemonPidFilePath(storage: StoragePaths): string {
 export function buildBackgroundDaemonArgs(
   options: ResolvedDaemonOptions,
   pidFile: string,
+  project?: ProjectResolution,
 ): string[] {
   const args = ['daemon', '--host', options.host, '--port', String(options.port), '--pid-file', pidFile];
 
@@ -125,11 +132,16 @@ export function buildBackgroundDaemonArgs(
   if (options.dataDir) {
     args.push('--data-dir', options.dataDir);
   }
-  if (options.projectId) {
-    args.push('--project-id', options.projectId);
-  }
-  if (options.projectRoot) {
-    args.push('--project-root', options.projectRoot);
+  if (project) {
+    args.push('--project-id', project.projectId);
+    args.push('--project-root', project.projectRoot);
+  } else {
+    if (options.projectId) {
+      args.push('--project-id', options.projectId);
+    }
+    if (options.projectRoot) {
+      args.push('--project-root', options.projectRoot);
+    }
   }
 
   return args;
@@ -146,6 +158,10 @@ export async function daemonCommand(
     dataDir: resolved.dataDir,
   });
 
+  let project: ProjectResolution | null = null;
+  if (resolved.action === 'foreground' || resolved.action === 'start') {
+    project = await resolveDaemonProjectOrExit(resolved, storage);
+  }
   await ensureStorageDirs(storage);
 
   const pidFile = resolved.pidFile
@@ -154,10 +170,10 @@ export async function daemonCommand(
 
   switch (resolved.action) {
     case 'foreground':
-      await runForegroundDaemon(resolved, storage, pidFile);
+      await runForegroundDaemon(resolved, storage, pidFile, project!);
       break;
     case 'start':
-      await startBackgroundDaemon(resolved, storage, pidFile, runtime);
+      await startBackgroundDaemon(resolved, storage, pidFile, runtime, project!);
       break;
     case 'stop':
       await stopBackgroundDaemon(pidFile, runtime);
@@ -172,9 +188,13 @@ async function runForegroundDaemon(
   options: ResolvedDaemonOptions,
   storage: StoragePaths,
   pidFile: string,
+  project: ProjectResolution,
 ): Promise<void> {
   console.error(
     `xurgo-atlas daemon — config: ${storage.configDir}, data: ${storage.dataDir}`,
+  );
+  console.error(
+    `Project: ${project.projectId} -> ${project.projectRoot} (${formatProjectResolutionSource(project.source)})`,
   );
 
   if (options.host !== '127.0.0.1' && options.host !== 'localhost') {
@@ -184,17 +204,9 @@ async function runForegroundDaemon(
     );
   }
 
-  if (options.projectId && options.projectRoot) {
-    const resolvedRoot = path.resolve(options.projectRoot);
-    const registry = await Registry.load(storage.configDir, storage.dataDir);
-    await registry.addProject(options.projectId, resolvedRoot);
-    console.error(
-      `Registered project "${options.projectId}" at ${resolvedRoot}`,
-    );
-  }
-
   const projectCache = new Map<string, Project>();
   let registry: Registry | null = null;
+  let startupProjectInstance: Project | null = null;
 
   async function getRegistry(): Promise<Registry> {
     if (!registry) {
@@ -204,6 +216,21 @@ async function runForegroundDaemon(
   }
 
   async function resolveProject(projectId: string): Promise<Project> {
+    if (projectId.trim().length === 0 || projectId.trim() === project.projectId) {
+      if (startupProjectInstance) {
+        return startupProjectInstance;
+      }
+
+      startupProjectInstance = await Project.load({
+        projectRoot: project.projectRoot,
+        projectId: project.projectId,
+        configDir: storage.configDir,
+        dataDir: storage.dataDir,
+      });
+      projectCache.set(project.projectId, startupProjectInstance);
+      return startupProjectInstance;
+    }
+
     const reg = await getRegistry();
     const resolvedProject = await reg.resolveOrFallback(projectId);
 
@@ -211,18 +238,21 @@ async function runForegroundDaemon(
       return projectCache.get(resolvedProject.projectId)!;
     }
 
-    const project = await Project.load({
+    const loadedProject = await Project.load({
       projectRoot: resolvedProject.projectRoot,
       projectId: resolvedProject.projectId,
       configDir: storage.configDir,
       dataDir: storage.dataDir,
     });
-    projectCache.set(resolvedProject.projectId, project);
-    return project;
+    projectCache.set(resolvedProject.projectId, loadedProject);
+    return loadedProject;
   }
 
   const createMcpServerForRequest = () =>
     createMcpServer(resolveProject, { version: '0.2.0' });
+
+  const registryForRegistration = await getRegistry();
+  await registryForRegistration.addProject(project.projectId, path.resolve(project.projectRoot));
 
   const { server } = await startHttpServer(createMcpServerForRequest, {
     host: options.host,
@@ -248,8 +278,8 @@ async function runForegroundDaemon(
     port: options.port,
     configDir: storage.configDir,
     dataDir: storage.dataDir,
-    projectId: options.projectId,
-    projectRoot: options.projectRoot ? path.resolve(options.projectRoot) : undefined,
+    projectId: project.projectId,
+    projectRoot: path.resolve(project.projectRoot),
     startedAt: new Date().toISOString(),
   });
 
@@ -285,11 +315,14 @@ async function startBackgroundDaemon(
   storage: StoragePaths,
   pidFile: string,
   deps: Required<DaemonCommandDeps>,
+  project: ProjectResolution,
 ): Promise<void> {
   const staleState = await inspectDaemonState(pidFile, deps.isProcessRunning);
   if (staleState.running && staleState.info) {
     console.log(
-      `xurgo-atlas daemon is already running (pid ${staleState.info.pid}) at ${formatDaemonUrl(staleState.info)}.`,
+      `xurgo-atlas daemon is already running for project "${staleState.info.projectId ?? project.projectId}" ` +
+        `at ${staleState.info.projectRoot ?? project.projectRoot} ` +
+        `(pid ${staleState.info.pid}) at ${formatDaemonUrl(staleState.info)}.`,
     );
     return;
   }
@@ -300,7 +333,7 @@ async function startBackgroundDaemon(
   await fs.promises.mkdir(path.dirname(pidFile), { recursive: true });
   const logPath = getDaemonLogPath(pidFile);
   const outputFd = fs.openSync(logPath, 'a');
-  const commandArgs = buildBackgroundDaemonArgs(options, pidFile);
+  const commandArgs = buildBackgroundDaemonArgs(options, pidFile, project);
   const cliEntry = fileURLToPath(new URL('../index.js', import.meta.url));
   const child = deps.spawnProcess(
     process.execPath,
@@ -322,7 +355,10 @@ async function startBackgroundDaemon(
 
   try {
     const info = await waitForDaemonStart(pidFile, child.pid, deps);
-    console.log(`Started xurgo-atlas daemon at ${formatDaemonUrl(info)}.`);
+    console.log(
+      `Started xurgo-atlas daemon for project "${project.projectId}" at ${project.projectRoot} ` +
+        `(${formatProjectResolutionSource(project.source)}) at ${formatDaemonUrl(info)}.`,
+    );
   } catch (error) {
     if (deps.isProcessRunning(child.pid)) {
       try {
@@ -540,6 +576,32 @@ function normalizeOptions(options: DaemonOptions): ResolvedDaemonOptions {
     projectRoot: options.projectRoot,
     pidFile: options.pidFile,
   };
+}
+
+async function resolveDaemonProjectOrExit(
+  options: ResolvedDaemonOptions,
+  storage: StoragePaths,
+): Promise<ProjectResolution> {
+  try {
+    return await resolveProjectContext({
+      projectId: options.projectId,
+      projectRoot: options.projectRoot,
+      cwd: process.cwd(),
+      configDir: storage.configDir,
+      dataDir: storage.dataDir,
+      allowRegistryDefault: false,
+    });
+  } catch (error: unknown) {
+    if (
+      error instanceof ProjectResolutionError ||
+      error instanceof RegistryError ||
+      error instanceof Error
+    ) {
+      console.error(error.message);
+      process.exit(1);
+    }
+    throw error;
+  }
 }
 
 function isErrno(error: unknown, code: string): boolean {
