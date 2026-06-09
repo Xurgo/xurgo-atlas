@@ -67,8 +67,8 @@ COMMANDS:
     --port <port>           Port to listen on (default: 3737)
     --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
     --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
-    --project-id <id>       Optional: register a project on startup
-    --project-root <path>   Optional: project root (used with --project-id)
+    --project-id <id>       Optional: resolve a specific project on startup
+    --project-root <path>   Optional: project root or nested path used for auto-resolution
     Without a subcommand, starts the foreground daemon exactly as before.
 
   status     Show the current setup status (read-only)

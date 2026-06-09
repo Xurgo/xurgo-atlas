@@ -643,6 +643,7 @@ describe('init success output', () => {
 
     const projectInitSpy = vi.spyOn(Project, 'init').mockResolvedValue({} as any);
     const registryLoadSpy = vi.spyOn(Registry, 'load').mockResolvedValue({
+      getProject: vi.fn().mockReturnValue(null),
       addProject: vi.fn().mockResolvedValue(undefined),
     } as any);
 
@@ -683,6 +684,7 @@ describe('init success output', () => {
 
     const projectInitSpy = vi.spyOn(Project, 'init').mockResolvedValue({} as any);
     const registryLoadSpy = vi.spyOn(Registry, 'load').mockResolvedValue({
+      getProject: vi.fn().mockReturnValue(null),
       addProject: vi.fn().mockResolvedValue(undefined),
     } as any);
 
@@ -1051,6 +1053,7 @@ describe('env var root overrides', () => {
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const projectInitSpy = vi.spyOn(Project, 'init').mockResolvedValue({} as any);
       const registryLoadSpy = vi.spyOn(Registry, 'load').mockResolvedValue({
+        getProject: vi.fn().mockReturnValue(null),
         addProject: vi.fn().mockResolvedValue(undefined),
       } as any);
 

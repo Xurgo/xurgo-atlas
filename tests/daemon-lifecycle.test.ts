@@ -9,6 +9,7 @@ import {
   getDaemonPidFilePath,
   resolveDaemonAction,
 } from '../src/cli/daemon.js';
+import { initCommand } from '../src/cli/init.js';
 import { StoragePaths } from '../src/core/storage.js';
 
 function makeTempRoot(): string {
@@ -166,6 +167,7 @@ describe('daemon lifecycle commands', () => {
     const root = makeTempRoot();
     const configDir = path.join(root, 'config');
     const dataDir = path.join(root, 'data');
+    const projectRoot = path.join(root, 'project');
     const pidFile = path.join(root, 'runtime', 'daemon.json');
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const unref = vi.fn();
@@ -189,6 +191,14 @@ describe('daemon lifecycle commands', () => {
     });
 
     try {
+      await fs.promises.mkdir(projectRoot, { recursive: true });
+      await initCommand({
+        projectRoot,
+        projectId: 'demo',
+        configDir,
+        dataDir,
+      });
+
       await daemonCommand(
         {
           action: 'start',
@@ -197,7 +207,7 @@ describe('daemon lifecycle commands', () => {
           configDir,
           dataDir,
           projectId: 'demo',
-          projectRoot: '/tmp/project',
+          projectRoot,
           pidFile,
         },
         {
@@ -217,7 +227,7 @@ describe('daemon lifecycle commands', () => {
       expect(childArgs).toContain('--project-root');
       expect(unref).toHaveBeenCalledTimes(1);
       expect(logSpy.mock.calls.join('\n')).toContain(
-        'Started xurgo-atlas daemon at http://127.0.0.1:3737/mcp.',
+        'Started xurgo-atlas daemon for project "demo"',
       );
     } finally {
       await fs.promises.rm(root, { recursive: true, force: true });

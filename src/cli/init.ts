@@ -4,6 +4,11 @@ import { Project } from '../core/project.js';
 import { Registry, RegistryError } from '../core/registry.js';
 import { StoragePaths } from '../core/storage.js';
 import {
+  ensureProjectMarker,
+  ProjectResolutionError,
+  resolveProjectContext,
+} from '../core/project-resolution.js';
+import {
   getTemplate,
   getTemplateListText,
   isValidTemplate,
@@ -97,6 +102,17 @@ export async function initCommand(options: InitOptions): Promise<void> {
     dataDir: options.dataDir,
   });
 
+  const registry = await Registry.load(options.configDir, options.dataDir);
+  const existingProject = registry.getProject(options.projectId);
+  if (existingProject && path.resolve(existingProject.projectRoot) !== resolvedRoot) {
+    console.error(
+      `Project id "${options.projectId}" is already registered to ${existingProject.projectRoot}. ` +
+        'Project ids must be globally unique. Use a different project id or run init from the ' +
+        'matching project root.',
+    );
+    process.exit(1);
+  }
+
   // Resolve template
   const isExplicitTemplate = options.template !== undefined;
   const templateName = options.template || 'default';
@@ -107,6 +123,17 @@ export async function initCommand(options: InitOptions): Promise<void> {
     process.exit(1);
   }
   const templateDef = getTemplate(templateName)!;
+
+  let markerResult;
+  try {
+    markerResult = await ensureProjectMarker(resolvedRoot, options.projectId);
+  } catch (error: unknown) {
+    if (error instanceof ProjectResolutionError) {
+      console.error(error.message);
+      process.exit(1);
+    }
+    throw error;
+  }
 
   // Check which documentation files already exist before init
   const existed: Record<string, boolean> = {
@@ -156,7 +183,6 @@ export async function initCommand(options: InitOptions): Promise<void> {
   });
 
   // Register the project in the global registry
-  const registry = await Registry.load(options.configDir, options.dataDir);
   await registry.addProject(options.projectId, resolvedRoot);
 
   console.log(`✓ Initialized Git-backed docs store at ${storage.projectRepoPath(options.projectId)}`);
@@ -173,6 +199,9 @@ export async function initCommand(options: InitOptions): Promise<void> {
 
   console.log(`✓ Snapshotted initial documentation`);
   console.log(`✓ Registered project in ${storage.registryPath()}`);
+  console.log(
+    `✓ ${markerResult.created ? 'Created' : 'Preserved existing'} local project marker at ${markerResult.path}`,
+  );
   if (templateName !== 'default') {
     console.log(`✓ Template: ${templateName}`);
   }
@@ -254,13 +283,11 @@ export async function listCommand(
   dataDir?: string,
 ): Promise<void> {
   const resolvedRoot = path.resolve(projectRoot);
-  await requireInit(resolvedRoot);
-
-  const projectId = await resolveProjectId(resolvedRoot, configDir, dataDir);
+  const resolved = await resolveProjectOrExit(resolvedRoot, configDir, dataDir);
 
   const project = await Project.load({
-    projectRoot: resolvedRoot,
-    projectId,
+    projectRoot: resolved.projectRoot,
+    projectId: resolved.projectId,
     configDir,
     dataDir,
   });
@@ -277,7 +304,7 @@ export async function listCommand(
     })),
   );
 
-  console.log(JSON.stringify({ projectId, branch: 'main', revision: branchRevision, files }, null, 2));
+  console.log(JSON.stringify({ projectId: resolved.projectId, branch: 'main', revision: branchRevision, files }, null, 2));
 }
 
 /**
@@ -290,20 +317,18 @@ export async function historyCommand(
   dataDir?: string,
 ): Promise<void> {
   const resolvedRoot = path.resolve(projectRoot);
-  await requireInit(resolvedRoot);
-
-  const projectId = await resolveProjectId(resolvedRoot, configDir, dataDir);
+  const resolved = await resolveProjectOrExit(resolvedRoot, configDir, dataDir);
 
   const project = await Project.load({
-    projectRoot: resolvedRoot,
-    projectId,
+    projectRoot: resolved.projectRoot,
+    projectId: resolved.projectId,
     configDir,
     dataDir,
   });
 
   const gitHistory = await project.gitStore.getHistory(filePath);
   const events = project.eventLog.getHistoryForPath(
-    projectId,
+    resolved.projectId,
     filePath,
   );
 
@@ -324,13 +349,11 @@ export async function exportCommand(
   targetDir?: string,
 ): Promise<void> {
   const resolvedRoot = path.resolve(projectRoot);
-  await requireInit(resolvedRoot);
-
-  const projectId = await resolveProjectId(resolvedRoot, configDir, dataDir);
+  const resolved = await resolveProjectOrExit(resolvedRoot, configDir, dataDir);
 
   const project = await Project.load({
-    projectRoot: resolvedRoot,
-    projectId,
+    projectRoot: resolved.projectRoot,
+    projectId: resolved.projectId,
     configDir,
     dataDir,
   });
@@ -360,61 +383,26 @@ export async function exportCommand(
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 /**
- * Resolve the projectId for a given project root by searching the registry.
- *
- * Exits with a clear actionable message if:
- *  - the project is not found in the registry (must run init first).
- *  - the project is found but the managed store is not initialized.
- *
- * This replaces the fragile `path.basename(projectRoot)` approach and
- * prevents GitConstructError stack traces from missing managed repos.
+ * Resolve a project for command execution and exit cleanly on expected errors.
  */
-async function resolveProjectId(
+async function resolveProjectOrExit(
   projectRoot: string,
   configDir?: string,
   dataDir?: string,
-): Promise<string> {
-  const registry = await Registry.load(configDir, dataDir);
-  const projects = registry.listProjects();
-  const resolvedRoot = path.resolve(projectRoot);
-
-  // Try to find the project by exact projectRoot match
-  const matching = projects.find((p) => p.projectRoot === resolvedRoot);
-  if (!matching) {
-    console.error(
-      `Error: project at "${resolvedRoot}" is not registered.\n` +
-        `Run "xurgo-atlas init --project-id <id>" first, or register an existing project with\n` +
-        `"xurgo-atlas project add --project-id <id> --project-root ${resolvedRoot}".`,
-    );
-    process.exit(1);
-  }
-
-  // Validate the project is fully initialized (managed store exists)
+): Promise<{ projectId: string; projectRoot: string }> {
   try {
-    await registry.resolve(matching.projectId);
-  } catch (err) {
-    if (err instanceof RegistryError) {
-      console.error(err.message);
+    return await resolveProjectContext({
+      projectRoot,
+      configDir,
+      dataDir,
+      allowRegistryDefault: false,
+    });
+  } catch (error: unknown) {
+    if (error instanceof ProjectResolutionError || error instanceof RegistryError || error instanceof Error) {
+      console.error(error.message);
       process.exit(1);
     }
-    throw err;
-  }
-
-  return matching.projectId;
-}
-
-/**
- * Require that a project has been initialized. Exits with a clear message if not.
- * Checks for project files (docs/, .docs-policy.yml) rather than .docu-guard/.
- */
-async function requireInit(projectRoot: string): Promise<void> {
-  const hasPolicy = await fileExists(path.join(projectRoot, '.docs-policy.yml'));
-  const hasDocs = await dirExists(path.join(projectRoot, 'docs'));
-  if (!hasPolicy && !hasDocs) {
-    console.error(
-      `Error: "${projectRoot}" has not been initialized. Run "xurgo-atlas init" first.`,
-    );
-    process.exit(1);
+    throw error;
   }
 }
 

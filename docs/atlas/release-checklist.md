@@ -27,7 +27,7 @@
 
 - **Source repo:** run `npm run bundle:private-rc` here, keep the tree clean, and do not use this checkout as the dummy consumer project.
 - **Private RC bundle directory:** use `artifacts/private-rc/<timestamp>-<short-head>/` as the generated artifact bundle. It contains `xurgo-atlas-0.1.0.tgz`, `PRIVATE_REVIEWER_CHECKLIST.md`, `REVIEWER_INSTALL_SMOKE.mjs`, `SHA256SUMS.txt`, `MANIFEST.json`, `PRIVATE_RC_SUMMARY.md`, and related bundle files. Run bundle-local `npm run smoke` here. Do not treat this directory as the project being documented.
-- **Dummy consumer project:** use a fresh isolated project, preferably under `/tmp`, install the tarball with `npm install -D "$TARBALL"`, and review `npx xurgo-atlas` help, init, list, status, daemon, and MCP behavior here.
+- **Dummy consumer project:** use a fresh isolated project in the target environment, install the tarball with `npm install -D "$TARBALL"`, and review `npx xurgo-atlas` help, init, list, status, daemon, and MCP behavior here.
 
 High-level command sequence:
 
@@ -38,21 +38,25 @@ TARBALL="$BUNDLE_DIR/xurgo-atlas-0.1.0.tgz"
 cd "$BUNDLE_DIR"
 npm run smoke
 
-rm -rf /tmp/xurgo-atlas-rc-review
-mkdir -p /tmp/xurgo-atlas-rc-review/dummy-project
-cd /tmp/xurgo-atlas-rc-review/dummy-project
+REVIEW_ROOT="$(mktemp -d)"
+mkdir -p "$REVIEW_ROOT/dummy-consumer-project"
+cd "$REVIEW_ROOT/dummy-consumer-project"
 git init -b main
 npm init -y
 npm install -D "$TARBALL"
 npx xurgo-atlas --help
 npx xurgo-atlas list
 npx xurgo-atlas init --template mcp-server --project-id dummy-rc-review
+npx xurgo-atlas daemon start
 npx xurgo-atlas list
 npx xurgo-atlas status
 npx xurgo-atlas mcp-config
 ```
 
 - Expected pre-init `list` behavior: clear actionable error, no unhandled stack trace, and no `GitConstructError`.
+- Project identity expectations: `init` writes a sticky local `.xurgo-atlas/project.json` marker, preserves it for the same project id, stores the project id only, and fails clearly instead of overwriting it with a different project id. Project ids remain globally unique in the registry.
+- Expected daemon behavior after init: `npx xurgo-atlas daemon start` works from the dummy consumer project root without repeated flags, startup output shows the resolved project id, project root, and resolution source, and mismatched explicit `--project-id` / `--project-root` values fail clearly instead of silently serving another project.
+- Wrong-directory recovery expectations: starting from a non-project directory fails clearly and tells the reviewer to move to the current project root or pass matching explicit flags for the intended project.
 - Existing-doc preservation expectations: `STATUS.md`, `AGENTS.md`, and `docs/manifest.yml` are preserved; template init only creates missing docs.
 - MCP/opencode verification expectations: verify through MCP tools only, do not read files directly from the filesystem for MCP verification, do not modify files, do not propose patches, and do not commit during reviewer verification.
 
@@ -61,7 +65,12 @@ npx xurgo-atlas mcp-config
 - [ ] Storage migration is complete for all active machines
 - [ ] Legacy roots are archived (not deleted)
 - [ ] Storage inspection shows expected state
-- [ ] Daemon starts and serves projects correctly
+- [ ] Init preserves a matching local marker and rejects conflicting project identity
+- [ ] Project ids remain globally unique across registered roots
+- [ ] Daemon auto-detects the current project from the local marker or an ancestor marker
+- [ ] Daemon starts and serves the current project from an initialized project root
+- [ ] Daemon startup output shows the resolved project id, project root, and resolution source
+- [ ] Daemon does not silently serve a mismatched explicit project id or registry default from the wrong directory
 
 ## Naming
 
