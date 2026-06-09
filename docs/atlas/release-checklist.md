@@ -20,6 +20,7 @@
 - [ ] Storage migration flow is documented ([docs/storage-migration.md](./storage-migration.md))
 - [ ] Development workflow is documented ([docs/atlas/development-workflow.md](./development-workflow.md))
 - [ ] Init templates are documented (available templates, `--template`, `-t`, `--templates`, existing-doc preservation)
+- [ ] Project-resolution hardening tracker is current ([docs/project-resolution-hardening.md](./project-resolution-hardening.md))
 - [ ] Release checklist is current
 - [ ] Guarded docs are current: `STATUS.md`, `AGENTS.md`, `docs/manifest.yml`, `.docs-policy.yml`
 
