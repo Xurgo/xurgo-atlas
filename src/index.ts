@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   initCommand,
   printInitUsage,
+  printServerUsage,
   printTemplateList,
   serverCommand,
   listCommand,
@@ -236,6 +237,10 @@ export async function main(): Promise<void> {
     }
 
     case 'server': {
+      if (hasHelpFlag(rawArgs)) {
+        printServerUsage();
+        process.exit(0);
+      }
       emitStorageDiagnostics(resolveStorageRoots({ configDir, dataDir }));
       await serverCommand({
         projectRoot,
@@ -412,10 +417,14 @@ export async function main(): Promise<void> {
         printMcpConfigUsage();
         process.exit(0);
       }
-      mcpConfigCommand({
+      await mcpConfigCommand({
         host: args['host'] as string | undefined,
         port: args['port'] ? parseInt(args['port'] as string, 10) : undefined,
         json: rawArgs.includes('--json'),
+        projectRoot: args['project-root'] as string | undefined,
+        configDir,
+        dataDir,
+        cwd: process.cwd(),
       });
       break;
     }
