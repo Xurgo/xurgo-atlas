@@ -36,9 +36,11 @@ import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 // ─── Paths ────────────────────────────────────────────────────
-const __dirname      = path.dirname(fileURLToPath(import.meta.url));
+const __filename     = fileURLToPath(import.meta.url);
+const __dirname      = path.dirname(__filename);
 const REPO_ROOT      = path.resolve(__dirname, '..');
 const DEFAULT_OUT    = path.join(REPO_ROOT, 'artifacts', 'private-rc');
+export const FULL_VALIDATION_TIMEOUT_MS = 420_000;
 
 // ─── Formatting ───────────────────────────────────────────────
 const BOLD  = '\x1b[1m';
@@ -72,6 +74,99 @@ function fail(label, msg) {
   console.log(`  ${RED}✗${RESET} ${label}`);
   console.error(`    ${DIM}${msg}${RESET}`);
   process.exit(1);
+}
+
+export function summarizeStepError(error) {
+  if (!error) return 'Step failed';
+  if (error instanceof Error && error.message) return error.message;
+  return String(error);
+}
+
+export function createStepResult(command, passed, error = null, skipped = false) {
+  return {
+    command,
+    passed,
+    skipped,
+    error: passed || skipped ? null : (error || 'Step failed'),
+  };
+}
+
+export function renderStepResults(results, emptyLabel = '- (none)') {
+  if (!results.length) return emptyLabel;
+  return results.map((result) => {
+    if (result.skipped) return `- [ ] ${result.command} (skipped)`;
+    if (result.passed) return `- [x] ${result.command}`;
+    return `- [ ] ${result.command}${result.error ? ` — ${result.error}` : ''}`;
+  }).join('\n');
+}
+
+export function executeValidationPlan(plan, runStep) {
+  const validationResults = [];
+  const smokeResults = [];
+  let allValidationsPass = true;
+
+  for (const stepDef of plan) {
+    const outcome = runStep(stepDef);
+    const result = createStepResult(
+      stepDef.command,
+      outcome.passed,
+      outcome.error ?? null,
+      outcome.skipped ?? false,
+    );
+
+    if (stepDef.kind === 'smoke') {
+      smokeResults.push(result);
+    } else {
+      validationResults.push(result);
+    }
+
+    if (stepDef.gatesOverallValidation) {
+      allValidationsPass = allValidationsPass && result.passed;
+    }
+  }
+
+  return { allValidationsPass, validationResults, smokeResults };
+}
+
+export function getValidationPlan(isValidating) {
+  const plan = [
+    { kind: 'validation', command: 'git diff --check HEAD', gatesOverallValidation: true },
+    { kind: 'validation', command: 'npm audit', gatesOverallValidation: true, timeout: 60_000 },
+  ];
+
+  if (isValidating) {
+    plan.push(
+      {
+        kind: 'validation',
+        command: 'npm run validate:full',
+        gatesOverallValidation: true,
+        timeout: FULL_VALIDATION_TIMEOUT_MS,
+      },
+      {
+        kind: 'smoke',
+        command: 'npm run verify:installed',
+        gatesOverallValidation: true,
+        timeout: 300_000,
+      },
+    );
+  } else {
+    plan.push(
+      {
+        kind: 'validation',
+        command: 'npm run validate:quick (--skip-full-validation)',
+        gatesOverallValidation: true,
+        timeout: 60_000,
+      },
+      {
+        kind: 'validation',
+        command: 'npm run build (--skip-full-validation)',
+        gatesOverallValidation: true,
+        timeout: 60_000,
+      },
+    );
+  }
+
+  return plan;
 }
 
 // ─── Shell helpers ────────────────────────────────────────────
@@ -383,49 +478,47 @@ function main() {
   if (originMain) info('origin/main', originMain);
   info('Flags', `${skipFullValidation ? '--skip-full-validation ' : ''}${keepTemp ? '--keep-temp ' : ''}${allowDiverged ? '--allow-diverged ' : ''}`.trim() || '(none)');
 
-  const validationSteps = [];
-  const smokeSteps      = [];
-
   try {
     // ═══════ PHASE 1: VALIDATION GATES ═══════
     heading('Validation gates');
 
-    let allValidationsPass = true;
-
-    allValidationsPass = step('git diff --check HEAD', () => {
-      const out = git('diff --check HEAD');
-      // git diff --check returns nothing on success, exits 0
-    }) && allValidationsPass;
-    validationSteps.push('git diff --check HEAD');
-
-    allValidationsPass = step('npm audit', () => {
-      const out = runOutput('npm audit', { timeout: 60_000 });
-      // if vulnerabilities found, npm audit exits non-zero
-    }) && allValidationsPass;
-    validationSteps.push('npm audit');
-
-    if (isValidating) {
-      allValidationsPass = step('npm run validate:full', () => {
-        run('npm run validate:full', { timeout: 180_000 });
-      }) && allValidationsPass;
-      validationSteps.push('npm run validate:full');
-
-      allValidationsPass = step('npm run verify:installed', () => {
-        run('npm run verify:installed', { timeout: 300_000 });
-      });
-      smokeSteps.push('npm run verify:installed');
-    } else {
-      // Lightweight checks when full validation is skipped
-      allValidationsPass = step('npm run validate:quick (--skip-full-validation)', () => {
-        run('npm run validate:quick', { timeout: 60_000 });
-      }) && allValidationsPass;
-      validationSteps.push('npm run validate:quick');
-
-      allValidationsPass = step('npm run build (--skip-full-validation)', () => {
-        run('npm run build', { timeout: 60_000 });
-      }) && allValidationsPass;
-      validationSteps.push('npm run build');
-    }
+    const validationPlan = getValidationPlan(isValidating);
+    const { allValidationsPass, validationResults, smokeResults } = executeValidationPlan(
+      validationPlan,
+      (stepDef) => {
+        let errorSummary = null;
+        const passed = step(stepDef.command, () => {
+          try {
+            switch (stepDef.command) {
+              case 'git diff --check HEAD':
+                git('diff --check HEAD');
+                break;
+              case 'npm audit':
+                runOutput('npm audit', { timeout: stepDef.timeout });
+                break;
+              case 'npm run validate:full':
+                run('npm run validate:full', { timeout: stepDef.timeout });
+                break;
+              case 'npm run verify:installed':
+                run('npm run verify:installed', { timeout: stepDef.timeout });
+                break;
+              case 'npm run validate:quick (--skip-full-validation)':
+                run('npm run validate:quick', { timeout: stepDef.timeout });
+                break;
+              case 'npm run build (--skip-full-validation)':
+                run('npm run build', { timeout: stepDef.timeout });
+                break;
+              default:
+                throw new Error(`Unknown validation step: ${stepDef.command}`);
+            }
+          } catch (error) {
+            errorSummary = summarizeStepError(error);
+            throw error;
+          }
+        });
+        return { passed, error: errorSummary };
+      },
+    );
 
     if (!allValidationsPass) {
       fail('Validation', 'One or more validation gates failed. Aborting.');
@@ -560,8 +653,10 @@ function main() {
       git_origin_main: originMain,
       created:         isoNow(),
       files:           artifactFiles,
-      validations:     validationSteps,
-      smoke_commands:  smokeSteps,
+      validations:     validationResults.map((result) => result.command),
+      validation_results: validationResults,
+      smoke_commands:  smokeResults.map((result) => result.command),
+      smoke_results:   smokeResults,
       note: 'Private RC artifact — not a public release. No tag, no push, no npm publish.',
     };
 
@@ -622,15 +717,11 @@ function main() {
       ``,
       `## Validation`,
       ``,
-      validationSteps.length
-        ? validationSteps.map(s => `- [x] ${s}`).join('\n')
-        : '- (none)',
+      renderStepResults(validationResults),
       ``,
       `## Smoke`,
       ``,
-      smokeSteps.length
-        ? smokeSteps.map(s => `- [x] ${s}`).join('\n')
-        : '(skipped)',
+      renderStepResults(smokeResults, '(skipped)'),
       ``,
             `## Installed-package smoke`,
       ``,
@@ -910,4 +1001,6 @@ function main() {
   }
 }
 
-main();
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  main();
+}
