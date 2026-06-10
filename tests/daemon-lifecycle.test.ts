@@ -275,6 +275,52 @@ describe('daemon lifecycle commands', () => {
     }
   });
 
+  it('prints the bound project id and root during status checks', async () => {
+    const root = makeTempRoot();
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+    const projectRoot = path.join(root, 'project');
+    const storage = new StoragePaths({ configDir, dataDir });
+    const pidFile = getDaemonPidFilePath(storage);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    try {
+      await writePidFile(pidFile, {
+        pid: 4242,
+        host: '127.0.0.1',
+        port: 3737,
+        configDir,
+        dataDir,
+        projectId: 'demo',
+        projectRoot,
+        startedAt: new Date().toISOString(),
+      });
+
+      await daemonCommand(
+        {
+          action: 'status',
+          host: '127.0.0.1',
+          port: 3737,
+          configDir,
+          dataDir,
+        },
+        {
+          isProcessRunning: (pid) => pid === 4242,
+          signalProcess: vi.fn(),
+          spawnProcess: vi.fn(),
+          sleep: async () => undefined,
+        },
+      );
+
+      const output = logSpy.mock.calls.flat().join('\n');
+      expect(output).toContain('daemon is running for project "demo"');
+      expect(output).toContain(projectRoot);
+      expect(output).toContain('http://127.0.0.1:3737/mcp');
+    } finally {
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('stops a running daemon via SIGTERM and removes the PID file', async () => {
     const root = makeTempRoot();
     const configDir = path.join(root, 'config');

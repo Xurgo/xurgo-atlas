@@ -17,6 +17,7 @@
 - [ ] README is current and accurate
 - [ ] Setup/install instructions are up to date ([docs/setup.md](./setup.md))
 - [ ] Daemon/MCP configuration is documented ([docs/daemon-mcp.md](./daemon-mcp.md))
+- [ ] Daemon/MCP configuration documents single-project-bound daemon behavior for `0.1.0`
 - [ ] Storage migration flow is documented ([docs/storage-migration.md](./storage-migration.md))
 - [ ] Development workflow is documented ([docs/atlas/development-workflow.md](./development-workflow.md))
 - [ ] Init templates are documented (available templates, `--template`, `-t`, `--templates`, existing-doc preservation)
@@ -70,8 +71,10 @@ npx xurgo-atlas mcp-config
 - [ ] Project ids remain globally unique across registered roots
 - [ ] Daemon auto-detects the current project from the local marker or an ancestor marker
 - [ ] Daemon starts and serves the current project from an initialized project root
-- [ ] Daemon startup output shows the resolved project id, project root, and resolution source
+- [ ] Daemon startup and status output show the resolved project id, project root, and resolution source when available
 - [ ] Daemon does not silently serve a mismatched explicit project id or registry default from the wrong directory
+- [ ] Daemon rejects startup for a different project while another project-bound daemon is running
+- [ ] Daemon MCP requests do not silently serve a different project than the daemon binding
 
 ## Naming
 
