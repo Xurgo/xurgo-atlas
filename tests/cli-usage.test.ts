@@ -21,6 +21,7 @@ import * as statusCli from '../src/cli/status.js';
 import { getStatusUsageText, statusCommand } from '../src/cli/status.js';
 import * as mcpConfigCli from '../src/cli/mcp-config.js';
 import { getMcpConfigUsageText, mcpConfigCommand } from '../src/cli/mcp-config.js';
+import { getServerUsageText } from '../src/cli/init.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -65,6 +66,28 @@ async function writeProjectStore(dataDir: string, projectId: string): Promise<vo
     'sqlite-placeholder',
     'utf-8',
   );
+}
+
+async function snapshotTree(root: string): Promise<string[]> {
+  try {
+    const entries = await fs.promises.readdir(root, { withFileTypes: true });
+    const nested = await Promise.all(
+      entries.map(async (entry) => {
+        const child = path.join(root, entry.name);
+        if (entry.isDirectory()) {
+          const descendants = await snapshotTree(child);
+          return [`${entry.name}/`, ...descendants.map((value) => `${entry.name}/${value}`)];
+        }
+        return [entry.name];
+      }),
+    );
+    return nested.flat().sort();
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
 }
 
 async function runMainWithArgs(argv: string[]): Promise<{
@@ -548,6 +571,16 @@ describe('mcp-config command', () => {
     expect(output).toContain('does not require a project to be initialized');
   });
 
+  it('has dedicated server help text for the legacy stdio path', () => {
+    const output = getServerUsageText();
+
+    expect(output).toContain('legacy Xurgo Atlas stdio MCP server');
+    expect(output).toContain('xurgo-atlas server [options]');
+    expect(output).toContain('xurgo-atlas daemon start');
+    expect(output).toContain('xurgo-atlas mcp-config --json');
+    expect(output).toContain('does not require a project to be initialized');
+  });
+
   it('mcp-config --help exits 0 and is non-mutating', async () => {
     const commandSpy = vi.spyOn(mcpConfigCli, 'mcpConfigCommand');
     const result = await runMainWithArgs(['node', 'xurgo-atlas', 'mcp-config', '--help']);
@@ -565,12 +598,13 @@ describe('mcp-config command', () => {
     });
 
     try {
-      mcpConfigCommand();
+      await mcpConfigCommand();
       const output = logLines.join('\n');
 
       expect(output).toContain('http://127.0.0.1:3737/mcp');
       expect(output).toContain('Generic MCP client JSON');
       expect(output).toContain('xurgo-atlas daemon start');
+      expect(output).toContain('xurgo-atlas mcp-config --json');
       expect(output).toContain('read-only');
     } finally {
       logSpy.mockRestore();
@@ -584,7 +618,7 @@ describe('mcp-config command', () => {
     });
 
     try {
-      mcpConfigCommand({ host: '0.0.0.0', port: 9999 });
+      await mcpConfigCommand({ host: '0.0.0.0', port: 9999 });
       const output = logLines.join('\n');
 
       expect(output).toContain('http://0.0.0.0:9999/mcp');
@@ -596,38 +630,168 @@ describe('mcp-config command', () => {
   });
 
   it('prints JSON-only output with --json flag', async () => {
+    const cwd = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-mcp-config-json-'));
     const logLines: string[] = [];
     const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
       logLines.push(args.join(' '));
     });
 
     try {
-      mcpConfigCommand({ json: true });
+      await mcpConfigCommand({ json: true, cwd });
       const output = logLines.join('\n');
 
-      // Should be valid JSON
       const parsed = JSON.parse(output);
+      expect(parsed.serverName).toBe('xurgo-atlas');
+      expect(parsed.displayName).toBe('Xurgo Atlas');
+      expect(parsed.transport).toBe('streamable-http');
+      expect(parsed.url).toBe('http://127.0.0.1:3737/mcp');
+      expect(parsed.startCommand).toEqual({
+        command: 'xurgo-atlas',
+        args: ['daemon', 'start'],
+      });
       expect(parsed.mcpServers['xurgo-atlas'].url).toBe('http://127.0.0.1:3737/mcp');
+      expect(parsed.projectId).toBeNull();
+      expect(parsed.projectRoot).toBeNull();
       expect(output).not.toContain('Endpoint:');
       expect(output).not.toContain('Generic MCP client JSON');
     } finally {
       logSpy.mockRestore();
+      await fs.promises.rm(cwd, { recursive: true, force: true });
     }
   });
 
-  it('does not require initialized storage roots (no storage access)', async () => {
-    // mcpConfigCommand is purely computational — it should not need storage
+  it('prints projectId and projectRoot in JSON when run inside an initialized project', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-mcp-config-project-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+    const projectRoot = path.join(root, 'project');
     const logLines: string[] = [];
     const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
       logLines.push(args.join(' '));
     });
 
+    await fs.promises.mkdir(projectRoot, { recursive: true });
+
     try {
-      // Should not throw regardless of environment
-      mcpConfigCommand({ host: '127.0.0.1', port: 3737 });
-      expect(logLines.join('\n')).toContain('http://127.0.0.1:3737/mcp');
+      await initCli.initCommand({
+        projectRoot,
+        projectId: 'mcp-config-test',
+        configDir,
+        dataDir,
+      });
+
+      await mcpConfigCommand({ json: true, cwd: projectRoot, configDir, dataDir });
+      const parsed = JSON.parse(logLines.at(-1) ?? '');
+
+      expect(parsed.projectId).toBe('mcp-config-test');
+      expect(parsed.projectRoot).toBe(projectRoot);
+      expect(parsed.mcpServers['xurgo-atlas'].url).toBe('http://127.0.0.1:3737/mcp');
     } finally {
       logSpy.mockRestore();
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('works from an uninitialized directory without mutating files', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-mcp-config-empty-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+    const beforeProject = await snapshotTree(root);
+    const result = await runMainWithArgs([
+      'node',
+      'xurgo-atlas',
+      'mcp-config',
+      '--json',
+      '--config-dir',
+      configDir,
+      '--data-dir',
+      dataDir,
+    ]);
+    const afterProject = await snapshotTree(root);
+
+    try {
+      expect(result.exitCode).toBe(-1);
+      expect(result.stderr).toBe('');
+      const parsed = JSON.parse(result.stdout);
+      expect(parsed.serverName).toBe('xurgo-atlas');
+      expect(parsed.projectId).toBeNull();
+      expect(parsed.projectRoot).toBeNull();
+      expect(afterProject).toEqual(beforeProject);
+    } finally {
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('server --help exits 0, prints help, and does not start server behavior', async () => {
+    const serverSpy = vi.spyOn(initCli, 'serverCommand').mockResolvedValue(undefined);
+    const storageSpy = vi.spyOn(storageCore, 'emitStorageDiagnostics').mockImplementation(() => undefined);
+
+    const result = await runMainWithArgs(['node', 'xurgo-atlas', 'server', '--help']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('xurgo-atlas server [options]');
+    expect(result.stdout).toContain('legacy Xurgo Atlas stdio MCP server');
+    expect(result.stdout).toContain('xurgo-atlas daemon start');
+    expect(result.stderr).toBe('');
+    expect(serverSpy).not.toHaveBeenCalled();
+    expect(storageSpy).not.toHaveBeenCalled();
+  });
+
+  it('server --help is safe from an uninitialized directory', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const serverSpy = vi.spyOn(initCli, 'serverCommand').mockResolvedValue(undefined);
+      const storageSpy = vi.spyOn(storageCore, 'emitStorageDiagnostics').mockImplementation(() => undefined);
+
+      const result = await runMainWithArgs(['node', 'xurgo-atlas', 'server', '--help']);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('xurgo-atlas server [options]');
+      expect(result.stderr).toBe('');
+      expect(serverSpy).not.toHaveBeenCalled();
+      expect(storageSpy).not.toHaveBeenCalled();
+      await expect(fs.promises.stat(configHome)).rejects.toThrow();
+      await expect(fs.promises.stat(dataHome)).rejects.toThrow();
+    });
+  });
+
+  it('server --help is safe from an initialized project', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-server-help-project-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+    const projectRoot = path.join(root, 'project');
+    const serverSpy = vi.spyOn(initCli, 'serverCommand').mockResolvedValue(undefined);
+    const storageSpy = vi.spyOn(storageCore, 'emitStorageDiagnostics').mockImplementation(() => undefined);
+
+    await fs.promises.mkdir(projectRoot, { recursive: true });
+
+    try {
+      await initCli.initCommand({
+        projectRoot,
+        projectId: 'server-help-project',
+        configDir,
+        dataDir,
+      });
+
+      const result = await runMainWithArgs([
+        'node',
+        'xurgo-atlas',
+        'server',
+        '--help',
+        '--project-root',
+        projectRoot,
+        '--config-dir',
+        configDir,
+        '--data-dir',
+        dataDir,
+      ]);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('xurgo-atlas server [options]');
+      expect(result.stderr).toBe('');
+      expect(serverSpy).not.toHaveBeenCalled();
+      expect(storageSpy).not.toHaveBeenCalled();
+    } finally {
+      await fs.promises.rm(root, { recursive: true, force: true });
     }
   });
 });
