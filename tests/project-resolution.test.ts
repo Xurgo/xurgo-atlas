@@ -48,6 +48,14 @@ async function readMarker(root: string): Promise<{ schemaVersion: number; projec
   ) as { schemaVersion: number; projectId: string } & Record<string, unknown>;
 }
 
+async function writeDaemonPidFile(
+  pidFile: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  await fs.promises.mkdir(path.dirname(pidFile), { recursive: true });
+  await fs.promises.writeFile(pidFile, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
+}
+
 function realPath(value: string): string {
   return fs.realpathSync.native(value);
 }
@@ -295,6 +303,195 @@ describe('project resolution', () => {
 });
 
 describe('daemon start auto-resolution', () => {
+  it('returns success when the daemon is already running for the same project', async () => {
+    await withTempProject(async ({ root, configDir, dataDir }) => {
+      await initCommand({
+        projectRoot: root,
+        projectId: 'alpha',
+        configDir,
+        dataDir,
+      });
+
+      const pidFile = path.join(root, 'runtime', 'daemon.json');
+      await writeDaemonPidFile(pidFile, {
+        pid: 4242,
+        host: '127.0.0.1',
+        port: 3737,
+        configDir,
+        dataDir,
+        projectId: 'alpha',
+        projectRoot: root,
+        startedAt: new Date().toISOString(),
+      });
+
+      await withCwd(root, async () => {
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        const spawnProcess = vi.fn();
+
+        try {
+          await daemonCommand(
+            {
+              action: 'start',
+              host: '127.0.0.1',
+              port: 3737,
+              configDir,
+              dataDir,
+              pidFile,
+            },
+            {
+              spawnProcess,
+              isProcessRunning: (pid) => pid === 4242,
+              signalProcess: vi.fn(),
+              sleep: async () => undefined,
+            },
+          );
+
+          expect(spawnProcess).not.toHaveBeenCalled();
+          const output = logSpy.mock.calls.flat().join('\n');
+          expect(output).toContain('already running for project "alpha"');
+          expect(output).toContain(root);
+        } finally {
+          logSpy.mockRestore();
+        }
+      });
+    });
+  });
+
+  it('fails when the running daemon is bound to a different current project', async () => {
+    await withTempProject(async ({ root, configDir, dataDir }) => {
+      const alphaRoot = path.join(root, 'alpha');
+      const betaRoot = path.join(root, 'beta');
+      await fs.promises.mkdir(alphaRoot, { recursive: true });
+      await fs.promises.mkdir(betaRoot, { recursive: true });
+
+      await initCommand({
+        projectRoot: alphaRoot,
+        projectId: 'alpha',
+        configDir,
+        dataDir,
+      });
+      await initCommand({
+        projectRoot: betaRoot,
+        projectId: 'beta',
+        configDir,
+        dataDir,
+      });
+
+      const pidFile = path.join(root, 'runtime', 'daemon.json');
+      await writeDaemonPidFile(pidFile, {
+        pid: 4242,
+        host: '127.0.0.1',
+        port: 3737,
+        configDir,
+        dataDir,
+        projectId: 'alpha',
+        projectRoot: alphaRoot,
+        startedAt: new Date().toISOString(),
+      });
+
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { exitSpy } = mockProcessExit();
+
+      await withCwd(betaRoot, async () => {
+        await expect(
+          daemonCommand(
+            {
+              action: 'start',
+              host: '127.0.0.1',
+              port: 3737,
+              configDir,
+              dataDir,
+              pidFile,
+            },
+            {
+              spawnProcess: vi.fn(),
+              isProcessRunning: (pid) => pid === 4242,
+              signalProcess: vi.fn(),
+              sleep: async () => undefined,
+            },
+          ),
+        ).rejects.toThrow('process.exit(1)');
+      });
+
+      const output = errorSpy.mock.calls.flat().join('\n');
+      expect(output).toContain('bound to project "alpha"');
+      expect(output).toContain(alphaRoot);
+      expect(output).toContain('current command resolved project "beta"');
+      expect(output).toContain(betaRoot);
+      expect(output).toContain('Stop the existing daemon');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      errorSpy.mockRestore();
+    });
+  });
+
+  it('fails for explicit project id when the running daemon is bound to another project', async () => {
+    await withTempProject(async ({ root, configDir, dataDir }) => {
+      const alphaRoot = path.join(root, 'alpha');
+      const betaRoot = path.join(root, 'beta');
+      const wrongDir = path.join(root, 'wrong-place');
+      await fs.promises.mkdir(alphaRoot, { recursive: true });
+      await fs.promises.mkdir(betaRoot, { recursive: true });
+      await fs.promises.mkdir(wrongDir, { recursive: true });
+
+      await initCommand({
+        projectRoot: alphaRoot,
+        projectId: 'alpha',
+        configDir,
+        dataDir,
+      });
+      await initCommand({
+        projectRoot: betaRoot,
+        projectId: 'beta',
+        configDir,
+        dataDir,
+      });
+
+      const pidFile = path.join(root, 'runtime', 'daemon.json');
+      await writeDaemonPidFile(pidFile, {
+        pid: 5252,
+        host: '127.0.0.1',
+        port: 3737,
+        configDir,
+        dataDir,
+        projectId: 'alpha',
+        projectRoot: alphaRoot,
+        startedAt: new Date().toISOString(),
+      });
+
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { exitSpy } = mockProcessExit();
+
+      await withCwd(wrongDir, async () => {
+        await expect(
+          daemonCommand(
+            {
+              action: 'start',
+              host: '127.0.0.1',
+              port: 3737,
+              configDir,
+              dataDir,
+              projectId: 'beta',
+              pidFile,
+            },
+            {
+              spawnProcess: vi.fn(),
+              isProcessRunning: (pid) => pid === 5252,
+              signalProcess: vi.fn(),
+              sleep: async () => undefined,
+            },
+          ),
+        ).rejects.toThrow('process.exit(1)');
+      });
+
+      const output = errorSpy.mock.calls.flat().join('\n');
+      expect(output).toContain('bound to project "alpha"');
+      expect(output).toContain('current command resolved project "beta"');
+      expect(output).toContain('Stop the existing daemon');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      errorSpy.mockRestore();
+    });
+  });
+
   it('starts from the current project root without explicit flags', async () => {
     await withTempProject(async ({ root, configDir, dataDir }) => {
       await initCommand({
@@ -780,7 +977,11 @@ describe('daemon start auto-resolution', () => {
       });
 
       const output = errorSpy.mock.calls.map((call) => call.join(' ')).join('\n');
-      expect(output).toContain('Could not resolve a project');
+      expect(output).toContain('No Xurgo Atlas project could be resolved from the current directory');
+      expect(output).toContain('Run the daemon from an initialized project root');
+      expect(output).toContain('xurgo-atlas init --project-id <id>');
+      expect(output).toContain('--project-id <id>');
+      expect(output).not.toContain('has not been initialized');
       expect(output).not.toContain('Unhandled');
       expect(exitSpy).toHaveBeenCalledWith(1);
       errorSpy.mockRestore();
@@ -829,7 +1030,7 @@ describe('daemon start auto-resolution', () => {
       });
 
       const output = errorSpy.mock.calls.map((call) => call.join(' ')).join('\n');
-      expect(output).toContain('Could not resolve a project');
+      expect(output).toContain('No Xurgo Atlas project could be resolved from the current directory');
       expect(output).not.toContain('registry default');
       expect(exitSpy).toHaveBeenCalledWith(1);
       errorSpy.mockRestore();

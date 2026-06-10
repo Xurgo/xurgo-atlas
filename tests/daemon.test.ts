@@ -6,6 +6,8 @@ import * as os from 'node:os';
 import { Project } from '../src/core/project.js';
 import { Registry } from '../src/core/registry.js';
 import { StoragePaths } from '../src/core/storage.js';
+import { createBoundDaemonProjectResolver } from '../src/cli/daemon.js';
+import { createMcpServer } from '../src/mcp/create-server.js';
 
 let port = 0;
 
@@ -236,5 +238,126 @@ describe('Daemon integration', () => {
     const parsed = JSON.parse(text);
     expect(parsed.projectId).toBe('project-b');
     expect(Array.isArray(parsed.files)).toBe(true);
+  });
+});
+
+describe('bound daemon MCP resolver', () => {
+  async function withBoundProjects(
+    run: (ctx: {
+      root: string;
+      configDir: string;
+      dataDir: string;
+      rootA: string;
+      rootB: string;
+    }) => Promise<void>,
+  ): Promise<void> {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-bound-mcp-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+    const boundRootA = path.join(root, 'project-a');
+    const boundRootB = path.join(root, 'project-b');
+
+    try {
+      await fs.promises.mkdir(boundRootA, { recursive: true });
+      await fs.promises.mkdir(boundRootB, { recursive: true });
+      await Project.init({ projectRoot: boundRootA, projectId: 'project-a', configDir, dataDir });
+      await Project.init({ projectRoot: boundRootB, projectId: 'project-b', configDir, dataDir });
+      await run({ root, configDir, dataDir, rootA: boundRootA, rootB: boundRootB });
+    } finally {
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  }
+
+  function getCallToolHandler(server: ReturnType<typeof createMcpServer>) {
+    const handlers = (server as unknown as {
+      _requestHandlers: Map<string, (request: unknown) => Promise<{
+        content?: Array<{ type: string; text: string }>;
+        isError?: boolean;
+      }>>;
+    })._requestHandlers;
+    const callTool = handlers.get('tools/call');
+    expect(callTool).toBeTypeOf('function');
+    return callTool!;
+  }
+
+  it('serves MCP requests for the daemon-bound project id', async () => {
+    await withBoundProjects(async ({ configDir, dataDir, rootA }) => {
+      const server = createMcpServer(createBoundDaemonProjectResolver(
+        {
+          projectId: 'project-a',
+          projectRoot: rootA,
+          source: 'explicit',
+        },
+        new StoragePaths({ configDir, dataDir }),
+      ));
+      const callTool = getCallToolHandler(server);
+
+      const result = await callTool({
+        method: 'tools/call',
+        params: {
+          name: 'docs.list',
+          arguments: { projectId: 'project-a', branch: 'main' },
+        },
+      });
+
+      expect(result.isError).not.toBe(true);
+      const parsed = JSON.parse(result.content?.[0]?.text ?? '{}');
+      expect(parsed.projectId).toBe('project-a');
+      expect(Array.isArray(parsed.files)).toBe(true);
+    });
+  });
+
+  it('uses the daemon-bound project when MCP project id is omitted', async () => {
+    await withBoundProjects(async ({ configDir, dataDir, rootA }) => {
+      const server = createMcpServer(createBoundDaemonProjectResolver(
+        {
+          projectId: 'project-a',
+          projectRoot: rootA,
+          source: 'explicit',
+        },
+        new StoragePaths({ configDir, dataDir }),
+      ));
+      const callTool = getCallToolHandler(server);
+
+      const result = await callTool({
+        method: 'tools/call',
+        params: {
+          name: 'docs.list',
+          arguments: { branch: 'main' },
+        },
+      });
+
+      expect(result.isError).not.toBe(true);
+      const parsed = JSON.parse(result.content?.[0]?.text ?? '{}');
+      expect(parsed.projectId).toBe('project-a');
+    });
+  });
+
+  it('rejects MCP requests for a different project id than the bound daemon', async () => {
+    await withBoundProjects(async ({ configDir, dataDir, rootA }) => {
+      const server = createMcpServer(createBoundDaemonProjectResolver(
+        {
+          projectId: 'project-a',
+          projectRoot: rootA,
+          source: 'explicit',
+        },
+        new StoragePaths({ configDir, dataDir }),
+      ));
+      const callTool = getCallToolHandler(server);
+
+      const result = await callTool({
+        method: 'tools/call',
+        params: {
+          name: 'docs.list',
+          arguments: { projectId: 'project-b', branch: 'main' },
+        },
+      });
+
+      expect(result.isError).toBe(true);
+      const text = result.content?.[0]?.text ?? '';
+      expect(text).toContain('bound to project "project-a"');
+      expect(text).toContain('current command resolved project "project-b"');
+      expect(text).toContain('Stop the existing daemon');
+    });
   });
 });

@@ -24,9 +24,13 @@ When a project has been initialized, `daemon start` can resolve the current proj
 
 Project identity is sticky. If the current directory resolves to project `A`, `daemon start --project-id B` now fails clearly instead of silently serving `B`. If that advanced workflow is intentional, pass both a matching `--project-id` and `--project-root` for the intended project.
 
+For `0.1.0`, a running daemon is single-project-bound. If a daemon is already running for the same resolved project, `daemon start` reports the existing daemon and exits successfully. If a daemon is already running for a different project, startup fails and tells the user to stop the current daemon before starting another project. `daemon status` also identifies the bound project id/root when that information is available.
+
 `daemon start` also no longer falls back silently to the registry default from an unrelated non-project directory. If project resolution fails, the daemon exits before binding a port and prints a human-readable message that explains how to initialize or point at the correct project root.
 
 If you start from the wrong directory, move to the current project root and rerun the command there. For advanced workflows outside the current project, pass a matching `--project-id` and `--project-root` (or a nested path inside that project) so the daemon can resolve the intended project explicitly.
+
+The bound daemon should not silently serve another project through MCP. MCP requests without a project id may use the bound project, and MCP requests for the bound project continue to work. MCP requests that name a different project id should fail clearly.
 
 ## MCP Endpoint
 
