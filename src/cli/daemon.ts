@@ -13,6 +13,7 @@ import {
 import { StoragePaths } from '../core/storage.js';
 import { createMcpServer } from '../mcp/create-server.js';
 import { startHttpServer, closeHttpServer } from '../mcp/http.js';
+import { ProjectResolver } from '../mcp/types.js';
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 3737;
@@ -204,9 +205,7 @@ async function runForegroundDaemon(
     );
   }
 
-  const projectCache = new Map<string, Project>();
   let registry: Registry | null = null;
-  let startupProjectInstance: Project | null = null;
 
   async function getRegistry(): Promise<Registry> {
     if (!registry) {
@@ -215,38 +214,7 @@ async function runForegroundDaemon(
     return registry;
   }
 
-  async function resolveProject(projectId: string): Promise<Project> {
-    if (projectId.trim().length === 0 || projectId.trim() === project.projectId) {
-      if (startupProjectInstance) {
-        return startupProjectInstance;
-      }
-
-      startupProjectInstance = await Project.load({
-        projectRoot: project.projectRoot,
-        projectId: project.projectId,
-        configDir: storage.configDir,
-        dataDir: storage.dataDir,
-      });
-      projectCache.set(project.projectId, startupProjectInstance);
-      return startupProjectInstance;
-    }
-
-    const reg = await getRegistry();
-    const resolvedProject = await reg.resolveOrFallback(projectId);
-
-    if (projectCache.has(resolvedProject.projectId)) {
-      return projectCache.get(resolvedProject.projectId)!;
-    }
-
-    const loadedProject = await Project.load({
-      projectRoot: resolvedProject.projectRoot,
-      projectId: resolvedProject.projectId,
-      configDir: storage.configDir,
-      dataDir: storage.dataDir,
-    });
-    projectCache.set(resolvedProject.projectId, loadedProject);
-    return loadedProject;
-  }
+  const resolveProject = createBoundDaemonProjectResolver(project, storage);
 
   const createMcpServerForRequest = () =>
     createMcpServer(resolveProject, { version: '0.2.0' });
@@ -319,6 +287,20 @@ async function startBackgroundDaemon(
 ): Promise<void> {
   const staleState = await inspectDaemonState(pidFile, deps.isProcessRunning);
   if (staleState.running && staleState.info) {
+    const runningProject = {
+      projectId: staleState.info.projectId,
+      projectRoot: staleState.info.projectRoot,
+    };
+    const requestedProject = {
+      projectId: project.projectId,
+      projectRoot: project.projectRoot,
+    };
+
+    if (isKnownDaemonProjectMismatch(runningProject, requestedProject)) {
+      console.error(formatDaemonProjectMismatch(runningProject, requestedProject, 'daemon start'));
+      process.exit(1);
+    }
+
     console.log(
       `xurgo-atlas daemon is already running for project "${staleState.info.projectId ?? project.projectId}" ` +
         `at ${staleState.info.projectRoot ?? project.projectRoot} ` +
@@ -406,7 +388,9 @@ async function printDaemonStatus(
 
   if (state.running && state.info) {
     console.log(
-      `xurgo-atlas daemon is running (pid ${state.info.pid}) at ${formatDaemonUrl(state.info)}.`,
+      `xurgo-atlas daemon is running for project "${state.info.projectId ?? 'unknown'}" ` +
+        `at ${state.info.projectRoot ?? 'unknown root'} ` +
+        `(pid ${state.info.pid}) at ${formatDaemonUrl(state.info)}.`,
     );
     return;
   }
@@ -548,6 +532,53 @@ function formatDaemonUrl(info: Pick<DaemonPidFile, 'host' | 'port'>): string {
   return `http://${info.host}:${info.port}/mcp`;
 }
 
+function isKnownDaemonProjectMismatch(
+  running: Pick<DaemonPidFile, 'projectId' | 'projectRoot'>,
+  requested: Pick<ProjectResolution, 'projectId' | 'projectRoot'>,
+): boolean {
+  if (running.projectId && running.projectId !== requested.projectId) {
+    return true;
+  }
+  if (running.projectRoot && !sameProjectRoot(running.projectRoot, requested.projectRoot)) {
+    return true;
+  }
+  return false;
+}
+
+function sameProjectRoot(a: string, b: string): boolean {
+  const resolvedA = path.resolve(a);
+  const resolvedB = path.resolve(b);
+  if (resolvedA === resolvedB) {
+    return true;
+  }
+
+  try {
+    return fs.realpathSync.native(resolvedA) === fs.realpathSync.native(resolvedB);
+  } catch {
+    return false;
+  }
+}
+
+function formatDaemonProjectMismatch(
+  running: Pick<DaemonPidFile, 'projectId' | 'projectRoot'>,
+  requested: { projectId?: string; projectRoot?: string },
+  source: string,
+): string {
+  const runningProject = formatDaemonProjectBinding(running);
+  const requestedProject = formatDaemonProjectBinding(requested);
+  return `${source} cannot use the running xurgo-atlas daemon because it is bound to ${runningProject}. ` +
+    `The current command resolved ${requestedProject}. ` +
+    'Stop the existing daemon before starting or using a different project.';
+}
+
+function formatDaemonProjectBinding(
+  project: { projectId?: string; projectRoot?: string },
+): string {
+  const projectId = project.projectId ? `project "${project.projectId}"` : 'an unknown project';
+  const projectRoot = project.projectRoot ? ` at ${path.resolve(project.projectRoot)}` : '';
+  return `${projectId}${projectRoot}`;
+}
+
 function processExists(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -558,6 +589,41 @@ function processExists(pid: number): boolean {
     }
     return false;
   }
+}
+
+export function createBoundDaemonProjectResolver(
+  project: ProjectResolution,
+  storage: StoragePaths,
+): ProjectResolver {
+  let startupProjectInstance: Project | null = null;
+
+  return async (projectId: string): Promise<Project> => {
+    const requestedProjectId = projectId.trim();
+    if (requestedProjectId.length > 0 && requestedProjectId !== project.projectId) {
+      throw new ProjectResolutionError(formatDaemonProjectMismatch(
+        {
+          projectId: project.projectId,
+          projectRoot: project.projectRoot,
+        },
+        {
+          projectId: requestedProjectId,
+        },
+        'MCP request',
+      ));
+    }
+
+    if (startupProjectInstance) {
+      return startupProjectInstance;
+    }
+
+    startupProjectInstance = await Project.load({
+      projectRoot: project.projectRoot,
+      projectId: project.projectId,
+      configDir: storage.configDir,
+      dataDir: storage.dataDir,
+    });
+    return startupProjectInstance;
+  };
 }
 
 async function ensureStorageDirs(storage: StoragePaths): Promise<void> {
@@ -592,16 +658,34 @@ async function resolveDaemonProjectOrExit(
       allowRegistryDefault: false,
     });
   } catch (error: unknown) {
-    if (
-      error instanceof ProjectResolutionError ||
-      error instanceof RegistryError ||
-      error instanceof Error
-    ) {
+    if (error instanceof ProjectResolutionError) {
+      console.error(formatDaemonProjectResolutionError(error, options));
+      process.exit(1);
+    }
+    if (error instanceof RegistryError || error instanceof Error) {
       console.error(error.message);
       process.exit(1);
     }
     throw error;
   }
+}
+
+function formatDaemonProjectResolutionError(
+  error: ProjectResolutionError,
+  options: ResolvedDaemonOptions,
+): string {
+  if (!error.message.startsWith('Could not resolve a project from ')) {
+    return error.message;
+  }
+
+  const target = options.projectRoot
+    ? `the requested project root "${path.resolve(options.projectRoot)}"`
+    : `the current directory "${process.cwd()}"`;
+
+  return `No Xurgo Atlas project could be resolved from ${target}. ` +
+    'Run the daemon from an initialized project root, run ' +
+    '"xurgo-atlas init --project-id <id>" in the intended project root, ' +
+    'or pass an explicit registered project id with --project-id <id>.';
 }
 
 function isErrno(error: unknown, code: string): boolean {
