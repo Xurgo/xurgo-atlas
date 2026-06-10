@@ -62,6 +62,36 @@ export function printInitUsage(): void {
   console.log(getInitUsageText());
 }
 
+export function getServerUsageText(): string {
+  return `
+Start the legacy Xurgo Atlas stdio MCP server.
+
+USAGE:
+  xurgo-atlas server [options]
+
+OPTIONS:
+  --project-root <path>   Path to the project root (default: .)
+  --project-id <id>       Project identifier (optional, defaults to dir name)
+  --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+  --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
+
+This is the legacy stdio-oriented MCP server path.
+For Xurgo Agent and other HTTP MCP clients, prefer:
+  xurgo-atlas daemon start
+  xurgo-atlas mcp-config --json
+
+This help command is read-only. It does not require a project to be initialized.
+
+EXAMPLES:
+  xurgo-atlas server --project-root .
+  xurgo-atlas server --project-id my-project --project-root .
+`;
+}
+
+export function printServerUsage(): void {
+  console.log(getServerUsageText());
+}
+
 /**
  * Run the `xurgo-atlas init` command.
  */
