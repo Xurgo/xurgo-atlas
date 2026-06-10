@@ -1,12 +1,21 @@
+import { resolveProjectContext, ProjectResolutionError } from '../core/project-resolution.js';
+
 // ── MCP config guidance (read-only) ──────────────────────────────────────
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 3737;
+const SERVER_NAME = 'xurgo-atlas';
+const DISPLAY_NAME = 'Xurgo Atlas';
+const TRANSPORT = 'streamable-http';
 
 export interface McpConfigOptions {
   host?: string;
   port?: number;
   json?: boolean;
+  projectRoot?: string;
+  configDir?: string;
+  dataDir?: string;
+  cwd?: string;
 }
 
 export function getMcpConfigUsageText(): string {
@@ -36,23 +45,83 @@ export function printMcpConfigUsage(): void {
   console.log(getMcpConfigUsageText());
 }
 
-export function getMcpConfigOutput(options: McpConfigOptions): string {
+interface McpProjectContext {
+  projectId: string | null;
+  projectRoot: string | null;
+}
+
+interface McpJsonConfig {
+  serverName: string;
+  displayName: string;
+  transport: string;
+  url: string;
+  projectId: string | null;
+  projectRoot: string | null;
+  startCommand: {
+    command: string;
+    args: string[];
+  };
+  mcpServers: {
+    'xurgo-atlas': {
+      url: string;
+    };
+  };
+}
+
+async function resolveMcpProjectContext(
+  options: McpConfigOptions,
+): Promise<McpProjectContext> {
+  try {
+    const resolved = await resolveProjectContext({
+      projectRoot: options.projectRoot,
+      configDir: options.configDir,
+      dataDir: options.dataDir,
+      cwd: options.cwd,
+    });
+    return {
+      projectId: resolved.projectId,
+      projectRoot: resolved.projectRoot,
+    };
+  } catch (error: unknown) {
+    if (error instanceof ProjectResolutionError) {
+      return { projectId: null, projectRoot: null };
+    }
+    throw error;
+  }
+}
+
+function buildMcpJsonConfig(
+  endpoint: string,
+  project: McpProjectContext,
+): McpJsonConfig {
+  return {
+    serverName: SERVER_NAME,
+    displayName: DISPLAY_NAME,
+    transport: TRANSPORT,
+    url: endpoint,
+    projectId: project.projectId,
+    projectRoot: project.projectRoot,
+    startCommand: {
+      command: 'xurgo-atlas',
+      args: ['daemon', 'start'],
+    },
+    mcpServers: {
+      'xurgo-atlas': {
+        url: endpoint,
+      },
+    },
+  };
+}
+
+export async function getMcpConfigOutput(options: McpConfigOptions): Promise<string> {
   const host = options.host || DEFAULT_HOST;
   const port = options.port ?? DEFAULT_PORT;
   const endpoint = `http://${host}:${port}/mcp`;
+  const project = await resolveMcpProjectContext(options);
+  const jsonConfig = buildMcpJsonConfig(endpoint, project);
 
   if (options.json) {
-    return JSON.stringify(
-      {
-        mcpServers: {
-          'xurgo-atlas': {
-            url: endpoint,
-          },
-        },
-      },
-      null,
-      2,
-    );
+    return JSON.stringify(jsonConfig, null, 2);
   }
 
   return [
@@ -62,25 +131,15 @@ export function getMcpConfigOutput(options: McpConfigOptions): string {
     `  ${endpoint}`,
     '',
     `Generic MCP client JSON:`,
-    JSON.stringify(
-      {
-        mcpServers: {
-          'xurgo-atlas': {
-            url: endpoint,
-          },
-        },
-      },
-      null,
-      2,
-    ),
+    JSON.stringify(jsonConfig, null, 2),
     '',
     `Notes:`,
     `- Start the daemon first with: xurgo-atlas daemon start`,
-    `- Some clients may use a slightly different config shape.`,
+    `- For machine-readable setup, prefer: xurgo-atlas mcp-config --json`,
     `- This command is read-only and does not write client config files.`,
   ].join('\n');
 }
 
-export function mcpConfigCommand(options: McpConfigOptions = {}): void {
-  console.log(getMcpConfigOutput(options));
+export async function mcpConfigCommand(options: McpConfigOptions = {}): Promise<void> {
+  console.log(await getMcpConfigOutput(options));
 }

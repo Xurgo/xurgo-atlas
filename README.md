@@ -58,7 +58,7 @@ npx xurgo-atlas mcp-config
 
 > No public release has happened yet. All current usage is via the private RC tarball workflow.
 
-Configure your MCP client with the endpoint and JSON snippet printed by `xurgo-atlas mcp-config`.
+Configure your MCP client with `xurgo-atlas mcp-config` for human-readable setup, or prefer `xurgo-atlas mcp-config --json` for machine-readable setup. The preferred Xurgo Agent integration path is the daemon HTTP MCP endpoint at `/mcp`; `xurgo-atlas server` remains the legacy stdio-oriented path.
 
 ## License
 
