@@ -1,7 +1,7 @@
 # Xurgo Atlas — Xurgo Integration Alignment
 
 > **Product name:** Xurgo Atlas
-> **Current implementation:** docu-guard-mcp (transitional)
+> **Current implementation:** xurgo-atlas (public package; historical docu-guard references remain in archived notes)
 > **See also:** [`project-context-mcp.md`](./project-context-mcp.md)
 > **Branch:** v0.2-daemon
 
@@ -23,13 +23,14 @@ Xurgo **may** use Xurgo Atlas as its docs/context/memory layer, but Xurgo Atlas 
 ## 2. Naming / Transition Status
 
 - **Xurgo Atlas** is the intended product and application name going forward.
-- The current package/project name is still **docu-guard-mcp** during transition.
-- The current CLI is still **docu-guard** during transition.
-- The current repository path is still `/home/jason/projects/docs-mcp` during transition.
-- **No mechanical rename** (package.json, CLI name, MCP server name, tool namespace, config paths, repo URL) is being performed in this docs-only session.
-- A future rename should be planned as a separate work item to avoid breaking existing config paths, package metadata, MCP server registration, documentation links, and user workflows.
+- The current npm package name is **xurgo-atlas**.
+- The current primary CLI is **xurgo-atlas**.
+- The current repository name is **xurgo-atlas**.
+- Legacy `docu-guard` references may still appear in archived historical design notes and migration-oriented documentation.
+- MCP tool names remain under the stable `docs.*` namespace.
+- Legacy `docu-guard` config and data roots are still relevant only where documentation is describing migration compatibility.
 
-All new documentation should use **Xurgo Atlas** as the product name. References to "docu-guard-mcp" or "docu-guard" are retained only when discussing the current transitional implementation, CLI, or package state.
+All new documentation should use **Xurgo Atlas** as the product name. References to `docu-guard-mcp` or `docu-guard` are retained only when discussing historical pre-rename design notes or migration compatibility.
 
 ---
 
@@ -151,7 +152,7 @@ Xurgo events may reference Xurgo Atlas IDs for traceability:
 | `branch` | `feature/agent-review` |
 | `proposalId` | `uuid-v4` |
 | `commitId` | `a1b2c3d` |
-| `export.path` | `/tmp/docu-guard-export/my-app/docs/spec/auth-prd.md` |
+| `export.path` | `/tmp/xurgo-atlas-export/my-app/docs/spec/auth-prd.md` |
 | `event.id` | `uuid-v4` |
 
 ---
