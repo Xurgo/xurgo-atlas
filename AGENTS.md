@@ -26,20 +26,25 @@ This project uses **Xurgo Atlas** for safe, versioned, auditable documentation m
 
 ### Tracked Files
 
-The following files and directories are managed through Xurgo Atlas and must not be edited directly:
+The following active project documents are managed through Xurgo Atlas and must not be edited directly:
 
 - `STATUS.md`
 - `AGENTS.md`
 - `docs/manifest.yml`
-- `docs/**`
 - `.docs-policy.yml`
+- documents listed in `docs/manifest.yml` and served through the Atlas `docs.list` / `docs.manifest` view
+
+Historical documentation under `docs/spec/**` may not all appear in the active Atlas manifest. Treat those files as auditable project documentation: prefer Atlas guarded tools when available, avoid stale active instructions, and do not leave personal or local machine path leaks in committed content.
 
 ### Quick Reference
 
 | Action | Tool |
 |--------|------|
+| Read project status | `docs.status` |
+| Read project manifest | `docs.manifest` |
 | List documentation | `docs.list` |
 | Read a document | `docs.read` |
+| Read a document section | `docs.read_section` |
 | Create a branch | `docs.create_branch` |
 | Propose changes | `docs.propose_patch` |
 | Preview changes | `docs.preview_diff` |
