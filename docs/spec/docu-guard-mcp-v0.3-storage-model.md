@@ -230,7 +230,7 @@ docker run --rm \
   -p 127.0.0.1:3737:3737 \
   -v docu-guard-config:/etc/docu-guard \
   -v docu-guard-data:/var/lib/docu-guard \
-  -v /home/jason/projects:/workspaces \
+  -v ~/projects:/workspaces \
   docu-guard-mcp:local \
   docu-guard daemon \
     --host 0.0.0.0 \
@@ -316,12 +316,12 @@ The registry `projects.json` schema is updated for v0.3:
 {
   "version": 2,
   "defaultProjectId": "my-app",
-  "configDir": "/home/jason/.config/docu-guard",
-  "dataDir": "/home/jason/.local/share/docu-guard",
+  "configDir": "~/.config/docu-guard",
+  "dataDir": "~/.local/share/docu-guard",
   "projects": {
     "my-app": {
       "projectId": "my-app",
-      "projectRoot": "/home/jason/projects/my-app",
+      "projectRoot": "~/projects/my-app",
       "createdAt": "2026-05-30T10:00:00.000Z",
       "updatedAt": "2026-05-30T10:00:00.000Z"
     }
@@ -439,7 +439,7 @@ docker run --rm \
   -p 127.0.0.1:3737:3737 \
   -v docu-guard-config:/etc/docu-guard \
   -v docu-guard-data:/var/lib/docu-guard \
-  -v /home/jason/projects:/workspaces \
+  -v ~/projects:/workspaces \
   docu-guard-mcp:local \
   docu-guard daemon \
     --host 0.0.0.0 \
