@@ -2304,7 +2304,7 @@ documents:
     expect(data.error).toContain('already exists');
   });
 
-  it('should reject create-only document proposals when the manifest already lists the path', async () => {
+  it('should repair a missing managed document when the manifest already lists the path', async () => {
     await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
     await fs.promises.writeFile(
       path.join(tmpDir, 'docs', 'manifest.yml'),
@@ -2338,9 +2338,41 @@ documents:
       summary: 'Add example Atlas doc',
     });
 
-    expect(result.isError).toBe(true);
+    expect(result.isError).toBeFalsy();
     const data = JSON.parse(result.content[0].text);
-    expect(data.error).toContain('already contains a documents[] entry');
+    expect(data.valid).toBe(true);
+    expect(data.changedFiles).toEqual(['docs/atlas/example.md']);
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: data.proposalId,
+    });
+
+    expect(previewResult.isError).toBeFalsy();
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.valid).toBe(true);
+    expect(preview.changedFiles).toEqual(['docs/atlas/example.md']);
+    expect(preview.diff).toContain('--- /dev/null');
+    expect(preview.diff).toContain('+++ b/docs/atlas/example.md');
+    expect(preview.diff).not.toContain('docs/manifest.yml');
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: data.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBeFalsy();
+    const commit = JSON.parse(commitResult.content[0].text);
+    expect(commit.changedFiles).toEqual(['docs/atlas/example.md']);
+
+    const createdDocument = await project.readFile('main', 'docs/atlas/example.md');
+    expect(createdDocument.content).toBe('# Example\n');
+    expect(createdDocument.revision).toBe(commit.commit);
+
+    const manifest = await project.readFile('main', 'docs/manifest.yml');
+    expect(manifest.content).toContain('path: docs/atlas/example.md');
   });
 
   it('should mark a create-only document proposal stale when the manifest base revision changes', async () => {

@@ -1018,9 +1018,26 @@ async function prepareDocumentCreateProposal(
     (entry) => entry.path === normalizedPath,
   );
   if (hasManifestPath) {
+    const documentPatch = createNewFilePatch(content, normalizedPath);
+    const documentRisk = assessPatchRisk(
+      project.policy,
+      normalizedPath,
+      '',
+      content,
+      documentPatch,
+    );
+    const riskReasons = Array.from(new Set(documentRisk.reasons));
+    const requiresApproval = documentRisk.highRisk;
+
     return {
-      valid: false,
-      error: `docs/manifest.yml already contains a documents[] entry for "${normalizedPath}"`,
+      valid: true,
+      path: normalizedPath,
+      patch: documentPatch,
+      manifestRevision: manifestState.revision,
+      riskLevel: requiresApproval ? 'high' : 'low',
+      requiresApproval,
+      riskReasons,
+      changedFiles: [normalizedPath],
     };
   }
 
@@ -1655,12 +1672,24 @@ async function validateStoredDocumentCreateProposal(
     };
   }
 
-  if (manifestState.documents.some((entry) => entry.path === stored.path)) {
+  const proposalTouchesManifest = getProposalChangedFiles(stored).includes(MANIFEST_PATH);
+  const manifestIncludesPath = manifestState.documents.some((entry) => entry.path === stored.path);
+
+  if (proposalTouchesManifest) {
+    if (manifestIncludesPath) {
+      return {
+        valid: false,
+        failureType: 'invalid',
+        applyable: false,
+        error: `${MANIFEST_PATH} already contains a documents[] entry for "${stored.path}"`,
+      };
+    }
+  } else if (!manifestIncludesPath) {
     return {
       valid: false,
       failureType: 'invalid',
       applyable: false,
-      error: `${MANIFEST_PATH} already contains a documents[] entry for "${stored.path}"`,
+      error: `${MANIFEST_PATH} no longer contains a documents[] entry for "${stored.path}". Re-read the manifest and create a new repair proposal if the document should still exist.`,
     };
   }
 
