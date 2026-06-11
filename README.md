@@ -4,24 +4,22 @@ Xurgo Atlas is a local project context server for AI-assisted development.
 
 ## Quick Start
 
-Install Xurgo Atlas from the public npm registry:
+Install Xurgo Atlas globally for the normal CLI workflow:
 
 ```bash
-# Install in a project
-npm install -D xurgo-atlas
-
-# Or install globally
 npm install -g xurgo-atlas
 ```
 
-Then initialize a project and start the daemon-backed MCP endpoint:
+After the global install, initialize a project and start the daemon-backed MCP endpoint:
 
 ```bash
-npx xurgo-atlas init --template mcp-server --project-id my-project
-npx xurgo-atlas daemon start
-npx xurgo-atlas mcp-config
-npx xurgo-atlas mcp-config --json
+xurgo-atlas init --template mcp-server --project-id my-project
+xurgo-atlas daemon start
+xurgo-atlas mcp-config
+xurgo-atlas mcp-config --json
 ```
+
+If you want to try Atlas without installing it first, or keep it pinned inside a repo, use `npx xurgo-atlas ...` instead. For project-local automation, install it as a dev dependency with `npm install -D xurgo-atlas`.
 
 `init` writes a local `.xurgo-atlas/project.json` marker in the project root. That marker is sticky: rerunning `init` with the same project id is safe, but Atlas will fail clearly instead of silently rebinding the project root to a different id. Project ids are also globally unique in the registry, so `init` will refuse to register an existing id to a different root.
 
@@ -29,13 +27,13 @@ After init, the normal happy path can run from the project root or a nested subd
 
 ## MCP Client Setup
 
-Use `xurgo-atlas mcp-config` for human-readable setup instructions, or prefer `xurgo-atlas mcp-config --json` as the machine-readable integration contract for Xurgo Agent and other MCP clients.
+Use `xurgo-atlas mcp-config` for human-readable setup instructions, or prefer `xurgo-atlas mcp-config --json` as the machine-readable integration contract for Xurgo Agent and other MCP clients. If you have not installed Atlas globally, prefix the commands with `npx`.
 
 The preferred integration path is the daemon HTTP MCP endpoint at `/mcp`:
 
 ```bash
-npx xurgo-atlas daemon start
-npx xurgo-atlas mcp-config --json
+xurgo-atlas daemon start
+xurgo-atlas mcp-config --json
 ```
 
 `xurgo-atlas server` remains the legacy stdio-oriented MCP path for local or direct stdio integrations.
@@ -80,20 +78,9 @@ For a cloned repo that already has project docs, omit `--template`. The template
 
 ## How Xurgo Atlas Works
 
-Xurgo Atlas provides two interfaces for managing documentation:
+Xurgo Atlas provides a CLI for direct project management and an MCP server for agents that need safe documentation operations. The daemon mode is the preferred HTTP transport: it resolves the current project from the local marker, an ancestor marker, or an explicit registration, so the normal start command works from inside an initialized project without repeating flags. If the current directory resolves to one project and explicit flags point at another, startup fails clearly instead of silently serving the wrong project.
 
-1. **CLI (Command Line Interface)**: For direct interaction and project management.
-2. **MCP (Model Context Protocol) Server**: For AI agents to interact with documentation projects programmatically.
-
-### CLI vs MCP Tools
-
-- The CLI is used for initializing projects, managing project registries, and running standalone commands (like `list`, `history`, `export`).
-- The MCP server exposes tools and resources that AI agents can use to read, propose changes, and manage documentation safely.
-
-### stdio mode vs daemon mode
-
-- **stdio mode** (`xurgo-atlas server`): The MCP server runs on standard input/output, suitable for local development and direct integration with MCP clients.
-- **daemon mode** (`xurgo-atlas daemon`): The MCP server runs as an HTTP server using Streamable HTTP transport, allowing multiple agents to connect over HTTP. The daemon resolves the current project from the local project marker, an ancestor marker, or an explicit project registration, so the normal start command works from inside an initialized project without repeating flags. If the current directory resolves to one project and explicit flags point at another, startup fails clearly instead of silently serving the wrong project.
+`xurgo-atlas server` remains the legacy stdio-oriented path for direct local integrations.
 
 ### Managed storage (advanced)
 
@@ -159,6 +146,25 @@ The `docs.export` tool can export a branch to a target directory, allowing users
 - Attempt to traverse outside the project scope (e.g., using `../` paths).
 
 ## MCP Tool Reference
+
+The current 0.1.1 public tool surface is:
+
+- `docs.status`
+- `docs.manifest`
+- `docs.read`
+- `docs.read_section`
+- `docs.context_pack`
+- `docs.list`
+- `docs.create_branch`
+- `docs.propose_patch`
+- `docs.propose_document`
+- `docs.preview_diff`
+- `docs.commit_patch`
+- `docs.history`
+- `docs.restore_file`
+- `docs.export`
+
+For setup examples and workflow details, see [docs/atlas/daemon-mcp.md](docs/atlas/daemon-mcp.md) and [docs/README.md](docs/README.md).
 
 ### docs.list
 **Purpose:** List all tracked documentation files in a branch.
@@ -502,16 +508,14 @@ Accepted patch formats include full git-style unified diffs from `git diff`, com
 
 The canonical safe workflow for agents to modify documentation is:
 
-1. **docs.list** – Discover what files are available in the project.
-2. **docs.read** – Read the target file to obtain its current content and `baseRevision`.
-3. **docs.create_branch** – Create an isolated branch for the changes (e.g., `agent/change-summary`).
-4. **docs.propose_patch** – Submit a patch with the `baseRevision` from the read step, along with intent and summary.
-5. **docs.preview_diff** – Review the proposed diff, check the risk level, and verify approval requirements.
-6. **docs.commit_patch** – Commit the proposal (if low-risk) or commit with `riskOverride: "accept"` (if high-risk and approved).
-7. **docs.export** – (Optional) Export the branch to the working tree to synchronize changes.
+1. Orient with `docs.status`, `docs.manifest`, `docs.read`, `docs.read_section`, or `docs.context_pack`.
+2. Create an isolated branch with `docs.create_branch` when you need branch-scoped changes.
+3. Use `docs.propose_patch` for edits to existing docs or `docs.propose_document` for new managed Markdown files under `docs/atlas/**`.
+4. Preview the diff with `docs.preview_diff`.
+5. Commit the proposal with `docs.commit_patch`.
+6. Export the branch with `docs.export` if you want to sync it back to the working tree.
 
-> **Agent Instruction:**  
-> Use Xurgo Atlas for all documentation changes. Do not edit docs directly. Read the file first, use the returned baseRevision, propose a minimal patch, preview the diff, commit the proposal, then export.
+`docs.propose_document` is the safest current path for new Atlas-managed docs, including repair/recreation when the manifest already lists a managed path but the file is missing.
 
 ## Validation & Artifact Workflow
 
@@ -528,11 +532,6 @@ See [docs/atlas/development-workflow.md](docs/atlas/development-workflow.md) for
 
 ## Creating New Documentation
 
-Creating a new documentation file is supported via the existing patch-based workflow. To create a new file:
+Use `docs.propose_document` to create a new Atlas-managed Markdown document under `docs/atlas/**`. It is the safest current workflow because it can create the file, add the manifest entry when needed, and repair a missing managed file when the manifest already lists the path.
 
-1. Ensure the target path is under a protected directory (e.g., `docs/` or as defined in `.docs-policy.yml`).
-2. On the target branch, propose a patch that creates the file. Since the file does not exist, the `baseRevision` field is not validated against a current file revision (the validation skips the baseRevision check when the file is absent). However, a non-empty string must still be provided for `baseRevision` (e.g., the branch HEAD revision or any arbitrary non-empty string).
-3. The patch should be a unified diff that creates the file (e.g., starting with `+++ b/path/to/new/file` and containing additions).
-4. Follow the standard workflow: preview the diff, commit the proposal, and export if desired.
-
-**Note:** Although creating new files is possible, the workflow is optimized for modifying existing files. Agents should prefer to read a file first when possible. For entirely new documentation, consider creating a template file in the repository first, then modifying it.
+Use `docs.propose_patch` when you are editing an existing document instead of creating a new one.

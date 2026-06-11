@@ -6,6 +6,7 @@
 
 - Updated the public README to lead with npm installation instead of private RC tarball testing.
 - Removed stale private RC and "public npm future" wording from the primary quick start.
+- Clarified the README install guidance so global CLI install is the primary path and `npx` / project-local usage are secondary options.
 - Clarified `mcp-config --json` as the machine-readable MCP integration contract.
 - Fixed managed-document repair so `docs.propose_document` can recreate a missing managed file when the manifest entry already exists.
 - Kept private RC bundle guidance only as maintainer-oriented release context.
