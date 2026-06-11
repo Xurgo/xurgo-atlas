@@ -1,7 +1,7 @@
 # Xurgo Atlas — Documentation-First Project Context
 
 > **Product name:** Xurgo Atlas
-> **Current implementation:** docu-guard-mcp (transitional package/CLI)
+> **Current implementation:** xurgo-atlas (public package/CLI with legacy compatibility notes in archived docs)
 > **Status:** Vision / Planning — not yet implemented
 > **Branch:** v0.2-daemon
 > **Integration:** [`xurgo-integration.md`](./xurgo-integration.md)
@@ -162,21 +162,21 @@ During this transition period, the implementation may still be referred to by it
 
 | Aspect | Current Name | Notes |
 |--------|-------------|-------|
-| Package | `docu-guard-mcp` | npm package name, not yet renamed |
-| CLI | `docu-guard` | Binary name, not yet renamed |
-| Repository | `docs-mcp` | Git repo path, not yet renamed |
-| MCP server | `docu-guard-mcp` | Server identity in MCP discovery |
-| Tool namespace | `docs.*` | MCP tool namespace, not yet renamed |
-| Config paths | `~/.config/docu-guard/` | XDG config path, not yet renamed |
-| Data paths | `~/.local/share/docu-guard/` | XDG data path, not yet renamed |
+| Package | `xurgo-atlas` | Current public npm package name |
+| CLI | `xurgo-atlas` | Current primary public CLI |
+| Repository | `xurgo-atlas` | Current public repository name |
+| MCP server | `xurgo-atlas` | Current MCP server identity shown in integration output |
+| Tool namespace | `docs.*` | Stable MCP tool namespace |
+| Config paths | `~/.config/xurgo-atlas/` | Current default XDG config path |
+| Data paths | `~/.local/share/xurgo-atlas/` | Current default XDG data path |
 
-**No mechanical rename is being performed in this docs-only session.** A future rename should be planned as a separate work item to avoid breaking existing configs, package metadata, MCP server registrations, documentation links, repository references, and user workflows.
+Historical design notes may still refer to `docu-guard-mcp`, `docu-guard`, or legacy storage paths where they describe pre-rename behavior or migration compatibility.
 
 ### 6.2 Naming in Documentation
 
 - **New docs** use "Xurgo Atlas" as the product name.
 - This document and other vision/spec docs are being updated to reflect the product name.
-- References to "docu-guard-mcp" or "docu-guard" are retained only when discussing the current transitional implementation, CLI, or package state.
+- References to `docu-guard-mcp` or `docu-guard` are retained only when discussing archived pre-rename design history or migration compatibility.
 - Avoid using "docu-guard" as the future product name in new content.
 
 ### 6.3 Preserved Identities

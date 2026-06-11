@@ -177,7 +177,7 @@ Examples:
 
 ```bash
 # Register a project
-docu-guard project add --project-id my-app --project-root /home/jason/projects/my-app
+docu-guard project add --project-id my-app --project-root ~/projects/my-app
 
 # Remove a project from registry
 docu-guard project remove --project-id my-app
@@ -221,13 +221,13 @@ The directory `~/.config/docu-guard/` is created automatically when the first pr
   "projects": {
     "my-app": {
       "projectId": "my-app",
-      "projectRoot": "/home/jason/projects/my-app",
+      "projectRoot": "~/projects/my-app",
       "createdAt": "2026-05-30T10:00:00.000Z",
       "updatedAt": "2026-05-30T10:00:00.000Z"
     },
     "my-other-app": {
       "projectId": "my-other-app",
-      "projectRoot": "/home/jason/projects/my-other-app",
+      "projectRoot": "~/projects/my-other-app",
       "createdAt": "2026-05-30T11:00:00.000Z",
       "updatedAt": "2026-05-30T11:00:00.000Z"
     }
