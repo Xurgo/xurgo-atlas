@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.1.1 (2026-06-11)
+
+**Docs/package-page correction release.**
+
+- Updated the public README to lead with npm installation instead of private RC tarball testing.
+- Removed stale private RC and "public npm future" wording from the primary quick start.
+- Clarified `mcp-config --json` as the machine-readable MCP integration contract.
+- Kept private RC bundle guidance only as maintainer-oriented release context.
+
 ## v0.1.0 (2026-05-30)
 
 **MVP release — safe, versioned, auditable documentation management for AI-assisted projects.**

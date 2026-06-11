@@ -682,11 +682,11 @@ Add the following sections to `README.md`:
 
 ### Dogfooding
 
-Once v0.2 is built, dogfood it on the docu-guard-mcp project itself:
+Once v0.2 is built, dogfood it on the Xurgo Atlas project itself:
 
 ```bash
 # Register this project
-docu-guard project add --project-id docu-guard-mcp --project-root /home/jason/projects/docs-mcp
+docu-guard project add --project-id xurgo-atlas --project-root ~/projects/xurgo-atlas
 
 # Start the daemon
 docu-guard daemon
