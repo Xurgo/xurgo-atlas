@@ -1,64 +1,44 @@
 # Xurgo Atlas
 
-Safe, versioned, auditable documentation management for AI-assisted projects.
-
-> **⚠️ Pre-release — private RC.** This project is not publicly published. Use the private RC tarball for testing. Do not publish, tag, or release without explicit approval.
+Xurgo Atlas is a local project context server for AI-assisted development.
 
 ## Quick Start
 
-### Private RC (current)
-
-For private RC testing, clone the repo, build, and install from the workspace. The `bundle:private-rc` script generates a portable reviewer-ready artifact.
+Install Xurgo Atlas from the public npm registry:
 
 ```bash
-# Prerequisites: Node.js >= 22, npm
+# Install in a project
+npm install -D xurgo-atlas
 
-git clone <repo-url>
-cd xurgo-atlas
-npm install
-npm run build
-
-# Run full validation (optional but recommended)
-npm run validate:full
-
-# Quick smoke check
-npm run verify:installed
-
-# Generate a private RC reviewer bundle
-npm run bundle:private-rc
+# Or install globally
+npm install -g xurgo-atlas
 ```
 
-After installing the tarball into a cloned project, `npx xurgo-atlas` resolves from the local install:
+Then initialize a project and start the daemon-backed MCP endpoint:
 
 ```bash
-npm install -D /path/to/xurgo-atlas-0.1.0.tgz
-npx xurgo-atlas init --project-id my-project --project-root .
+npx xurgo-atlas init --template mcp-server --project-id my-project
 npx xurgo-atlas daemon start
 npx xurgo-atlas mcp-config
+npx xurgo-atlas mcp-config --json
 ```
 
 `init` writes a local `.xurgo-atlas/project.json` marker in the project root. That marker is sticky: rerunning `init` with the same project id is safe, but Atlas will fail clearly instead of silently rebinding the project root to a different id. Project ids are also globally unique in the registry, so `init` will refuse to register an existing id to a different root.
 
 After init, the normal happy path can run from the project root or a nested subdirectory without repeating `--project-id` and `--project-root`. Explicit flags still work for advanced cases, but Atlas now fails clearly if an explicit project id conflicts with the current project marker or the provided `--project-root`.
 
-### Public npm (future)
+## MCP Client Setup
 
-After public npm publication (not yet):
+Use `xurgo-atlas mcp-config` for human-readable setup instructions, or prefer `xurgo-atlas mcp-config --json` as the machine-readable integration contract for Xurgo Agent and other MCP clients.
+
+The preferred integration path is the daemon HTTP MCP endpoint at `/mcp`:
 
 ```bash
-# Install globally or as a project dependency
-npm install -g xurgo-atlas
-# or: npm install -D xurgo-atlas
-
-# Then npx resolves from the npm registry
-npx xurgo-atlas init --project-id my-project --project-root .
 npx xurgo-atlas daemon start
-npx xurgo-atlas mcp-config
+npx xurgo-atlas mcp-config --json
 ```
 
-> No public release has happened yet. All current usage is via the private RC tarball workflow.
-
-Configure your MCP client with `xurgo-atlas mcp-config` for human-readable setup, or prefer `xurgo-atlas mcp-config --json` for machine-readable setup. The preferred Xurgo Agent integration path is the daemon HTTP MCP endpoint at `/mcp`; `xurgo-atlas server` remains the legacy stdio-oriented path.
+`xurgo-atlas server` remains the legacy stdio-oriented MCP path for local or direct stdio integrations.
 
 ## License
 
@@ -68,6 +48,10 @@ For detailed setup instructions, see [docs/atlas/setup.md](docs/atlas/setup.md).
 For daemon and MCP client configuration, see [docs/atlas/daemon-mcp.md](docs/atlas/daemon-mcp.md).
 For storage migration guidance, see [docs/atlas/storage-migration.md](docs/atlas/storage-migration.md).
 For pre-release validation, see [docs/atlas/release-checklist.md](docs/atlas/release-checklist.md).
+
+## Maintainer Notes
+
+For maintainers validating private release candidates before a public publish, the repo still includes the `bundle:private-rc` workflow for producing a portable reviewer tarball. That workflow is not the primary install path for end users now that Xurgo Atlas is publicly available on npm.
 
 ### Init Templates
 
