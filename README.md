@@ -21,6 +21,8 @@ xurgo-atlas mcp-config --json
 
 If you want to try Atlas without installing it first, or keep it pinned inside a repo, use `npx xurgo-atlas ...` instead. For project-local automation, install it as a dev dependency with `npm install -D xurgo-atlas`.
 
+If you're contributing to Atlas itself, work from this repository checkout and use the local npm scripts here instead of relying on a previously globally installed copy.
+
 `init` writes a local `.xurgo-atlas/project.json` marker in the project root. That marker is sticky: rerunning `init` with the same project id is safe, but Atlas will fail clearly instead of silently rebinding the project root to a different id. Project ids are also globally unique in the registry, so `init` will refuse to register an existing id to a different root.
 
 After init, the normal happy path can run from the project root or a nested subdirectory without repeating `--project-id` and `--project-root`. Explicit flags still work for advanced cases, but Atlas now fails clearly if an explicit project id conflicts with the current project marker or the provided `--project-root`.
@@ -47,9 +49,9 @@ For daemon and MCP client configuration, see [docs/atlas/daemon-mcp.md](docs/atl
 For storage migration guidance, see [docs/atlas/storage-migration.md](docs/atlas/storage-migration.md).
 For pre-release validation, see [docs/atlas/release-checklist.md](docs/atlas/release-checklist.md).
 
-## Maintainer Notes
+## Development
 
-For maintainers validating private release candidates before a public publish, the repo still includes the `bundle:private-rc` workflow for producing a portable reviewer tarball. That workflow is not the primary install path for end users now that Xurgo Atlas is publicly available on npm.
+If you're contributing to Atlas itself, use this repository checkout and the local npm scripts here. The detailed validation, smoke-testing, and private RC workflow lives in [docs/atlas/development-workflow.md](docs/atlas/development-workflow.md) and [docs/atlas/release-checklist.md](docs/atlas/release-checklist.md).
 
 ### Init Templates
 
@@ -504,34 +506,15 @@ Accepted patch formats include full git-style unified diffs from `git diff`, com
 - Invalid projectId or branch
 - Target directory not writable
 
-## Agent Workflow
+## Managing documentation safely
 
-The canonical safe workflow for agents to modify documentation is:
+When Atlas is changing managed docs, the safe path is simple:
 
-1. Orient with `docs.status`, `docs.manifest`, `docs.read`, `docs.read_section`, or `docs.context_pack`.
-2. Create an isolated branch with `docs.create_branch` when you need branch-scoped changes.
-3. Use `docs.propose_patch` for edits to existing docs or `docs.propose_document` for new managed Markdown files under `docs/atlas/**`.
+1. Read the current document first so you know the live revision.
+2. Use `docs.propose_patch` to edit an existing managed doc.
+3. Use `docs.propose_document` to create a new managed doc, or to repair a missing managed doc that is already listed in the manifest.
 4. Preview the diff with `docs.preview_diff`.
-5. Commit the proposal with `docs.commit_patch`.
-6. Export the branch with `docs.export` if you want to sync it back to the working tree.
+5. Commit the change through Atlas with `docs.commit_patch`.
+6. Check that the manifest still validates after the change.
 
-`docs.propose_document` is the safest current path for new Atlas-managed docs, including repair/recreation when the manifest already lists a managed path but the file is missing.
-
-## Validation & Artifact Workflow
-
-The project uses a layered command convention for validation, smoke testing, and artifact generation:
-
-| Command | Purpose |
-|---------|---------|
-| `npm run validate:quick` | Fast tests + build — default dev loop |
-| `npm run validate:full` | All tests + build + pack dry-run |
-| `npm run verify:installed` | Pack and install into consumer workspace, exercise CLI/daemon/MCP |
-| `npm run bundle:private-rc` | Create a portable reviewer-ready private RC bundle |
-
-See [docs/atlas/development-workflow.md](docs/atlas/development-workflow.md) for the full reference and [docs/atlas/release-checklist.md](docs/atlas/release-checklist.md) for pre-release steps.
-
-## Creating New Documentation
-
-Use `docs.propose_document` to create a new Atlas-managed Markdown document under `docs/atlas/**`. It is the safest current workflow because it can create the file, add the manifest entry when needed, and repair a missing managed file when the manifest already lists the path.
-
-Use `docs.propose_patch` when you are editing an existing document instead of creating a new one.
+Archived or historical docs may not all be active manifest-managed docs, but public-facing documentation should still avoid stale commands, personal machine paths, and misleading old names.
