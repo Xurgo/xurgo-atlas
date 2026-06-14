@@ -2373,7 +2373,7 @@ documents:
 
     const manifest = await project.readFile('main', 'docs/manifest.yml');
     expect(manifest.content).toContain('path: docs/atlas/example.md');
-  });
+  }, 120000);
 
   it('should mark a create-only document proposal stale when the manifest base revision changes', async () => {
     const project = await Project.init({

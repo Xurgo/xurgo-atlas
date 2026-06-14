@@ -313,6 +313,11 @@ export class StoragePaths {
     return path.join(this.projectDataDir(projectId), 'events.sqlite');
   }
 
+  /** SQLite database for a project's rebuilt docs search index. */
+  projectSearchPath(projectId: string): string {
+    return path.join(this.projectDataDir(projectId), 'search.sqlite');
+  }
+
   /** Root directory for daemon runtime artifacts. */
   runtimeDir(): string {
     return path.join(this.dataDir, 'runtime');

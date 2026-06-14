@@ -100,6 +100,7 @@ All documentation tools are exposed under the `docs.*` namespace:
 | `docs.read` | Read a file |
 | `docs.read_section` | Read one Markdown section |
 | `docs.status` | Read STATUS.md front matter and body |
+| `docs.search` | Search Atlas-managed docs/context with local SQLite FTS |
 | `docs.manifest` | Read project document manifest |
 | `docs.context_pack` | Assemble curated doc pack within token budget |
 | `docs.create_branch` | Create an isolated branch |
@@ -110,8 +111,9 @@ All documentation tools are exposed under the `docs.*` namespace:
 | `docs.history` | View file change history |
 | `docs.restore_file` | Restore a file to a previous revision |
 | `docs.export` | Export branch to working tree |
+| `docs.capabilities` | Report read-only Atlas capability and retrieval/search support |
 
-Future retrieval/search tools are additive and generic Atlas capabilities, not Xurgo-specific helpers: `docs.search`, `docs.capabilities`, and optional future `docs.semantic_search`.
+Current retrieval/search tools are additive and generic Atlas capabilities, not Xurgo-specific helpers. `docs.search` provides local lexical retrieval over Atlas-managed docs/context, `docs.capabilities` reports the supported surface, and optional future `docs.semantic_search` remains separate and not required.
 
 ## Security
 
