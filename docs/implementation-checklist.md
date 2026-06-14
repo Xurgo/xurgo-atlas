@@ -43,6 +43,8 @@
 | `docs.history` | ✅ Complete | Unified history array (git + events) |
 | `docs.restore_file` | ✅ Complete | Requires `intent`, returns `restored: true` |
 | `docs.export` | ✅ Complete | Returns `exported: true` + `files` |
+| `docs.search` | ✅ Complete | Local SQLite FTS search over Atlas-managed docs/context with scoped lexical matches, snippets, and line metadata |
+| `docs.capabilities` | ✅ Complete | Read-only capability summary with `search: true` and `semanticSearch: false` |
 
 ---
 
@@ -167,7 +169,7 @@
 | Multi-file patches | Post-MVP | Currently single-file only |
 | Semantic merge resolution | Post-MVP | Explicitly non-goal for MVP |
 | CI/pre-commit integration | Post-MVP | Secondary goal |
-| Historical full-text search | Post-MVP | Future enhancement; lexical FTS first, optional local vector retrieval only after FTS is stable, and no hosted vector infrastructure is required |
+| Historical full-text search | ✅ Complete | Local lexical FTS search implemented as `docs.search`; semantic/vector retrieval remains future work |
 | Agent activity dashboard | Post-MVP | Future enhancement |
 | Managed branch promotion / merge (`docs.merge_branch`) | Unimplemented | Policy defines `branching.merge_to_main_requires` but no tool or workflow exists. De facto sync model: feature branch → `docs.export` → working tree → `git add/commit` → source repo. Does not block v0.4 — STATUS.md and manifest can be edited directly on `main` via `propose_patch` → `commit_patch`, or synced via export from feature branches. |
 | `better-sqlite3` vs `node:sqlite` | ✅ Resolved | Using built-in `node:sqlite` (Node 22+) — intentional improvement |
