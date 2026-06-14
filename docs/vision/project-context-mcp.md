@@ -123,7 +123,7 @@ Atlas remains local-first. The first retrieval implementation should be SQLite F
 
 Xurgo Atlas and Xurgo must not share one retrieval database. Xurgo owns its own runtime, event, and memory retrieval, and it should consume Atlas only through the documented CLI, MCP, and config boundaries.
 
-Future retrieval features should be additive and generic rather than Xurgo-specific helper APIs. Likely future tools include:
+Retrieval features should be additive and generic rather than Xurgo-specific helper APIs. The current lexical search tool is:
 
 - `docs.search` for Atlas-scoped lexical retrieval over managed docs and context.
 - `docs.capabilities` for surfacing what retrieval and context features are available.

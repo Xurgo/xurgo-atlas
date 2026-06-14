@@ -16,6 +16,8 @@ import {
   createUnifiedDiffForReplacement,
 } from '../core/unified-diff.js';
 import YAML from 'yaml';
+import { collectMarkdownHeadings, findMarkdownSection } from '../core/markdown.js';
+import { DocsSearchIndex } from '../core/docs-search.js';
 
 // ── Schemas ───────────────────────────────────────────────────────────
 
@@ -165,6 +167,13 @@ const ContextPackSchema = z.object({
   maxDocuments: z.number().int().positive().optional(),
 });
 
+const SearchSchema = z.object({
+  projectId: z.string().min(1, 'projectId is required'),
+  branch: z.string().optional().default('main'),
+  query: z.string(),
+  limit: z.number().int().min(1).max(25).optional().default(10),
+});
+
 const CapabilitiesSchema = z.object({});
 
 // ── Tool Registration ────────────────────────────────────────────────
@@ -269,6 +278,12 @@ export function registerTools(
           inputSchema: zodToJsonSchema(ContextPackSchema),
         },
         {
+          name: 'docs.search',
+          description:
+            'Search Atlas-managed documentation and context lexically with local SQLite FTS. Returns scoped matches with path, heading, snippet, score, and line metadata. Searches only Atlas-managed docs and does not use semantic retrieval.',
+          inputSchema: zodToJsonSchema(SearchSchema),
+        },
+        {
           name: 'docs.capabilities',
           description:
             'Return a read-only Atlas capability summary for MCP clients. Reports managed-docs scope, currently available context tools, guarded-write support, and retrieval/search status without requiring any project-specific assumptions.',
@@ -330,6 +345,8 @@ export function registerTools(
           return await handleManifest(project, rawArgs);
         case 'docs.context_pack':
           return await handleContextPack(project, rawArgs);
+        case 'docs.search':
+          return await handleSearch(project, rawArgs);
         default:
           return {
             content: [
@@ -640,127 +657,6 @@ export async function handleReadSection(project: Project, rawArgs: Record<string
       },
     ],
   };
-}
-
-interface MarkdownHeading {
-  text: string;
-  level: number;
-  line: number;
-  index: number;
-}
-
-interface MarkdownSection {
-  matchedHeading: string;
-  level: number;
-  startLine: number;
-  endLine: number;
-  content: string;
-}
-
-function findMarkdownSection(
-  content: string,
-  options: {
-    heading: string;
-    level?: number;
-    occurrence: number;
-    includeHeading: boolean;
-  },
-): MarkdownSection | null {
-  const lines = content.split('\n');
-  const headings = collectMarkdownHeadings(content);
-  const targetHeading = normalizeHeadingText(options.heading);
-  let seen = 0;
-
-  for (const heading of headings) {
-    if (options.level !== undefined && heading.level !== options.level) {
-      continue;
-    }
-
-    if (normalizeHeadingText(heading.text) !== targetHeading) {
-      continue;
-    }
-
-    seen += 1;
-    if (seen !== options.occurrence) {
-      continue;
-    }
-
-    const nextHeading = headings.find(
-      (candidate) =>
-        candidate.index > heading.index && candidate.level <= heading.level,
-    );
-    const endIndex = nextHeading ? nextHeading.index : lines.length;
-    const contentStartIndex = options.includeHeading ? heading.index : heading.index + 1;
-    const sectionContent = lines.slice(contentStartIndex, endIndex).join('\n');
-
-    return {
-      matchedHeading: heading.text,
-      level: heading.level,
-      startLine: heading.line,
-      endLine: nextHeading ? nextHeading.line - 1 : countMarkdownLines(content),
-      content: sectionContent,
-    };
-  }
-
-  return null;
-}
-
-function collectMarkdownHeadings(content: string): MarkdownHeading[] {
-  const lines = content.split('\n');
-  const headings: MarkdownHeading[] = [];
-  let fence: { marker: '`' | '~'; length: number } | null = null;
-
-  lines.forEach((line, index) => {
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      const markerRun = fenceMatch[1];
-      const marker = markerRun[0] as '`' | '~';
-      if (!fence) {
-        fence = { marker, length: markerRun.length };
-        return;
-      }
-
-      if (marker === fence.marker && markerRun.length >= fence.length) {
-        fence = null;
-        return;
-      }
-    }
-
-    if (fence) {
-      return;
-    }
-
-    const headingMatch = line.match(/^ {0,3}(#{1,6})(?:\s+|$)(.*)$/);
-    if (!headingMatch) {
-      return;
-    }
-
-    headings.push({
-      text: normalizeHeadingText(headingMatch[2]),
-      level: headingMatch[1].length,
-      line: index + 1,
-      index,
-    });
-  });
-
-  return headings;
-}
-
-function normalizeHeadingText(text: string): string {
-  return text
-    .trim()
-    .replace(/\s+#+\s*$/, '')
-    .trim()
-    .replace(/\s+/g, ' ');
-}
-
-function countMarkdownLines(content: string): number {
-  if (content.length === 0) {
-    return 0;
-  }
-
-  const lines = content.split('\n');
-  return content.endsWith('\n') ? lines.length - 1 : lines.length;
 }
 
 async function handleCreateBranch(
@@ -2467,12 +2363,12 @@ export function handleCapabilities() {
               readSection: true,
               contextPack: true,
               guardedWrites: true,
-              search: false,
+              search: true,
               semanticSearch: false,
             },
             retrieval: {
               lexical: {
-                available: false,
+                available: true,
                 plannedTool: 'docs.search',
                 plannedBackend: 'sqlite-fts',
                 scope: 'atlas-managed-docs',
@@ -2492,6 +2388,24 @@ export function handleCapabilities() {
       },
     ],
   };
+}
+
+async function handleSearch(project: Project, rawArgs: Record<string, unknown>) {
+  const args = SearchSchema.parse(rawArgs);
+  const searchIndex = new DocsSearchIndex(project.storage.projectSearchPath(project.projectId));
+  try {
+    const result = await searchIndex.search(project, args.branch, args.query, args.limit);
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(result, null, 2),
+        },
+      ],
+    };
+  } finally {
+    searchIndex.close();
+  }
 }
 
 function validateContextPackPaths(

@@ -165,7 +165,7 @@ Xurgo owns its own runtime, event, and memory retrieval. Xurgo and Xurgo Atlas m
 
 Xurgo should consume Atlas only through the documented CLI, MCP, and config boundaries. There is no immediate breaking contract change in this direction update, and `xurgo-atlas mcp-config --json` remains stable.
 
-Future retrieval/search capabilities should be additive, generic Atlas project-context features rather than Xurgo-specific helpers. Likely future tools are:
+Retrieval/search capabilities should be additive, generic Atlas project-context features rather than Xurgo-specific helpers. The current lexical search tool is:
 
 - `docs.search` for Atlas-scoped lexical retrieval over managed docs and context.
 - `docs.capabilities` for surfacing supported retrieval/context capabilities and scope.
