@@ -158,7 +158,7 @@
 | Item | Priority | Notes |
 |------|----------|-------|
 | `commit/{revision}/{path}` resource URI | Low | Listed in PRD example URIs but not in Required MVP Resources |
-| `search.ts` module | Low | Listed in PRD project layout; search is post-MVP |
+| `search.ts` module | Low | Post-MVP search entry point for Atlas-managed docs/context; SQLite FTS first, optional sqlite-vec later, no Qdrant/default external vector service |
 | Web review UI | Post-MVP | Future enhancement |
 | Cloud sync / team approvals | Post-MVP | Future enhancement |
 | GitHub PR integration | Post-MVP | Future enhancement |
@@ -167,7 +167,7 @@
 | Multi-file patches | Post-MVP | Currently single-file only |
 | Semantic merge resolution | Post-MVP | Explicitly non-goal for MVP |
 | CI/pre-commit integration | Post-MVP | Secondary goal |
-| Historical full-text search | Post-MVP | Future enhancement |
+| Historical full-text search | Post-MVP | Future enhancement; lexical FTS first, optional local vector retrieval only after FTS is stable, and no hosted vector infrastructure is required |
 | Agent activity dashboard | Post-MVP | Future enhancement |
 | Managed branch promotion / merge (`docs.merge_branch`) | Unimplemented | Policy defines `branching.merge_to_main_requires` but no tool or workflow exists. De facto sync model: feature branch → `docs.export` → working tree → `git add/commit` → source repo. Does not block v0.4 — STATUS.md and manifest can be edited directly on `main` via `propose_patch` → `commit_patch`, or synced via export from feature branches. |
 | `better-sqlite3` vs `node:sqlite` | ✅ Resolved | Using built-in `node:sqlite` (Node 22+) — intentional improvement |
