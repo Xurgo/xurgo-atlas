@@ -100,6 +100,36 @@ describe('MCP server metadata', () => {
     });
   });
 
+  it('registers docs.search in tools/list', async () => {
+    const server = createMcpServer(async () => {
+      throw new Error('not used');
+    });
+
+    const handlers = (server as unknown as {
+      _requestHandlers: Map<string, (request: unknown) => Promise<{ tools: Array<{ name: string; description?: string; inputSchema: unknown }> }>>;
+    })._requestHandlers;
+    const listTools = handlers.get('tools/list');
+
+    expect(listTools).toBeTypeOf('function');
+
+    const result = await listTools!({
+      method: 'tools/list',
+      params: {},
+    });
+    const searchTool = result.tools.find((tool) => tool.name === 'docs.search');
+
+    expect(searchTool).toBeDefined();
+    expect(searchTool?.description).toContain('local SQLite FTS');
+    expect(searchTool?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['projectId', 'query'],
+      properties: {
+        branch: { type: 'string' },
+        limit: { type: 'number' },
+      },
+    });
+  });
+
   it('registers docs.capabilities and returns a read-only capability summary', async () => {
     const server = createMcpServer(async () => {
       throw new Error('not used');
@@ -158,12 +188,12 @@ describe('MCP server metadata', () => {
         readSection: true,
         contextPack: true,
         guardedWrites: true,
-        search: false,
+        search: true,
         semanticSearch: false,
       },
       retrieval: {
         lexical: {
-          available: false,
+          available: true,
           plannedTool: 'docs.search',
           plannedBackend: 'sqlite-fts',
           scope: 'atlas-managed-docs',

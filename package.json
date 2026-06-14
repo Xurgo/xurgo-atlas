@@ -19,7 +19,7 @@
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "test:fast": "vitest run tests/package-bin-alias.test.ts tests/mcp-metadata.test.ts tests/cli-usage.test.ts tests/registry.test.ts tests/storage-migration.test.ts tests/private-rc-artifact.test.ts",
+    "test:fast": "vitest run tests/package-bin-alias.test.ts tests/mcp-metadata.test.ts tests/docs-search.test.ts tests/cli-usage.test.ts tests/registry.test.ts tests/storage-migration.test.ts tests/private-rc-artifact.test.ts",
     "test:integration": "vitest run tests/project.test.ts tests/daemon.test.ts tests/daemon-lifecycle.test.ts tests/http-server.test.ts",
     "test:watch": "vitest",
     "validate:quick": "npm run test:fast && npm run build",
