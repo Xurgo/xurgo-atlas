@@ -42,7 +42,7 @@ v0.4 addresses these gaps by introducing two new standard files (`STATUS.md` and
 3. **No mechanical rename in this session.** The package, CLI, MCP server name, tool namespace, and config paths retain their current transitional names. A future rename should be planned separately.
 4. **No Xurgo dependency.** The tool must remain independently useful.
 5. **No complex YAML features** as core requirements (see §5).
-6. **No search/full-text index** — deferred unless explicitly needed later.
+6. **No search/full-text index in v0.4** — retrieval/search remains post-v0.4, starts with local SQLite FTS over Atlas-managed docs/context, and does not imply semantic search is implemented yet.
 7. **No changes to the Git storage model** — v0.3 managed storage is preserved.
 
 ---
@@ -297,6 +297,9 @@ These are targets for the implementation, not hard limits. The principle is that
 | `docs.manifest` | Return the project's doc map | Parsed manifest YAML as JSON, optional raw YAML, path validation, maxDocuments truncation | ✅ Complete |
 | `docs.read_section` | Read one section of a document by heading | Section content + heading metadata + bounded-read metadata | ✅ Complete |
 | `docs.context_pack` | Return a curated set of documents for orientation or a topic | Ordered context items with per-item metadata within a total character budget | ✅ Complete |
+| `docs.search` | Search Atlas-managed docs/context with local lexical retrieval | Ranked lexical matches, snippets, and path metadata | Future additive |
+| `docs.capabilities` | Describe supported retrieval/context capabilities and scope | Capability metadata and feature flags | Future additive |
+| `docs.semantic_search` | Optional semantic retrieval over Atlas-managed content | Local vector-search results if that is added later | Optional future |
 
 ### 7.2 Tool Options (Proposed Enhancements)
 
@@ -307,6 +310,9 @@ These are targets for the implementation, not hard limits. The principle is that
 | `docs.list` | `compact` | Return minimal metadata (path + role) instead of full details |
 | `docs.list` | `role` | Filter documents by role |
 | `docs.find` | *(if needed later)* | Search document summaries or headings for a term |
+| `docs.search` | *(future)* | Search Atlas-managed docs/context lexically with scoped retrieval |
+| `docs.capabilities` | *(future)* | Report supported retrieval/context capabilities and scope |
+| `docs.semantic_search` | *(optional future)* | Local-only semantic retrieval after FTS is stable |
 
 ### 7.3 Backward Compatibility
 

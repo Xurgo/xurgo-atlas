@@ -111,6 +111,8 @@ All documentation tools are exposed under the `docs.*` namespace:
 | `docs.restore_file` | Restore a file to a previous revision |
 | `docs.export` | Export branch to working tree |
 
+Future retrieval/search tools are additive and generic Atlas capabilities, not Xurgo-specific helpers: `docs.search`, `docs.capabilities`, and optional future `docs.semantic_search`.
+
 ## Security
 
 - The daemon binds to `127.0.0.1` (localhost) by default.
