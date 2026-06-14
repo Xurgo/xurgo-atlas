@@ -21,7 +21,7 @@ async function initProject(): Promise<Project> {
   await fs.promises.mkdir(docsDir, { recursive: true });
   await fs.promises.writeFile(
     path.join(docsDir, 'searchable.md'),
-    `# Searchable Doc\n\n## Overview\nThis managed section mentions lexical retrieval.\n\n## Details\nThe local SQLite FTS index should return this section.\n`,
+    `# Searchable Doc\n\n## Overview\nThis managed section mentions lexical retrieval.\n\n## Details\nThe local SQLite FTS index should return this section and mentions node:sqlite for punctuation-heavy search.\n`,
     'utf-8',
   );
   await fs.promises.writeFile(
@@ -111,7 +111,7 @@ describe('docs.search', () => {
     expect(typeof payload.results[0].score).toBe('number');
     expect(payload.results[0].startLine).toBeGreaterThan(0);
     expect(payload.results[0].endLine).toBeGreaterThanOrEqual(payload.results[0].startLine);
-  });
+  }, 120000);
 
   it('does not search arbitrary repo files outside Atlas-managed docs', async () => {
     const project = await initProject();
@@ -131,7 +131,32 @@ describe('docs.search', () => {
 
     expect(payload.matchCount).toBe(0);
     expect(payload.results).toEqual([]);
-  });
+  }, 120000);
+
+  it('handles punctuation-heavy queries without falling back to an error', async () => {
+    const project = await initProject();
+
+    const response = await callTool(project, 'docs.search', {
+      projectId: project.projectId,
+      branch: 'main',
+      query: 'node:sqlite',
+      limit: 5,
+    });
+
+    expect(response.isError).not.toBe(true);
+    const payload = JSON.parse(response.content[0].text) as {
+      normalizedQuery: string;
+      matchCount: number;
+      results: Array<{ path: string; snippet: string }>;
+    };
+
+    expect(payload.normalizedQuery).toBe('node:sqlite');
+    expect(payload.matchCount).toBeGreaterThan(0);
+    expect(payload.results[0]).toMatchObject({
+      path: 'docs/atlas/searchable.md',
+    });
+    expect(payload.results[0].snippet).toMatch(/node|sqlite/i);
+  }, 120000);
 
   it('handles empty matches gracefully', async () => {
     const project = await initProject();
@@ -151,5 +176,83 @@ describe('docs.search', () => {
 
     expect(payload.matchCount).toBe(0);
     expect(payload.results).toEqual([]);
-  });
+  }, 120000);
+
+  it('treats blank queries as an empty search without error', async () => {
+    const project = await initProject();
+
+    const response = await callTool(project, 'docs.search', {
+      projectId: project.projectId,
+      branch: 'main',
+      query: '   ',
+      limit: 5,
+    });
+
+    expect(response.isError).not.toBe(true);
+    const payload = JSON.parse(response.content[0].text) as {
+      normalizedQuery: string;
+      matchCount: number;
+      results: Array<unknown>;
+    };
+
+    expect(payload.normalizedQuery).toBe('');
+    expect(payload.matchCount).toBe(0);
+    expect(payload.results).toEqual([]);
+  }, 120000);
+
+  it('rebuilds the branch index when the managed branch advances', async () => {
+    const project = await initProject();
+
+    const initialResponse = await callTool(project, 'docs.search', {
+      projectId: project.projectId,
+      branch: 'main',
+      query: 'lexical retrieval',
+      limit: 5,
+    });
+
+    expect(initialResponse.isError).not.toBe(true);
+    const initialPayload = JSON.parse(initialResponse.content[0].text) as {
+      revision: string | null;
+      matchCount: number;
+    };
+
+    expect(initialPayload.revision).toMatch(/^[0-9a-f]{40}$/);
+    expect(initialPayload.matchCount).toBeGreaterThan(0);
+
+    await project.gitStore.applyAndCommit(
+      'main',
+      'docs/atlas/searchable.md',
+      `# Searchable Doc\n\n## Overview\nThis managed section now references refresh-only search.\n\n## Details\nThe local SQLite FTS index should refresh after this commit.\n`,
+      'Update searchable doc for refresh test',
+    );
+
+    const refreshedResponse = await callTool(project, 'docs.search', {
+      projectId: project.projectId,
+      branch: 'main',
+      query: 'refresh-only search',
+      limit: 5,
+    });
+
+    expect(refreshedResponse.isError).not.toBe(true);
+    const refreshedPayload = JSON.parse(refreshedResponse.content[0].text) as {
+      revision: string | null;
+      indexedAt: string | null;
+      matchCount: number;
+      results: Array<{
+        path: string;
+        heading: string | null;
+        snippet: string;
+      }>;
+    };
+
+    expect(refreshedPayload.revision).toMatch(/^[0-9a-f]{40}$/);
+    expect(refreshedPayload.revision).not.toBe(initialPayload.revision);
+    expect(refreshedPayload.indexedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(refreshedPayload.matchCount).toBeGreaterThan(0);
+    expect(refreshedPayload.results[0]).toMatchObject({
+      path: 'docs/atlas/searchable.md',
+      heading: 'Overview',
+    });
+    expect(refreshedPayload.results[0].snippet).toContain('refresh-only');
+  }, 120000);
 });

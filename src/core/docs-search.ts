@@ -279,17 +279,15 @@ export class DocsSearchIndex {
     }
 
     const now = new Date().toISOString();
-    const existingIds = this.db
-      .prepare('SELECT id FROM docs_search_docs WHERE branch = ?')
-      .all(branch) as Array<{ id: number }>;
-
-    const deleteFts = this.db.prepare('DELETE FROM docs_search_fts WHERE rowid = ?');
-    for (const row of existingIds) {
-      deleteFts.run(row.id);
-    }
-
-    this.db.prepare('DELETE FROM docs_search_docs WHERE branch = ?').run(branch);
-
+    const deleteFts = this.db.prepare(
+      `
+      INSERT INTO docs_search_fts (docs_search_fts, rowid, title, heading, content)
+      VALUES ('delete', ?, ?, ?, ?)
+      `,
+    );
+    const deleteDocs = this.db.prepare(
+      'DELETE FROM docs_search_docs WHERE branch = ?',
+    );
     const insertDoc = this.db.prepare(`
       INSERT INTO docs_search_docs (
         branch, path, revision, title, heading, start_line, end_line, kind, content
@@ -307,8 +305,24 @@ export class DocsSearchIndex {
         indexed_at = excluded.indexed_at
     `);
 
-    this.db.exec('BEGIN');
+    this.db.exec('BEGIN IMMEDIATE');
     try {
+      const existingIds = this.db
+        .prepare(
+          'SELECT id, title, heading, content FROM docs_search_docs WHERE branch = ?',
+        )
+        .all(branch) as Array<{
+        id: number;
+        title: string;
+        heading: string | null;
+        content: string;
+      }>;
+      for (const row of existingIds) {
+        deleteFts.run(row.id, row.title, row.heading, row.content);
+      }
+
+      deleteDocs.run(branch);
+
       for (const record of records) {
         const result = insertDoc.run(
           branch,
@@ -352,11 +366,7 @@ function normalizeSearchQuery(query: string): {
 }
 
 function buildFtsQuery(query: string): string {
-  const terms = query
-    .split(/\s+/)
-    .map((term) => term.replace(/[^A-Za-z0-9_-]/g, ''))
-    .filter((term) => term.length > 0)
-    .slice(0, 12);
+  const terms = extractSearchTerms(query);
 
   if (terms.length === 0) {
     return '';
@@ -377,10 +387,10 @@ function buildSearchExcerpt(content: string, query: string): string {
   }
 
   const normalizedQuery = query.trim().replace(/\s+/g, ' ');
-  const candidates = [
+  const candidates = new Set<string>([
     normalizedQuery,
-    ...normalizedQuery.split(' '),
-  ].filter((candidate) => candidate.length > 0);
+    ...extractSearchTerms(normalizedQuery),
+  ]);
 
   let matchIndex = -1;
   let matchedTerm = '';
@@ -417,6 +427,10 @@ function buildSearchExcerpt(content: string, query: string): string {
     new RegExp(escapeRegExp(matchedTerm), 'ig'),
     (match) => `[${match}]`,
   );
+}
+
+function extractSearchTerms(query: string): string[] {
+  return (query.match(/[\p{L}\p{N}]+/gu) ?? []).slice(0, 12);
 }
 
 function escapeRegExp(value: string): string {
