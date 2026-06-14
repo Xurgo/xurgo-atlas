@@ -99,4 +99,83 @@ describe('MCP server metadata', () => {
       },
     });
   });
+
+  it('registers docs.capabilities and returns a read-only capability summary', async () => {
+    const server = createMcpServer(async () => {
+      throw new Error('not used');
+    });
+
+    const handlers = (server as unknown as {
+      _requestHandlers: Map<string, (request: unknown) => Promise<{ tools?: Array<{ name: string; inputSchema: unknown }> ; content?: Array<{ text: string }> }>>;
+    })._requestHandlers;
+    const listTools = handlers.get('tools/list');
+    const callTool = handlers.get('tools/call');
+
+    expect(listTools).toBeTypeOf('function');
+    expect(callTool).toBeTypeOf('function');
+
+    const listed = await listTools!({
+      method: 'tools/list',
+      params: {},
+    });
+    const capabilitiesTool = listed.tools.find((tool) => tool.name === 'docs.capabilities');
+
+    expect(capabilitiesTool).toBeDefined();
+    expect(capabilitiesTool?.inputSchema).toMatchObject({
+      type: 'object',
+      properties: {},
+    });
+
+    const result = await callTool!({
+      method: 'tools/call',
+      params: {
+        name: 'docs.capabilities',
+        arguments: {},
+      },
+    });
+
+    expect(result).toMatchObject({
+      content: [
+        {
+          type: 'text',
+        },
+      ],
+    });
+
+    const payload = JSON.parse(result.content[0].text);
+
+    expect(payload).toMatchObject({
+      service: 'xurgo-atlas',
+      capabilitiesVersion: 1,
+      scope: {
+        managedDocsOnly: true,
+        projectContextOnly: true,
+      },
+      tools: {
+        status: true,
+        manifest: true,
+        read: true,
+        readSection: true,
+        contextPack: true,
+        guardedWrites: true,
+        search: false,
+        semanticSearch: false,
+      },
+      retrieval: {
+        lexical: {
+          available: false,
+          plannedTool: 'docs.search',
+          plannedBackend: 'sqlite-fts',
+          scope: 'atlas-managed-docs',
+        },
+        semantic: {
+          available: false,
+          plannedTool: 'docs.semantic_search',
+          plannedBackend: 'optional-local-sqlite-vector-extension',
+          required: false,
+        },
+        externalVectorDatabaseDefault: false,
+      },
+    });
+  });
 });

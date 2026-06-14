@@ -165,6 +165,8 @@ const ContextPackSchema = z.object({
   maxDocuments: z.number().int().positive().optional(),
 });
 
+const CapabilitiesSchema = z.object({});
+
 // ── Tool Registration ────────────────────────────────────────────────
 
 /**
@@ -266,6 +268,12 @@ export function registerTools(
             'Assemble a token-efficient project orientation pack from STATUS.md, AGENTS.md, docs/manifest.yml, requested sections, requested paths, and a small manifest-guided document set. Supports a total maxChars budget and structured missing-item reporting.',
           inputSchema: zodToJsonSchema(ContextPackSchema),
         },
+        {
+          name: 'docs.capabilities',
+          description:
+            'Return a read-only Atlas capability summary for MCP clients. Reports managed-docs scope, currently available context tools, guarded-write support, and retrieval/search status without requiring any project-specific assumptions.',
+          inputSchema: zodToJsonSchema(CapabilitiesSchema),
+        },
       ],
     };
   });
@@ -276,6 +284,10 @@ export function registerTools(
     const rawArgs = (rawParams as Record<string, unknown>) || {};
 
     try {
+      if (name === 'docs.capabilities') {
+        return handleCapabilities();
+      }
+
       // Resolve the project for this request
       const project = await resolveProjectForRequest(
         rawArgs,
@@ -2426,6 +2438,53 @@ export async function handleContextPack(project: Project, rawArgs: Record<string
             returnedChars,
             truncated,
             items,
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  };
+}
+
+export function handleCapabilities() {
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify(
+          {
+            service: 'xurgo-atlas',
+            capabilitiesVersion: 1,
+            scope: {
+              managedDocsOnly: true,
+              projectContextOnly: true,
+            },
+            tools: {
+              status: true,
+              manifest: true,
+              read: true,
+              readSection: true,
+              contextPack: true,
+              guardedWrites: true,
+              search: false,
+              semanticSearch: false,
+            },
+            retrieval: {
+              lexical: {
+                available: false,
+                plannedTool: 'docs.search',
+                plannedBackend: 'sqlite-fts',
+                scope: 'atlas-managed-docs',
+              },
+              semantic: {
+                available: false,
+                plannedTool: 'docs.semantic_search',
+                plannedBackend: 'optional-local-sqlite-vector-extension',
+                required: false,
+              },
+              externalVectorDatabaseDefault: false,
+            },
           },
           null,
           2,
