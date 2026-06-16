@@ -31,6 +31,8 @@ npm scripts follow a consistent category/scope naming scheme:
 
 **When to use:** Before risky merges or release-style checks.
 
+**Toolchain note:** If your shell is not already using the intended Node toolchain, run `nvm use --silent 22` before re-running any npm-based validation or packaging commands.
+
 ---
 
 ### `npm run verify:installed`
