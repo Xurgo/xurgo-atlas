@@ -23,6 +23,7 @@
 - [ ] Validation commands are documented
 - [ ] Release checklist is current
 - [ ] Guarded docs are current: `STATUS.md`, `AGENTS.md`, `docs/manifest.yml`, `.docs-policy.yml`
+- [ ] If managed docs changed, `docs.export` has been run before creating Git commits or release tags
 
 ## Storage
 
