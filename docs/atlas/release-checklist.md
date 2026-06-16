@@ -24,6 +24,7 @@
 - [ ] Project-resolution hardening tracker is current ([docs/project-resolution-hardening.md](./project-resolution-hardening.md))
 - [ ] Release checklist is current
 - [ ] Guarded docs are current: `STATUS.md`, `AGENTS.md`, `docs/manifest.yml`, `.docs-policy.yml`
+- [ ] After `docs.commit_patch`, managed state may be ahead of disk; use `docs.read` for the latest content and run `docs.export` before direct disk reads, Git commits, release prep, or publishing. If `docs.status` or `docs.export` reports `exportRequired`, `workingTreeOutOfSync`, or `outOfSyncPaths`, treat `docs.export` as the next step.
 
 ## Private RC Bundle Dummy-Project Reviewer Workflow
 
