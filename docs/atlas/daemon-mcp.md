@@ -18,17 +18,14 @@ xurgo-atlas daemon
 
 The daemon runs on `http://127.0.0.1:3737` by default.
 
-## Project Resolution
+For `0.1.0`, the daemon is single-project-bound. Startup resolves exactly one project from the current directory, `--project-root`, or an explicit registered `--project-id`; the background PID file records that bound project id and root. `daemon start` and `daemon status` output should identify the bound project when that information is available.
 
-When a project has been initialized, `daemon start` can resolve the current project from the local `.xurgo-atlas/project.json` marker in the project root or any nested subdirectory. Startup output prints the resolved project id, project root, and whether the resolution came from explicit flags, a local marker, an ancestor marker, or registry lookup.
+If a daemon is already running for the same resolved project, `daemon start` reports the existing daemon and exits successfully. If a daemon is already running for a different project, startup fails instead of silently reusing the daemon. Stop the current daemon before starting another project:
 
-Project identity is sticky. If the current directory resolves to project `A`, `daemon start --project-id B` now fails clearly instead of silently serving `B`. If that advanced workflow is intentional, pass both a matching `--project-id` and `--project-root` for the intended project.
-
-For `0.1.0`, a running daemon is single-project-bound. If a daemon is already running for the same resolved project, `daemon start` reports the existing daemon and exits successfully. If a daemon is already running for a different project, startup fails and tells the user to stop the current daemon before starting another project. `daemon status` also identifies the bound project id/root when that information is available.
-
-`daemon start` also no longer falls back silently to the registry default from an unrelated non-project directory. If project resolution fails, the daemon exits before binding a port and prints a human-readable message that explains how to initialize or point at the correct project root.
-
-If you start from the wrong directory, move to the current project root and rerun the command there. For advanced workflows outside the current project, pass a matching `--project-id` and `--project-root` (or a nested path inside that project) so the daemon can resolve the intended project explicitly.
+```bash
+xurgo-atlas daemon stop
+xurgo-atlas daemon start --project-id <other-project>
+```
 
 The bound daemon should not silently serve another project through MCP. MCP requests without a project id may use the bound project, and MCP requests for the bound project continue to work. MCP requests that name a different project id should fail clearly.
 
@@ -45,17 +42,19 @@ POST http://127.0.0.1:3737/mcp
 Raw `POST /mcp` requests should send compatible `Accept` headers that include `application/json` and `text/event-stream`, or the daemon may reply with `406 Not Acceptable`.
 Prefer `xurgo-atlas daemon status` and actual MCP tool calls when verifying the daemon, rather than treating a browser `GET /mcp` check as authoritative.
 
-## Quick Config Snippet
-
-Run `xurgo-atlas mcp-config` to print a generic copy/paste MCP client configuration snippet:
-
-```text
-$ xurgo-atlas mcp-config
-```
-
-Use `xurgo-atlas mcp-config --json` for machine-readable JSON output. The command is read-only and does not write client config files.
-
 ## MCP Client Configuration
+
+Run `xurgo-atlas mcp-config` for a human-readable setup summary.
+
+Prefer `xurgo-atlas mcp-config --json` for machine-readable setup. The command is non-mutating, does not require the daemon to be running, and returns the authoritative HTTP MCP connection details for clients such as Xurgo Agent.
+
+The JSON output includes:
+
+- stable server metadata (`serverName`, `displayName`)
+- transport (`streamable-http`)
+- MCP endpoint URL (`http://127.0.0.1:3737/mcp` by default)
+- a suggested daemon start command
+- `projectId` and `projectRoot` when the current project can be resolved
 
 ### opencode
 
@@ -76,7 +75,7 @@ Configure the endpoint `http://127.0.0.1:3737/mcp` with the Streamable HTTP tran
 
 ### Stdio Mode (Local Development)
 
-For direct integration:
+`xurgo-atlas server` is the legacy stdio-oriented path. Prefer the daemon HTTP MCP endpoint for Xurgo Agent and other HTTP MCP clients. For direct stdio integration:
 
 ```json
 {
@@ -100,7 +99,6 @@ All documentation tools are exposed under the `docs.*` namespace:
 | `docs.read` | Read a file |
 | `docs.read_section` | Read one Markdown section |
 | `docs.status` | Read STATUS.md front matter and body |
-| `docs.search` | Search Atlas-managed docs/context with local SQLite FTS |
 | `docs.manifest` | Read project document manifest |
 | `docs.context_pack` | Assemble curated doc pack within token budget |
 | `docs.create_branch` | Create an isolated branch |
@@ -108,12 +106,25 @@ All documentation tools are exposed under the `docs.*` namespace:
 | `docs.propose_document` | Propose a new document |
 | `docs.preview_diff` | Review a pending proposal diff |
 | `docs.commit_patch` | Commit a proposed patch |
+| `docs.list_proposals` | List proposal records and lifecycle state |
+| `docs.discard_proposal` | Discard an uncommitted proposal safely |
 | `docs.history` | View file change history |
 | `docs.restore_file` | Restore a file to a previous revision |
 | `docs.export` | Export branch to working tree |
+| `docs.search` | Search Atlas-managed docs/context with local SQLite FTS |
 | `docs.capabilities` | Report read-only Atlas capability and retrieval/search support |
 
-Current retrieval/search tools are additive and generic Atlas capabilities, not Xurgo-specific helpers. `docs.search` provides local lexical retrieval over Atlas-managed docs/context, `docs.capabilities` reports the supported surface, and optional future `docs.semantic_search` remains separate and not required.
+## Proposal Lifecycle
+
+Atlas proposals are audit records, not disposable scratch files. The normal lifecycle is `pending` -> `committed`, and uncommitted work can also end up in `stale`, `rejected`, or `discarded` states when validation changes or a draft is cleaned up.
+
+Use `docs.list_proposals` to inspect active or historical proposal records. By default it returns pending proposals so stale internal drafts are easy to spot before they linger, and it can also be broadened to show committed or discarded records when you need a fuller audit view.
+
+Use `docs.discard_proposal` when you need to retire a pending or otherwise uncommitted proposal by exact proposal id. The discard operation preserves the stored record, does not touch disk or the manifest for an uncommitted draft, and keeps committed proposals protected from discard by default.
+
+After a proposal is committed, `docs.export` is the step that reconciles Atlas-managed branch content back to the working tree when the exported files need to be visible on disk. That export step remains separate from proposal cleanup and does not run when a draft is merely discarded.
+
+Discarded proposals no longer appear in the default pending list, but they remain available in audit history and in broader `docs.list_proposals` queries.
 
 ## Security
 

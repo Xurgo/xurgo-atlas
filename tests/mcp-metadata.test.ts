@@ -35,6 +35,61 @@ describe('MCP server metadata', () => {
     });
   });
 
+  it('registers docs.list_proposals in tools/list', async () => {
+    const server = createMcpServer(async () => {
+      throw new Error('not used');
+    });
+
+    const handlers = (server as unknown as {
+      _requestHandlers: Map<string, (request: unknown) => Promise<{ tools: Array<{ name: string; inputSchema: unknown }> }>>;
+    })._requestHandlers;
+    const listTools = handlers.get('tools/list');
+
+    expect(listTools).toBeTypeOf('function');
+
+    const result = await listTools!({
+      method: 'tools/list',
+      params: {},
+    });
+    const listProposalsTool = result.tools.find((tool) => tool.name === 'docs.list_proposals');
+
+    expect(listProposalsTool).toBeDefined();
+    expect(listProposalsTool?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['projectId'],
+      properties: {
+        status: {
+          enum: ['pending', 'committed', 'discarded', 'all'],
+        },
+      },
+    });
+  });
+
+  it('registers docs.discard_proposal in tools/list', async () => {
+    const server = createMcpServer(async () => {
+      throw new Error('not used');
+    });
+
+    const handlers = (server as unknown as {
+      _requestHandlers: Map<string, (request: unknown) => Promise<{ tools: Array<{ name: string; inputSchema: unknown }> }>>;
+    })._requestHandlers;
+    const listTools = handlers.get('tools/list');
+
+    expect(listTools).toBeTypeOf('function');
+
+    const result = await listTools!({
+      method: 'tools/list',
+      params: {},
+    });
+    const discardProposalTool = result.tools.find((tool) => tool.name === 'docs.discard_proposal');
+
+    expect(discardProposalTool).toBeDefined();
+    expect(discardProposalTool?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['projectId', 'proposalId'],
+    });
+  });
+
   it('registers docs.propose_patch with unified-diff guidance in tools/list', async () => {
     const server = createMcpServer(async () => {
       throw new Error('not used');
@@ -188,6 +243,7 @@ describe('MCP server metadata', () => {
         readSection: true,
         contextPack: true,
         guardedWrites: true,
+        proposalCleanup: true,
         search: true,
         semanticSearch: false,
       },

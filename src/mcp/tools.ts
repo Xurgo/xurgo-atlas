@@ -104,6 +104,17 @@ const PreviewDiffSchema = z.object({
   proposalId: z.string().min(1, 'proposalId is required'),
 });
 
+const ListProposalsSchema = z.object({
+  projectId: z.string().min(1, 'projectId is required'),
+  branch: z.string().optional(),
+  status: z.enum(['pending', 'committed', 'discarded', 'all']).optional().default('pending'),
+});
+
+const DiscardProposalSchema = z.object({
+  projectId: z.string().min(1, 'projectId is required'),
+  proposalId: z.string().min(1, 'proposalId is required'),
+});
+
 const CommitPatchSchema = z.object({
   projectId: z.string().min(1, 'projectId is required'),
   proposalId: z.string().min(1, 'proposalId is required'),
@@ -238,6 +249,18 @@ export function registerTools(
           inputSchema: zodToJsonSchema(PreviewDiffSchema),
         },
         {
+          name: 'docs.list_proposals',
+          description:
+            'List Atlas proposal records for a project, optionally filtered by branch and lifecycle status. Defaults to pending proposals so stale internal drafts can be discovered before they linger indefinitely.',
+          inputSchema: zodToJsonSchema(ListProposalsSchema),
+        },
+        {
+          name: 'docs.discard_proposal',
+          description:
+            'Discard a pending or otherwise uncommitted proposal by exact proposalId while preserving audit history. Discarded proposals remain queryable but no longer count as active work.',
+          inputSchema: zodToJsonSchema(DiscardProposalSchema),
+        },
+        {
           name: 'docs.commit_patch',
           description:
             'Commit a previously proposed patch by proposalId. Re-validates the base revision before applying. Requires riskOverride: "accept" for high-risk patches.',
@@ -333,6 +356,10 @@ export function registerTools(
           return await handleProposeDocument(project, rawArgs);
         case 'docs.preview_diff':
           return await handlePreviewDiff(project, rawArgs);
+        case 'docs.list_proposals':
+          return await handleListProposals(project, rawArgs);
+        case 'docs.discard_proposal':
+          return await handleDiscardProposal(project, rawArgs);
         case 'docs.commit_patch':
           return await handleCommitPatch(project, rawArgs);
         case 'docs.history':
@@ -1373,6 +1400,152 @@ export async function handlePreviewDiff(
   };
 }
 
+export async function handleListProposals(
+  project: Project,
+  rawArgs: Record<string, unknown>,
+) {
+  const args = ListProposalsSchema.parse(rawArgs);
+  const proposals = project.eventLog
+    .listProposals({
+      projectId: project.projectId,
+      branch: args.branch,
+      status: args.status,
+    })
+    .map((stored) => formatProposalListItem(stored));
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(
+          {
+            projectId: project.projectId,
+            branch: args.branch ?? null,
+            status: args.status,
+            proposalCount: proposals.length,
+            proposals,
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  };
+}
+
+export async function handleDiscardProposal(
+  project: Project,
+  rawArgs: Record<string, unknown>,
+) {
+  const args = DiscardProposalSchema.parse(rawArgs);
+  const stored = project.eventLog.getProposal(args.proposalId);
+  if (!stored) {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            error: `Proposal "${args.proposalId}" not found`,
+            projectId: project.projectId,
+            proposalId: args.proposalId,
+          }),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  if (stored.status === 'committed') {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            error: `Proposal "${args.proposalId}" has status "committed" and cannot be discarded`,
+            proposalId: stored.id,
+            previousStatus: stored.status,
+            status: stored.status,
+            projectId: project.projectId,
+          }),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  if (stored.status === 'discarded') {
+    return {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify(
+            {
+              proposalId: stored.id,
+              projectId: project.projectId,
+              previousStatus: stored.status,
+              status: stored.status,
+              targetPath: stored.path,
+              branch: stored.branch,
+              diskTouched: false,
+              manifestTouched: false,
+              noOp: true,
+              message: 'Proposal is already discarded. No changes were made.',
+              nextStep:
+                'Use docs.list_proposals with status "all" if you want to inspect historical discarded proposals.',
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+    };
+  }
+
+  const discardedAt = new Date().toISOString();
+  project.eventLog.updateProposalStatus(stored.id, 'discarded');
+  project.eventLog.logEvent({
+    project_id: project.projectId,
+    branch: stored.branch,
+    path: stored.path,
+    tool_name: 'discard_proposal',
+    intent: stored.intent,
+    summary: `Discarded proposal "${stored.id}" for ${stored.path}`,
+    base_revision: stored.base_revision,
+    risk_level: stored.risk_level,
+  });
+
+  const updated = project.eventLog.getProposal(stored.id);
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(
+          {
+            proposalId: stored.id,
+            projectId: project.projectId,
+            previousStatus: stored.status,
+            status: updated?.status ?? 'discarded',
+            targetPath: stored.path,
+            branch: stored.branch,
+            createdAt: stored.created_at,
+            updatedAt: updated?.discarded_at ?? discardedAt,
+            diskTouched: false,
+            manifestTouched: false,
+            exportRelevant: false,
+            noOp: false,
+            message: 'Proposal discarded without touching disk or manifest state.',
+            nextStep:
+              'Use docs.list_proposals to confirm the proposal is no longer active. Discarded proposals remain in audit history.',
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  };
+}
+
 export async function handleCommitPatch(
   project: Project,
   rawArgs: Record<string, unknown>,
@@ -1537,6 +1710,35 @@ export async function handleCommitPatch(
         ),
       },
     ],
+  };
+}
+
+function formatProposalListItem(stored: StoredProposal) {
+  return {
+    proposalId: stored.id,
+    projectId: stored.project_id,
+    branch: stored.branch,
+    targetPath: stored.path,
+    kind: stored.metadata?.kind ?? 'patch',
+    status: stored.status,
+    committed: stored.status === 'committed',
+    discarded: stored.status === 'discarded',
+    exportRelevant: stored.status === 'committed',
+    exportRequired:
+      stored.status === 'committed'
+        ? null
+        : false,
+    createdAt: stored.created_at,
+    updatedAt:
+      stored.discarded_at ??
+      stored.committed_at ??
+      stored.created_at,
+    committedAt: stored.committed_at,
+    discardedAt: stored.discarded_at,
+    summary: stored.summary,
+    intent: stored.intent,
+    requiresApproval: stored.requires_approval,
+    changedFiles: getProposalChangedFiles(stored),
   };
 }
 
@@ -2487,6 +2689,7 @@ export function handleCapabilities() {
               readSection: true,
               contextPack: true,
               guardedWrites: true,
+              proposalCleanup: true,
               search: true,
               semanticSearch: false,
             },
