@@ -115,22 +115,6 @@ A future read-only web UI (post-MVP) should:
 - Provide a human-friendly view of the same context that agents see programmatically.
 - Respect the same safety and governance rules (read-only by default).
 
-### 4.8 Retrieval and Search
-
-Atlas retrieval and search stay scoped to Atlas-managed docs and project context only. The retrieval layer exists to help any MCP-capable tool find the right project information quickly; it is not a shared runtime memory store and it does not replace another agent's own memory, event stream, or retrieval database.
-
-Atlas remains local-first. The first retrieval implementation should be SQLite FTS or equivalent local lexical search over Atlas-managed docs and context. That keeps normal workflows self-contained and avoids requiring Qdrant, hosted vector services, Docker, network services, embedding daemons, or cloud infrastructure.
-
-Xurgo Atlas and Xurgo must not share one retrieval database. Xurgo owns its own runtime, event, and memory retrieval, and it should consume Atlas only through the documented CLI, MCP, and config boundaries.
-
-Retrieval features should be additive and generic rather than Xurgo-specific helper APIs. The current lexical search tool is:
-
-- `docs.search` for Atlas-scoped lexical retrieval over managed docs and context.
-- `docs.capabilities` for surfacing what retrieval and context features are available.
-- Optional future `docs.semantic_search` only after FTS is stable, and only as local optional infrastructure.
-
-Semantic retrieval is not implemented yet and should not be claimed as available until it actually exists.
-
 ---
 
 ## 5. Relationship to Xurgo
