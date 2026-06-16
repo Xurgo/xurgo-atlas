@@ -88,3 +88,7 @@ documents:
     summary: Boundary and integration plan between Xurgo and Xurgo Atlas
     related:
       - docs/vision/project-context-mcp.md
+  - path: docs/atlas/lifecycle-state-surfaces.md
+    role: roadmap
+    priority: high
+    summary: Atlas lifecycle/state-surface hardening plan for managed state, working tree, export/reconcile, and search freshness

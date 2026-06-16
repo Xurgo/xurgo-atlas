@@ -9,9 +9,9 @@ This directory contains project documentation managed by Xurgo Atlas.
 - [Daemon & MCP Configuration](./atlas/daemon-mcp.md) — Daemon lifecycle, MCP endpoint setup
 - [Storage Migration](./atlas/storage-migration.md) — Inspect, migrate dry-run, migrate apply
 - [Release Checklist](./atlas/release-checklist.md) — Pre-release validation and release steps
+- [Lifecycle State Surfaces](./atlas/lifecycle-state-surfaces.md) — Atlas truth surfaces, export/reconcile boundaries, and hardening follow-ups
 - [Implementation Checklist](./implementation-checklist.md) — Feature and milestone status
 
 ## Dogfooding
 
 This directory and its files are managed through the Xurgo Atlas guarded docs workflow.
-
