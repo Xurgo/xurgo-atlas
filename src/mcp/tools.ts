@@ -3,6 +3,8 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { z } from 'zod';
 import { zodToJsonSchema } from '../utils.js';
 import { Project } from '../core/project.js';
@@ -1508,6 +1510,8 @@ export async function handleCommitPatch(
     diff: stored.patch,
   });
 
+  const syncState = await getManagedWorkingTreeSyncState(project, stored.branch);
+
   return {
     content: [
       {
@@ -1519,7 +1523,14 @@ export async function handleCommitPatch(
             changedFiles,
             projectId: project.projectId,
             branch: stored.branch,
-            message: 'Patch committed successfully',
+            message:
+              'Patch committed successfully. Run docs.export before disk reads or Git commits.',
+            exportRequired: syncState.exportRequired,
+            workingTreeOutOfSync: syncState.workingTreeOutOfSync,
+            outOfSyncPaths: syncState.outOfSyncPaths,
+            nextStep: syncState.exportRequired
+              ? 'Run docs.export before disk reads or Git commits.'
+              : 'Working tree already matches the managed branch snapshot.',
           },
           null,
           2,
@@ -1691,6 +1702,49 @@ function getProposalChangedFiles(stored: StoredProposal): string[] {
   }
 
   return [stored.path];
+}
+
+async function readWorkingTreeFile(
+  baseDir: string,
+  filePath: string,
+): Promise<string | null> {
+  try {
+    return await fs.promises.readFile(path.join(baseDir, filePath), 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+async function getManagedWorkingTreeSyncState(
+  project: Project,
+  branch: string,
+  targetDir = project.root,
+): Promise<{
+  exportRequired: boolean;
+  workingTreeOutOfSync: boolean;
+  outOfSyncPaths: string[];
+}> {
+  const ownedFiles = await project.getOwnedFiles(branch);
+  const comparisons = await Promise.all(
+    ownedFiles.map(async (filePath) => ({
+      filePath,
+      managedContent: await project.gitStore.readFile(branch, filePath),
+      workingTreeContent: await readWorkingTreeFile(targetDir, filePath),
+    })),
+  );
+
+  const outOfSyncPaths = comparisons
+    .filter(
+      ({ managedContent, workingTreeContent }) =>
+        (managedContent ?? null) !== (workingTreeContent ?? null),
+    )
+    .map(({ filePath }) => filePath);
+
+  return {
+    exportRequired: outOfSyncPaths.length > 0,
+    workingTreeOutOfSync: outOfSyncPaths.length > 0,
+    outOfSyncPaths,
+  };
 }
 
 async function handleHistory(
@@ -1924,6 +1978,11 @@ async function handleExport(
   }
 
   const revision = await project.gitStore.getBranchHead(args.branch);
+  const syncState = await getManagedWorkingTreeSyncState(
+    project,
+    args.branch,
+    targetDir,
+  );
 
   project.eventLog.logEvent({
     project_id: project.projectId,
@@ -1947,6 +2006,9 @@ async function handleExport(
             projectId: project.projectId,
             targetDir,
             revision,
+            exportRequired: syncState.exportRequired,
+            workingTreeOutOfSync: syncState.workingTreeOutOfSync,
+            outOfSyncPaths: syncState.outOfSyncPaths,
           },
           null,
           2,
@@ -2011,6 +2073,8 @@ export async function handleStatus(project: Project, rawArgs: Record<string, unk
     if (frontMatter.relatedDocs) summary.relatedDocs = frontMatter.relatedDocs;
   }
 
+  const syncState = await getManagedWorkingTreeSyncState(project, args.branch);
+
   return {
     content: [
       {
@@ -2027,6 +2091,12 @@ export async function handleStatus(project: Project, rawArgs: Record<string, unk
             body: truncatedBody,
             truncated,
             maxChars: args.maxChars,
+            exportRequired: syncState.exportRequired,
+            workingTreeOutOfSync: syncState.workingTreeOutOfSync,
+            outOfSyncPaths: syncState.outOfSyncPaths,
+            nextStep: syncState.exportRequired
+              ? 'Run docs.export before disk reads or Git commits.'
+              : 'Working tree already matches the managed branch snapshot.',
           },
           null,
           2,

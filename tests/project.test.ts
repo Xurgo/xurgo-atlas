@@ -1365,6 +1365,98 @@ documents:
     expect(committedContent).toContain('Validating guarded STATUS.md updates.');
   });
 
+  it('should surface the commit/export lifecycle gap until docs.export syncs the working tree', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const filePath = 'docs/README.md';
+    const { content, revision } = await project.readFile('main', filePath);
+    expect(content).not.toBeNull();
+    expect(revision).toBeTruthy();
+
+    const updated = `${content!}\n## Lifecycle Note\n\nManaged docs now require docs.export before disk reads or Git commits.\n`;
+    const patch = createSimplePatch(content!, updated, filePath);
+
+    const proposeResult = await handleProposePatch(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      path: filePath,
+      baseRevision: revision,
+      patch,
+      intent: 'Update the reference docs through the guarded workflow',
+      summary: 'Document the guarded commit/export lifecycle',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+    });
+    expect(previewResult.isError).toBeFalsy();
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBeFalsy();
+    const commit = JSON.parse(commitResult.content[0].text);
+    expect(commit.message).toContain('Run docs.export before disk reads or Git commits.');
+    expect(commit.exportRequired).toBe(true);
+    expect(commit.workingTreeOutOfSync).toBe(true);
+    expect(commit.outOfSyncPaths).toContain(filePath);
+    expect(commit.nextStep).toContain('Run docs.export');
+
+    const managedContent = await project.readFile('main', filePath);
+    expect(managedContent.content).toContain('Lifecycle Note');
+
+    const diskBeforeExport = await fs.promises.readFile(path.join(tmpDir, filePath), 'utf-8');
+    expect(diskBeforeExport).toBe(content);
+
+    const statusBeforeExport = await callTool(project, 'docs.status', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+    expect(statusBeforeExport.isError).toBeFalsy();
+    const statusBefore = JSON.parse(statusBeforeExport.content[0].text);
+    expect(statusBefore.exportRequired).toBe(true);
+    expect(statusBefore.workingTreeOutOfSync).toBe(true);
+    expect(statusBefore.outOfSyncPaths).toContain(filePath);
+    expect(statusBefore.nextStep).toContain('docs.export');
+
+    const exportResult = await callTool(project, 'docs.export', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+    expect(exportResult.isError).toBeFalsy();
+    const exported = JSON.parse(exportResult.content[0].text);
+    expect(exported.exportRequired).toBe(false);
+    expect(exported.workingTreeOutOfSync).toBe(false);
+    expect(exported.outOfSyncPaths).toHaveLength(0);
+    expect(exported.files).toContain(filePath);
+
+    const diskAfterExport = await fs.promises.readFile(path.join(tmpDir, filePath), 'utf-8');
+    expect(diskAfterExport).toBe(managedContent.content);
+
+    const statusAfterExport = await callTool(project, 'docs.status', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+    expect(statusAfterExport.isError).toBeFalsy();
+    const statusAfter = JSON.parse(statusAfterExport.content[0].text);
+    expect(statusAfter.exportRequired).toBe(false);
+    expect(statusAfter.workingTreeOutOfSync).toBe(false);
+    expect(statusAfter.outOfSyncPaths).toHaveLength(0);
+  });
+
   it('should return a reviewable diff for a pending proposal', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
