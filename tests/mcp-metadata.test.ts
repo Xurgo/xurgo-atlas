@@ -35,6 +35,35 @@ describe('MCP server metadata', () => {
     });
   });
 
+  it('registers docs.preview_export in tools/list', async () => {
+    const server = createMcpServer(async () => {
+      throw new Error('not used');
+    });
+
+    const handlers = (server as unknown as {
+      _requestHandlers: Map<string, (request: unknown) => Promise<{ tools: Array<{ name: string; inputSchema: unknown }> }>>;
+    })._requestHandlers;
+    const listTools = handlers.get('tools/list');
+
+    expect(listTools).toBeTypeOf('function');
+
+    const result = await listTools!({
+      method: 'tools/list',
+      params: {},
+    });
+    const previewExportTool = result.tools.find((tool) => tool.name === 'docs.preview_export');
+
+    expect(previewExportTool).toBeDefined();
+    expect(previewExportTool?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['projectId'],
+      properties: {
+        branch: { type: 'string' },
+        targetDir: { type: 'string' },
+      },
+    });
+  });
+
   it('registers docs.list_proposals in tools/list', async () => {
     const server = createMcpServer(async () => {
       throw new Error('not used');
@@ -243,6 +272,7 @@ describe('MCP server metadata', () => {
         readSection: true,
         contextPack: true,
         guardedWrites: true,
+        exportPreview: true,
         proposalCleanup: true,
         search: true,
         semanticSearch: false,

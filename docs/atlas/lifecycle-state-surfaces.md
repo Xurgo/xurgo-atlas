@@ -44,7 +44,7 @@ The next hardening pass should focus on visibility and drift detection rather th
 
 1. Make `docs.status` a stronger single pane of glass, including clearer surface-state signals when managed state, disk, or export state are not aligned.
 2. Detect drift between managed state and working-tree files before users assume the branch is clean.
-3. Add an export preview or dry-run mode so users can see what `docs.export` would change before it touches disk.
+3. Use `docs.preview_export` so users can see what `docs.export` would change before it touches disk, without mutating the working tree.
 4. Make export safer when the disk copy is newer than managed state, including explicit refusal or a deliberate reconcile path.
 5. Define an explicit reconcile/import workflow from disk or Git back into managed state so recovery does not depend on ad hoc manual steps.
 6. Make proposal and export operations branch-aware so branch/revision mismatches fail early and clearly.
@@ -68,6 +68,7 @@ When in doubt, read the current surface first, then choose the narrowest safe re
 - Read `docs.status` before assuming the project front page is current.
 - Read `docs.manifest` before loading a large set of docs.
 - Use `docs.read_section` when only one section matters.
+- Treat `docs.preview_export` as the read-only first step, then `docs.export` as the mutating boundary.
 - Treat `docs.commit_patch` and `docs.export` as separate boundaries.
 - Prefer explicit refusal over silent auto-repair when the wrong branch or revision would otherwise be masked.
 

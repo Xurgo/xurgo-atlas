@@ -143,6 +143,12 @@ const ExportSchema = z.object({
   targetDir: z.string().optional(),
 });
 
+const PreviewExportSchema = z.object({
+  projectId: z.string().min(1, 'projectId is required'),
+  branch: z.string().optional().default('main'),
+  targetDir: z.string().optional(),
+});
+
 const StatusSchema = z.object({
   projectId: z.string().min(1, 'projectId is required'),
   branch: z.string().optional().default('main'),
@@ -285,6 +291,12 @@ export function registerTools(
           inputSchema: zodToJsonSchema(ExportSchema),
         },
         {
+          name: 'docs.preview_export',
+          description:
+            'Preview what docs.export would change without writing to disk. Reports drift, overwrite risk, and guidance for the next step.',
+          inputSchema: zodToJsonSchema(PreviewExportSchema),
+        },
+        {
           name: 'docs.status',
           description:
             'Read the STATUS.md project front page. Returns compact orientation: front matter, body excerpt, revision, and truncation status. Use this instead of docs.read for STATUS.md to get structured front matter. Respects maxChars to limit response size.',
@@ -368,6 +380,8 @@ export function registerTools(
           return await handleRestoreFile(project, rawArgs);
         case 'docs.export':
           return await handleExport(project, rawArgs);
+        case 'docs.preview_export':
+          return await handlePreviewExport(project, rawArgs);
         case 'docs.status':
           return await handleStatus(project, rawArgs);
         case 'docs.manifest':
@@ -1949,6 +1963,176 @@ async function getManagedWorkingTreeSyncState(
   };
 }
 
+interface ExportPreviewState {
+  targetDir: string;
+  managedRevision: string | null;
+  sourceRevision: string | null;
+  exportRequired: boolean;
+  workingTreeOutOfSync: boolean;
+  outOfSyncPaths: string[];
+  changedPaths: string[];
+  addedPaths: string[];
+  modifiedPaths: string[];
+  deletedPaths: string[];
+  overwriteExistingPaths: string[];
+  diskContentDiffersFromManagedPaths: string[];
+  riskyPaths: string[];
+  targetBranchInfo: {
+    repoRoot: string | null;
+    branch: string | null;
+    revision: string | null;
+  };
+  summary: Record<string, number>;
+  nextStep: string;
+  exportBlocked: boolean;
+  exportBlockReason: string | null;
+}
+
+async function getExportPreviewState(
+  project: Project,
+  branch: string,
+  targetDir = project.root,
+): Promise<
+  | { branchMissing: { content: Array<{ type: 'text'; text: string }>; isError: true } }
+  | ExportPreviewState
+> {
+  const missingBranch = await managedBranchMissingError(project, branch);
+  if (missingBranch) {
+    return {
+      branchMissing: missingBranch,
+    };
+  }
+
+  const managedRevision = await project.gitStore.getBranchHead(branch);
+  const targetBranchInfo = await project.gitStore.getExportTargetBranchInfo(targetDir);
+  const sourceRevision = targetBranchInfo.revision;
+  const exportBlocked = Boolean(
+    targetBranchInfo.branch && targetBranchInfo.branch !== branch,
+  );
+  const exportBlockReason = exportBlocked
+    ? `Refusing to preview export of managed docs branch "${branch}" into source branch "${targetBranchInfo.branch}" at "${targetBranchInfo.repoRoot ?? targetDir}".`
+    : null;
+
+  const ownedFiles = await project.getOwnedFiles(branch);
+  const comparisons = await Promise.all(
+    ownedFiles.map(async (filePath) => {
+      const managedContent = await project.gitStore.readFile(branch, filePath);
+      const workingTreeContent = await readWorkingTreeFile(targetDir, filePath);
+      const existsOnDisk = workingTreeContent !== null;
+      const differs = (managedContent ?? null) !== (workingTreeContent ?? null);
+
+      return {
+        filePath,
+        existsOnDisk,
+        differs,
+      };
+    }),
+  );
+
+  const addedPaths = comparisons
+    .filter((entry) => !entry.existsOnDisk)
+    .map((entry) => entry.filePath);
+  const modifiedPaths = comparisons
+    .filter((entry) => entry.existsOnDisk && entry.differs)
+    .map((entry) => entry.filePath);
+  const changedPaths = [...addedPaths, ...modifiedPaths];
+  const deletedPaths: string[] = [];
+  const overwriteExistingPaths = [...modifiedPaths];
+  const diskContentDiffersFromManagedPaths = [...modifiedPaths];
+  const riskyPaths = exportBlocked || modifiedPaths.length > 0 ? [...changedPaths] : [];
+
+  const exportRequired = changedPaths.length > 0;
+  const summary = {
+    totalPaths: ownedFiles.length,
+    existingPaths: comparisons.filter((entry) => entry.existsOnDisk).length,
+    missingPaths: addedPaths.length,
+    changedCount: changedPaths.length,
+    addedCount: addedPaths.length,
+    modifiedCount: modifiedPaths.length,
+    deletedCount: deletedPaths.length,
+    overwriteCount: overwriteExistingPaths.length,
+    differingCount: diskContentDiffersFromManagedPaths.length,
+    riskyCount: riskyPaths.length,
+  };
+
+  const nextStep = exportBlocked
+    ? 'Check out the matching source branch or export the matching managed branch before retrying.'
+    : exportRequired
+      ? 'Run docs.export to write the previewed managed changes to disk.'
+      : 'No export is required. The working tree already matches the managed snapshot.';
+
+  return {
+    targetDir,
+    managedRevision,
+    sourceRevision,
+    exportRequired,
+    workingTreeOutOfSync: exportRequired,
+    outOfSyncPaths: changedPaths,
+    changedPaths,
+    addedPaths,
+    modifiedPaths,
+    deletedPaths,
+    overwriteExistingPaths,
+    diskContentDiffersFromManagedPaths,
+    riskyPaths,
+    targetBranchInfo,
+    summary,
+    nextStep,
+    exportBlocked,
+    exportBlockReason,
+  };
+}
+
+async function handlePreviewExport(
+  project: Project,
+  rawArgs: Record<string, unknown>,
+) {
+  const args = PreviewExportSchema.parse(rawArgs);
+  const preview = await getExportPreviewState(
+    project,
+    args.branch,
+    args.targetDir ?? project.root,
+  );
+
+  if ('branchMissing' in preview) {
+    return preview.branchMissing;
+  }
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(
+          {
+            previewed: true,
+            projectId: project.projectId,
+            branch: args.branch,
+            targetDir: preview.targetDir,
+            managedRevision: preview.managedRevision,
+            sourceRevision: preview.sourceRevision,
+            exportRequired: preview.exportRequired,
+            exportable: !preview.exportBlocked,
+            exportBlocked: preview.exportBlocked,
+            exportBlockReason: preview.exportBlockReason,
+            targetBranchInfo: preview.targetBranchInfo,
+            changedPaths: preview.changedPaths,
+            addedPaths: preview.addedPaths,
+            modifiedPaths: preview.modifiedPaths,
+            deletedPaths: preview.deletedPaths,
+            overwriteExistingPaths: preview.overwriteExistingPaths,
+            diskContentDiffersFromManagedPaths: preview.diskContentDiffersFromManagedPaths,
+            riskyPaths: preview.riskyPaths,
+            summary: preview.summary,
+            nextStep: preview.nextStep,
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  };
+}
+
 async function handleHistory(
   project: Project,
   rawArgs: Record<string, unknown>,
@@ -2689,6 +2873,7 @@ export function handleCapabilities() {
               readSection: true,
               contextPack: true,
               guardedWrites: true,
+              exportPreview: true,
               proposalCleanup: true,
               search: true,
               semanticSearch: false,
@@ -2798,7 +2983,16 @@ function ownedPathError(projectId: string, filePath: string, branch: string) {
   };
 }
 
-async function managedBranchMissingError(project: Project, branch: string) {
+async function managedBranchMissingError(
+  project: Project,
+  branch: string,
+): Promise<
+  | {
+      content: Array<{ type: 'text'; text: string }>;
+      isError: true;
+    }
+  | null
+> {
   const branchExists = await project.gitStore.branchExists(branch);
   if (branchExists) {
     return null;

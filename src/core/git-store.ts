@@ -29,6 +29,7 @@ export interface PatchApplyCheckResult {
 export interface ExportTargetBranchInfo {
   repoRoot: string | null;
   branch: string | null;
+  revision: string | null;
 }
 
 function sameChangedFiles(actual: string[], expected: string[]): boolean {
@@ -730,12 +731,13 @@ export class GitStore {
     } catch { /* ignore */ }
   }
 
-  private async getExportTargetBranchInfo(targetDir: string): Promise<ExportTargetBranchInfo> {
+  async getExportTargetBranchInfo(targetDir: string): Promise<ExportTargetBranchInfo> {
     const existingDir = await this.findExistingDirectory(targetDir);
     if (!existingDir) {
       return {
         repoRoot: null,
         branch: null,
+        revision: null,
       };
     }
 
@@ -745,15 +747,18 @@ export class GitStore {
       const repoRoot = (await git.revparse(['--show-toplevel'])).trim();
       const branchSummary = await git.branch();
       const branch = branchSummary.current.trim();
+      const revision = (await git.revparse(['HEAD'])).trim();
 
       return {
         repoRoot,
         branch: branch.length > 0 && branch !== 'HEAD' ? branch : null,
+        revision: revision.length > 0 ? revision : null,
       };
     } catch {
       return {
         repoRoot: null,
         branch: null,
+        revision: null,
       };
     }
   }

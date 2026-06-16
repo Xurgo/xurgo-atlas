@@ -1457,6 +1457,111 @@ documents:
     expect(statusAfter.outOfSyncPaths).toHaveLength(0);
   });
 
+  it('should preview export drift without mutating disk or managed state', async () => {
+    await initSourceRepo('main');
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const filePath = 'docs/README.md';
+    const { content, revision } = await project.readFile('main', filePath);
+    expect(content).not.toBeNull();
+    expect(revision).toBeTruthy();
+
+    const updated = `${content!}\n## Preview Export Drift\n\nThis update should be previewed, not written.\n`;
+    await project.gitStore.applyAndCommit(
+      'main',
+      filePath,
+      updated,
+      'Update managed content for preview testing',
+    );
+
+    const diskBefore = await fs.promises.readFile(path.join(tmpDir, filePath), 'utf-8');
+    expect(diskBefore).toBe(content);
+
+    const statusBeforeExport = await callTool(project, 'docs.status', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+    expect(statusBeforeExport.isError).toBeFalsy();
+    const before = JSON.parse(statusBeforeExport.content[0].text);
+    expect(before.exportRequired).toBe(true);
+    expect(before.outOfSyncPaths).toContain(filePath);
+
+    const previewResult = await callTool(project, 'docs.preview_export', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(previewResult.isError).toBeFalsy();
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.previewed).toBe(true);
+    expect(preview.projectId).toBe('test-project');
+    expect(preview.branch).toBe('main');
+    expect(preview.managedRevision).toBeTruthy();
+    expect(preview.sourceRevision).toBeTruthy();
+    expect(preview.exportRequired).toBe(true);
+    expect(preview.exportable).toBe(true);
+    expect(preview.exportBlocked).toBe(false);
+    expect(preview.changedPaths).toContain(filePath);
+    expect(preview.addedPaths).toHaveLength(0);
+    expect(preview.modifiedPaths).toContain(filePath);
+    expect(preview.deletedPaths).toHaveLength(0);
+    expect(preview.overwriteExistingPaths).toContain(filePath);
+    expect(preview.diskContentDiffersFromManagedPaths).toContain(filePath);
+    expect(preview.riskyPaths).toContain(filePath);
+    expect(preview.summary.changedCount).toBe(1);
+    expect(preview.summary.modifiedCount).toBe(1);
+    expect(preview.summary.deletedCount).toBe(0);
+    expect(preview.nextStep).toContain('docs.export');
+
+    const diskAfterPreview = await fs.promises.readFile(path.join(tmpDir, filePath), 'utf-8');
+    expect(diskAfterPreview).toBe(diskBefore);
+
+    const statusAfterPreview = await callTool(project, 'docs.status', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+    expect(statusAfterPreview.isError).toBeFalsy();
+    const after = JSON.parse(statusAfterPreview.content[0].text);
+    expect(after.exportRequired).toBe(true);
+    expect(after.workingTreeOutOfSync).toBe(true);
+    expect(after.outOfSyncPaths).toContain(filePath);
+  });
+
+  it('should report no export changes when managed state and disk are aligned', async () => {
+    await initSourceRepo('main');
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await callTool(project, 'docs.preview_export', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.previewed).toBe(true);
+    expect(data.exportRequired).toBe(false);
+    expect(data.changedPaths).toHaveLength(0);
+    expect(data.addedPaths).toHaveLength(0);
+    expect(data.modifiedPaths).toHaveLength(0);
+    expect(data.deletedPaths).toHaveLength(0);
+    expect(data.overwriteExistingPaths).toHaveLength(0);
+    expect(data.diskContentDiffersFromManagedPaths).toHaveLength(0);
+    expect(data.riskyPaths).toHaveLength(0);
+    expect(data.nextStep).toContain('No export is required');
+  });
+
   it('should return a reviewable diff for a pending proposal', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
