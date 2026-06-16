@@ -125,6 +125,8 @@ Use `docs.discard_proposal` when you need to retire a pending or otherwise uncom
 
 After a proposal is committed, `docs.preview_export` is the read-only step that shows what `docs.export` would add, modify, or overwrite on disk before any write happens. The preview reports managed and source revisions when available, highlights drift and overwrite risk, and is especially helpful when managed state or the checked-out source branch may be stale. `docs.export` remains the mutating step that reconciles Atlas-managed branch content back to the working tree when the exported files need to be visible on disk. That export step remains separate from proposal cleanup and does not run when a draft is merely discarded.
 
+Discarded proposals no longer appear in the default pending list, but they remain available in audit history and in broader `docs.list_proposals` queries.
+
 ## Security
 
 - The daemon binds to `127.0.0.1` (localhost) by default.
