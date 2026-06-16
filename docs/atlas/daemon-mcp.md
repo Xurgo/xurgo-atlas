@@ -110,6 +110,7 @@ All documentation tools are exposed under the `docs.*` namespace:
 | `docs.discard_proposal` | Discard an uncommitted proposal safely |
 | `docs.history` | View file change history |
 | `docs.restore_file` | Restore a file to a previous revision |
+| `docs.preview_export` | Preview what export would change without writing to disk |
 | `docs.export` | Export branch to working tree |
 | `docs.search` | Search Atlas-managed docs/context with local SQLite FTS |
 | `docs.capabilities` | Report read-only Atlas capability and retrieval/search support |
@@ -122,9 +123,7 @@ Use `docs.list_proposals` to inspect active or historical proposal records. By d
 
 Use `docs.discard_proposal` when you need to retire a pending or otherwise uncommitted proposal by exact proposal id. The discard operation preserves the stored record, does not touch disk or the manifest for an uncommitted draft, and keeps committed proposals protected from discard by default.
 
-After a proposal is committed, `docs.export` is the step that reconciles Atlas-managed branch content back to the working tree when the exported files need to be visible on disk. That export step remains separate from proposal cleanup and does not run when a draft is merely discarded.
-
-Discarded proposals no longer appear in the default pending list, but they remain available in audit history and in broader `docs.list_proposals` queries.
+After a proposal is committed, `docs.preview_export` is the read-only step that shows what `docs.export` would add, modify, or overwrite on disk before any write happens. The preview reports managed and source revisions when available, highlights drift and overwrite risk, and is especially helpful when managed state or the checked-out source branch may be stale. `docs.export` remains the mutating step that reconciles Atlas-managed branch content back to the working tree when the exported files need to be visible on disk. That export step remains separate from proposal cleanup and does not run when a draft is merely discarded.
 
 ## Security
 
