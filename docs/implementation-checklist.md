@@ -43,8 +43,6 @@
 | `docs.history` | ✅ Complete | Unified history array (git + events) |
 | `docs.restore_file` | ✅ Complete | Requires `intent`, returns `restored: true` |
 | `docs.export` | ✅ Complete | Returns `exported: true` + `files` |
-| `docs.search` | ✅ Complete | Local SQLite FTS search over Atlas-managed docs/context with scoped lexical matches, snippets, and line metadata |
-| `docs.capabilities` | ✅ Complete | Read-only capability summary with `search: true` and `semanticSearch: false` |
 
 ---
 
@@ -160,7 +158,7 @@
 | Item | Priority | Notes |
 |------|----------|-------|
 | `commit/{revision}/{path}` resource URI | Low | Listed in PRD example URIs but not in Required MVP Resources |
-| `search.ts` module | Low | Post-MVP search entry point for Atlas-managed docs/context; SQLite FTS first, optional sqlite-vec later, no Qdrant/default external vector service |
+| `search.ts` module | Low | Listed in PRD project layout; search is post-MVP |
 | Web review UI | Post-MVP | Future enhancement |
 | Cloud sync / team approvals | Post-MVP | Future enhancement |
 | GitHub PR integration | Post-MVP | Future enhancement |
@@ -169,7 +167,7 @@
 | Multi-file patches | Post-MVP | Currently single-file only |
 | Semantic merge resolution | Post-MVP | Explicitly non-goal for MVP |
 | CI/pre-commit integration | Post-MVP | Secondary goal |
-| Historical full-text search | ✅ Complete | Local lexical FTS search implemented as `docs.search`; semantic/vector retrieval remains future work |
+| Historical full-text search | Post-MVP | Future enhancement |
 | Agent activity dashboard | Post-MVP | Future enhancement |
 | Managed branch promotion / merge (`docs.merge_branch`) | Unimplemented | Policy defines `branching.merge_to_main_requires` but no tool or workflow exists. De facto sync model: feature branch → `docs.export` → working tree → `git add/commit` → source repo. Does not block v0.4 — STATUS.md and manifest can be edited directly on `main` via `propose_patch` → `commit_patch`, or synced via export from feature branches. |
 | `better-sqlite3` vs `node:sqlite` | ✅ Resolved | Using built-in `node:sqlite` (Node 22+) — intentional improvement |
@@ -334,39 +332,4 @@
 | Minimal read-only web UI | ✅ Complete | Served at `/` and `/ui`; opens to STATUS.md, uses manifest navigation, reads docs via REST, and exposes copy actions only |
 | Focused v0.4 stabilization audit | ✅ Complete | Confirmed docs/policy coherence, MCP/REST/UI read-only alignment, package dependency manifest, and private milestone readiness |
 | Curated Atlas-owned document scope for read surfaces | ✅ Complete | Ownership is now separate from `.docs-policy.yml` `protected_paths`; default owned docs are canonical Atlas docs, `docs/atlas/**`, and explicit manifest `documents[].path` entries; write scope remains conservatively policy-protected |
-| Mechanical rename/internal migration planning | ✅ Planning complete | Phased post-v0.4 plan added to the v0.4 spec; implementation remains deferred |
-
----
-
-## Xurgo Atlas Naming Migration Planning (Post-v0.4)
-
-> **Status:** Planning complete; implementation not started.
-> **Plan:** [Xurgo Atlas Naming Migration Plan](./spec/docu-guard-mcp-v0.4-status-manifest-context.md#14-xurgo-atlas-naming-migration-plan-post-v04)
-
-| Item | Status | Notes |
-|------|--------|-------|
-| Inventory legacy naming references | ✅ Complete | Identified package/lockfile, CLI text, MCP server metadata, `docs.*` namespace, generated templates, config/data defaults, event paths, docs, and tests |
-| Define compatibility posture | ✅ Complete | Keep existing package/CLI/config/storage/MCP namespace behavior until implementation is separately approved |
-| Plan package/internal rename phase | ✅ Complete | Package identity decision deferred; lockfile/import/bin risks documented |
-| Plan CLI/server compatibility | ✅ Complete | Candidate new CLI alias can be introduced while retaining `docu-guard` for at least one transition period |
-| Plan config/storage compatibility | ✅ Complete | Prefer non-destructive legacy discovery/aliasing before any explicit copy/move; rollback required |
-| Plan MCP namespace compatibility | ✅ Complete | Keep `docs.*` initially; any future namespace requires aliases and deprecation docs |
-| Plan test/validation scope | ✅ Complete | Future implementation must cover package metadata, CLI aliases, server metadata, storage migration, namespace stability, build/test/pack/runtime smoke checks |
-| Implement rename changes | ⏳ Deferred | No runtime, package, CLI, config, storage, source-module, or MCP namespace rename is included in planning or readiness-audit tasks |
-
----
-
-## Xurgo Atlas Naming Migration Readiness Audit
-
-> **Status:** Implementation inventory complete; migration not started.
-> **Inventory:** [Migration Implementation Readiness Inventory](./spec/docu-guard-mcp-v0.4-status-manifest-context.md#15-migration-implementation-readiness-inventory-phase-b-audit)
-
-| Area | Status | Implementation candidates | First-slice guidance |
-|------|--------|---------------------------|----------------------|
-| Package metadata | ✅ Inventoried | `package.json` name/bin/description/keywords; `package-lock.json` root metadata | Additive bin alias is safe; package rename waits |
-| CLI compatibility | ✅ Inventoried | `src/index.ts`, `src/cli/init.ts`, `src/cli/project.ts`, `src/cli/daemon.ts` | Keep `docu-guard` working; add `xurgo-atlas` only as an alias in first slice |
-| Runtime/server naming | ✅ Inventoried | `src/mcp/create-server.ts`, daemon logs, startup text, help text, error hints | Display metadata can change separately from tool names |
-| Config/storage compatibility | ✅ Inventoried | `src/core/storage.ts`, `src/core/registry.ts`, `src/core/project.ts`, storage tests | Exclude from first slice; requires legacy discovery/rollback plan |
-| MCP namespace | ✅ Decision confirmed | `src/mcp/tools.ts`, resources, generated AGENTS.md, docs, tests, client prompts | Keep `docs.*` unchanged unless separately approved |
-| Documentation references | ✅ Classified | Current-facing docs vs historical specs/changelog/compat notes | Brand current-facing docs carefully; preserve true legacy references |
-| Recommended Phase B slice | ✅ Defined | Add `xurgo-atlas` bin alias while retaining `docu-guard`; focused tests and pack/build smoke | Do not include package rename, storage migration, namespace migration, or runtime feature work |
+| Mechanical rename/internal migration planning | ⏳ Recommended next milestone | Plan package/CLI/internal/config naming migration separately after v0.4; avoid mechanical rename in stabilization work |
