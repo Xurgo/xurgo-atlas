@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.1.2 (2026-06-16)
+
+**Public release prep for Atlas docs lifecycle and search updates.**
+
+### Features
+
+- Added the `docs.capabilities` MCP tool for capability discovery.
+- Added `docs.search`, a lexical local SQLite FTS search tool scoped to Atlas-managed docs and related context only.
+- Kept semantic search unavailable and reported as `false`.
+- Kept external vector, cloud, Docker, embedding daemon, and other remote search backends unnecessary.
+- Allowed guarded `docs.propose_document` creation for `docs/spec/*.md` alongside `docs/atlas/*.md`.
+
+### Workflow
+
+- Clarified the Node 22 validation workflow, including `nvm use --silent 22`.
+- Improved guarded docs lifecycle guidance so `docs.commit_patch` is understood to update Atlas-managed state while working-tree files may remain stale until `docs.export`.
+- Documented lifecycle signals such as `exportRequired`, `workingTreeOutOfSync`, `outOfSyncPaths`, and `nextStep`.
+- Clarified that `docs.export` should run before disk reads, Git commits, release prep, or publishing when managed state and the working tree are out of sync.
+
+### Notes
+
+- Public-facing docs stay generic and avoid overstating Agent or Studio integration.
+- This release does not require Qdrant, sqlite-vec, cloud vector search, Docker, embedding daemons, or any external network service.
+
 ## v0.1.1 (2026-06-11)
 
 **Docs/package-page correction release.**
