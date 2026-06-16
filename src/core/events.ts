@@ -28,9 +28,10 @@ export interface StoredProposal {
   summary: string;
   risk_level: string;
   requires_approval: boolean;
-  status: 'pending' | 'committed' | 'rejected' | 'stale';
+  status: 'pending' | 'committed' | 'rejected' | 'stale' | 'discarded';
   created_at: string;
   committed_at: string | null;
+  discarded_at: string | null;
   metadata: ProposalMetadata | null;
 }
 
@@ -93,6 +94,7 @@ export class EventLog {
         status TEXT NOT NULL DEFAULT 'pending',
         created_at TEXT NOT NULL,
         committed_at TEXT,
+        discarded_at TEXT,
         metadata_json TEXT
       )
     `);
@@ -112,6 +114,10 @@ export class EventLog {
 
     if (!columns.some((column) => column.name === 'metadata_json')) {
       this.db.exec('ALTER TABLE doc_proposals ADD COLUMN metadata_json TEXT');
+    }
+
+    if (!columns.some((column) => column.name === 'discarded_at')) {
+      this.db.exec('ALTER TABLE doc_proposals ADD COLUMN discarded_at TEXT');
     }
   }
 
@@ -184,8 +190,8 @@ export class EventLog {
     const createdAt = new Date().toISOString();
 
     const stmt = this.db.prepare(`
-      INSERT INTO doc_proposals (id, project_id, branch, path, base_revision, patch, intent, summary, risk_level, requires_approval, status, created_at, committed_at, metadata_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?)
+      INSERT INTO doc_proposals (id, project_id, branch, path, base_revision, patch, intent, summary, risk_level, requires_approval, status, created_at, committed_at, discarded_at, metadata_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, ?)
     `);
 
     stmt.run(
@@ -210,6 +216,7 @@ export class EventLog {
       status: 'pending',
       created_at: createdAt,
       committed_at: null,
+      discarded_at: null,
       metadata: proposal.metadata ?? null,
     };
   }
@@ -236,8 +243,38 @@ export class EventLog {
       status: row.status as StoredProposal['status'],
       created_at: row.created_at as string,
       committed_at: (row.committed_at as string) ?? null,
+      discarded_at: (row.discarded_at as string) ?? null,
       metadata: parseProposalMetadata(row.metadata_json),
     };
+  }
+
+  /**
+   * List proposals for a project, optionally filtered by branch and status.
+   */
+  listProposals(filters: {
+    projectId: string;
+    branch?: string;
+    status?: 'pending' | 'committed' | 'rejected' | 'stale' | 'discarded' | 'all';
+  }): StoredProposal[] {
+    const conditions: string[] = ['project_id = ?'];
+    const params: Array<string> = [filters.projectId];
+
+    if (filters.branch) {
+      conditions.push('branch = ?');
+      params.push(filters.branch);
+    }
+
+    if (filters.status && filters.status !== 'all') {
+      conditions.push('status = ?');
+      params.push(filters.status);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const stmt = this.db.prepare(
+      `SELECT * FROM doc_proposals ${whereClause} ORDER BY created_at DESC`,
+    );
+
+    return stmt.all(...params) as unknown as StoredProposal[];
   }
 
   /**
@@ -247,12 +284,33 @@ export class EventLog {
     id: string,
     status: StoredProposal['status'],
   ): void {
-    const committedAt =
-      status === 'committed' ? new Date().toISOString() : null;
+    const committedAt = status === 'committed' ? new Date().toISOString() : null;
+    const discardedAt = status === 'discarded' ? new Date().toISOString() : null;
     const stmt = this.db.prepare(
-      'UPDATE doc_proposals SET status = ?, committed_at = ? WHERE id = ?',
+      'UPDATE doc_proposals SET status = ?, committed_at = ?, discarded_at = ? WHERE id = ?',
     );
-    stmt.run(status, committedAt, id);
+    stmt.run(status, committedAt, discardedAt, id);
+  }
+
+  /**
+   * Mark a proposal as discarded while preserving the stored record.
+   */
+  discardProposal(id: string): StoredProposal | null {
+    const existing = this.getProposal(id);
+    if (!existing) {
+      return null;
+    }
+
+    if (existing.status === 'committed') {
+      throw new Error(`Proposal "${id}" has status "committed" and cannot be discarded`);
+    }
+
+    if (existing.status === 'discarded') {
+      return existing;
+    }
+
+    this.updateProposalStatus(id, 'discarded');
+    return this.getProposal(id);
   }
 
   close(): void {

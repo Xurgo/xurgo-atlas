@@ -21,7 +21,7 @@ import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/pa
 import { assessPatchRisk } from '../src/core/risk.js';
 import { createUnifiedDiffForReplacement } from '../src/core/unified-diff.js';
 import { createMcpServer } from '../src/mcp/create-server.js';
-import { parseFrontMatter, handleManifest, handleRead, handleReadSection, handleContextPack, handleProposePatch, handleProposeDocument, handlePreviewDiff, handleCommitPatch } from '../src/mcp/tools.js';
+import { parseFrontMatter, handleManifest, handleRead, handleReadSection, handleContextPack, handleProposePatch, handleProposeDocument, handlePreviewDiff, handleListProposals, handleDiscardProposal, handleCommitPatch } from '../src/mcp/tools.js';
 import YAML from 'yaml';
 import { simpleGit } from 'simple-git';
 
@@ -4156,6 +4156,165 @@ describe('proposal storage', () => {
     const afterCommit = project.eventLog.getProposal(stored.id);
     expect(afterCommit!.status).toBe('committed');
     expect(afterCommit!.committed_at).not.toBeNull();
+  });
+
+  it('should list pending proposals and discard uncommitted proposals without deleting history', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const pending = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'docs/README.md',
+      base_revision: 'abc123',
+      patch: '--- a/docs/README.md\n+++ b/docs/README.md\n@@ -1 +1,2 @@\n-old\n+new\n',
+      intent: 'Keep a proposal pending',
+      summary: 'Pending proposal',
+      risk_level: 'low',
+      requires_approval: false,
+    });
+
+    const committed = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'docs/atlas/example.md',
+      base_revision: 'abc124',
+      patch: '--- a/docs/atlas/example.md\n+++ b/docs/atlas/example.md\n@@ -1 +1,2 @@\n-old\n+new\n',
+      intent: 'Track a committed proposal',
+      summary: 'Committed proposal',
+      risk_level: 'low',
+      requires_approval: false,
+    });
+
+    const rejected = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'docs/atlas/rejected.md',
+      base_revision: 'abc125',
+      patch: '--- a/docs/atlas/rejected.md\n+++ b/docs/atlas/rejected.md\n@@ -1 +1,2 @@\n-old\n+new\n',
+      intent: 'Track a rejected proposal',
+      summary: 'Rejected proposal',
+      risk_level: 'low',
+      requires_approval: false,
+    });
+
+    project.eventLog.updateProposalStatus(committed.id, 'committed');
+    project.eventLog.updateProposalStatus(rejected.id, 'rejected');
+
+    const defaultList = await handleListProposals(project, {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(defaultList.isError).toBeFalsy();
+    const defaultData = JSON.parse(defaultList.content[0].text);
+    expect(defaultData.status).toBe('pending');
+    expect(defaultData.proposalCount).toBe(1);
+    expect(defaultData.proposals).toHaveLength(1);
+    expect(defaultData.proposals[0]).toMatchObject({
+      proposalId: pending.id,
+      branch: 'main',
+      status: 'pending',
+      committed: false,
+      discarded: false,
+      exportRelevant: false,
+      targetPath: 'docs/README.md',
+      summary: 'Pending proposal',
+    });
+
+    const discardResult = await handleDiscardProposal(project, {
+      projectId: 'test-project',
+      proposalId: pending.id,
+    });
+
+    expect(discardResult.isError).toBeFalsy();
+    const discardedData = JSON.parse(discardResult.content[0].text);
+    expect(discardedData).toMatchObject({
+      proposalId: pending.id,
+      previousStatus: 'pending',
+      status: 'discarded',
+      targetPath: 'docs/README.md',
+      branch: 'main',
+      diskTouched: false,
+      manifestTouched: false,
+      exportRelevant: false,
+      noOp: false,
+    });
+    expect(discardedData.nextStep).toContain('docs.list_proposals');
+
+    const discardedStored = project.eventLog.getProposal(pending.id);
+    expect(discardedStored?.status).toBe('discarded');
+    expect(discardedStored?.discarded_at).toBeTruthy();
+
+    const afterDiscardDefaultList = await handleListProposals(project, {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+    const afterDiscardDefaultData = JSON.parse(afterDiscardDefaultList.content[0].text);
+    expect(afterDiscardDefaultData.proposalCount).toBe(0);
+    expect(afterDiscardDefaultData.proposals).toHaveLength(0);
+
+    const allList = await handleListProposals(project, {
+      projectId: 'test-project',
+      status: 'all',
+    });
+    const allData = JSON.parse(allList.content[0].text);
+    expect(allData.proposalCount).toBe(3);
+    expect(allData.proposals.map((proposal: { status: string }) => proposal.status)).toEqual(
+      expect.arrayContaining(['discarded', 'committed', 'rejected']),
+    );
+
+    const reDiscardResult = await handleDiscardProposal(project, {
+      projectId: 'test-project',
+      proposalId: pending.id,
+    });
+    expect(reDiscardResult.isError).toBeFalsy();
+    const reDiscardData = JSON.parse(reDiscardResult.content[0].text);
+    expect(reDiscardData.noOp).toBe(true);
+    expect(reDiscardData.status).toBe('discarded');
+  });
+
+  it('should reject discarding committed or unknown proposals', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const committed = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'docs/README.md',
+      base_revision: 'abc123',
+      patch: '--- a/docs/README.md\n+++ b/docs/README.md\n@@ -1 +1,2 @@\n-old\n+new\n',
+      intent: 'Track a committed proposal',
+      summary: 'Committed proposal',
+      risk_level: 'low',
+      requires_approval: false,
+    });
+    project.eventLog.updateProposalStatus(committed.id, 'committed');
+
+    const committedDiscard = await handleDiscardProposal(project, {
+      projectId: 'test-project',
+      proposalId: committed.id,
+    });
+    expect(committedDiscard.isError).toBe(true);
+    const committedData = JSON.parse(committedDiscard.content[0].text);
+    expect(committedData.error).toContain('cannot be discarded');
+    expect(committedData.previousStatus).toBe('committed');
+
+    const missingDiscard = await handleDiscardProposal(project, {
+      projectId: 'test-project',
+      proposalId: 'prop_missing',
+    });
+    expect(missingDiscard.isError).toBe(true);
+    const missingData = JSON.parse(missingDiscard.content[0].text);
+    expect(missingData.error).toContain('not found');
   });
 
   it('should return null for non-existent proposal', async () => {
