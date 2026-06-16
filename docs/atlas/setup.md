@@ -20,16 +20,56 @@ The CLI binary is `xurgo-atlas` (via `npm start` or `node dist/index.js`).
 
 ## Quick Start
 
+Most users can follow this happy path without needing `--config-dir` or `--data-dir`.
+
 ```bash
 # Initialize a project
-xurgo-atlas init --project-id my-project --project-root /path/to/project
-
-# Start the MCP server in stdio mode
-xurgo-atlas server --project-root /path/to/project --project-id my-project
+xurgo-atlas init --project-id my-project --project-root .
 
 # Start the daemon in background
 xurgo-atlas daemon start
+
+# Check setup status
+xurgo-atlas status
+
+# Print MCP client connection guidance
+xurgo-atlas mcp-config
 ```
+
+Stop here for normal use. The daemon serves the MCP endpoint at `http://127.0.0.1:3737/mcp`. Configure your MCP client using the snippet printed by `xurgo-atlas mcp-config`.
+
+`init` writes a local `.xurgo-atlas/project.json` marker in the project root. The marker stores the project id only, not an absolute project root. That identity is sticky: Atlas preserves the matching marker for the same project id, fails clearly instead of overwriting it with a different project id, and refuses to register the same project id to a different root.
+
+After init, `daemon start`, `list`, `history`, and `export` can resolve the current project from the project root or a nested subdirectory without repeating `--project-id` or `--project-root`. Explicit flags still work for advanced cases, but conflicting project identity fails clearly instead of silently serving the wrong project.
+
+### Init Templates
+
+`xurgo-atlas init` supports optional documentation templates for bootstrapping project docs:
+
+```bash
+# List available templates
+xurgo-atlas init --templates
+
+# Initialize with a template
+xurgo-atlas init --template saas --project-id my-project
+
+# Short form
+xurgo-atlas init -t mcp-server --project-id my-project
+```
+
+Templates are **documentation/memory templates**, not app-code scaffolds. They create missing project docs only:
+
+| Template | Description |
+|----------|-------------|
+| `default` | Generic project with standard Atlas docs and project brief |
+| `saas` | SaaS product with product brief, MVP scope, and development workflow |
+| `cli-tool` | CLI tool with command surface docs, packaging notes, and validation workflow |
+| `mcp-server` | MCP server with tool/resource surface, daemon setup, and safety boundaries |
+| `web-app` | Web application with product brief, route structure, and frontend architecture |
+
+**Existing docs are preserved by default.** Templates create missing files only. For a cloned repo that already has project docs, usually omit `--template` — plain `init --project-id <id>` is the standard workflow. Use `--template <name>` for new/empty projects or when intentionally filling missing docs.
+
+For advanced configuration — custom storage roots, daemon options, or legacy migration — see the reference docs linked from [docs/README.md](../README.md).
 
 ## Build & Test
 
@@ -45,23 +85,17 @@ npm run test:integration
 
 # Full test suite
 npm test
-
-# Quick validation — default dev loop
-npm run validate:quick
-
-# Full validation — before risky merges or release
-npm run validate:full
 ```
 
-## Validation Tiers
+## Working with the Full Workflow
 
-| Command | What it runs | When to use |
-|---------|-------------|-------------|
-| `npm run test:fast` | CLI + registry + storage-migration tests | During narrow edits |
-| `npm run test:integration` | Project + daemon + HTTP tests | Before daemon changes |
-| `npm test` | All tests | Before merge or release |
-| `npm run validate:quick` | Fast tests + build | Default development loop |
-| `npm run validate:full` | All tests + build + pack dry-run | Before risky merges or release |
+This project uses three layers beyond the test suite:
+
+- **`npm run validate:*`** — Repo-level validation gates (tests + build)
+- **`npm run verify:*`** — Installed-package runtime smoke checks
+- **`npm run bundle:*`** — Local private RC artifact bundle generation
+
+See [docs/atlas/development-workflow.md](./development-workflow.md) for the complete reference on validation tiers, smoke testing, artifact generation, and script naming conventions.
 
 ## NPM Pack (Dry Run)
 

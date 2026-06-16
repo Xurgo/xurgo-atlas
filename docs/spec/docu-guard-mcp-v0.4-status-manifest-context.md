@@ -42,7 +42,7 @@ v0.4 addresses these gaps by introducing two new standard files (`STATUS.md` and
 3. **No mechanical rename in this session.** The package, CLI, MCP server name, tool namespace, and config paths retain their current transitional names. A future rename should be planned separately.
 4. **No Xurgo dependency.** The tool must remain independently useful.
 5. **No complex YAML features** as core requirements (see §5).
-6. **No search/full-text index** — deferred unless explicitly needed later.
+6. **No search/full-text index in v0.4** — retrieval/search remains post-v0.4, starts with local SQLite FTS over Atlas-managed docs/context, and does not imply semantic search is implemented yet.
 7. **No changes to the Git storage model** — v0.3 managed storage is preserved.
 
 ---
@@ -297,6 +297,9 @@ These are targets for the implementation, not hard limits. The principle is that
 | `docs.manifest` | Return the project's doc map | Parsed manifest YAML as JSON, optional raw YAML, path validation, maxDocuments truncation | ✅ Complete |
 | `docs.read_section` | Read one section of a document by heading | Section content + heading metadata + bounded-read metadata | ✅ Complete |
 | `docs.context_pack` | Return a curated set of documents for orientation or a topic | Ordered context items with per-item metadata within a total character budget | ✅ Complete |
+| `docs.search` | Search Atlas-managed docs/context with local lexical retrieval | Ranked lexical matches, snippets, and path metadata | Future additive |
+| `docs.capabilities` | Describe supported retrieval/context capabilities and scope | Capability metadata and feature flags | Future additive |
+| `docs.semantic_search` | Optional semantic retrieval over Atlas-managed content | Local vector-search results if that is added later | Optional future |
 
 ### 7.2 Tool Options (Proposed Enhancements)
 
@@ -307,6 +310,9 @@ These are targets for the implementation, not hard limits. The principle is that
 | `docs.list` | `compact` | Return minimal metadata (path + role) instead of full details |
 | `docs.list` | `role` | Filter documents by role |
 | `docs.find` | *(if needed later)* | Search document summaries or headings for a term |
+| `docs.search` | *(future)* | Search Atlas-managed docs/context lexically with scoped retrieval |
+| `docs.capabilities` | *(future)* | Report supported retrieval/context capabilities and scope |
+| `docs.semantic_search` | *(optional future)* | Local-only semantic retrieval after FTS is stable |
 
 ### 7.3 Backward Compatibility
 
@@ -497,3 +503,254 @@ Xurgo Atlas v0.4 proposes an evolution from safe doc editing to **documentation-
 The existing safety, versioning, and audit guarantees are preserved and extended to cover the new files. All existing tools and workflows remain backward-compatible.
 
 The full vision is described in [`../vision/project-context-mcp.md`](../vision/project-context-mcp.md).
+
+---
+
+## 14. Xurgo Atlas Naming Migration Plan (Post-v0.4)
+
+This section plans the mechanical rename and internal migration from legacy `docu-guard` naming toward Xurgo Atlas naming. It records intended phases only. No package, CLI, config, storage, MCP namespace, source-module, repository metadata, or runtime behavior changes are part of v0.4 stabilization.
+
+### 14.1 Current Inventory
+
+The current repo and checkout are named `xurgo-atlas`, and v0.4 is stable enough to treat as a private milestone at commit `cace1b1`. The implementation still intentionally contains transitional names:
+
+| Surface | Current state | Planning note |
+|---------|---------------|---------------|
+| Product/app name | Xurgo Atlas | Use as the user-facing name in new docs |
+| npm package | `docu-guard-mcp` in `package.json` and lockfile | Candidate future package name needs npm identity decision |
+| CLI binary | `docu-guard` | Keep as compatibility alias for at least one transition period |
+| MCP server identity | `docu-guard-mcp` default in `src/mcp/create-server.ts` | Can be renamed independently from tool namespace |
+| MCP tools | `docs.*` | Keep initially; namespace rename is deferred unless strongly justified |
+| Config/data defaults | `~/.config/docu-guard` and `~/.local/share/docu-guard` | Must not strand existing registries or managed stores |
+| Generated project templates | AGENTS.md, STATUS.md, docs README, event paths | Update only when compatibility behavior is planned |
+| Tests | project, registry, daemon, HTTP tests assert legacy names and paths | Update alongside implementation, not during planning |
+
+### 14.2 Phase 1: Branding and Documentation Alignment
+
+- Make Xurgo Atlas the user-facing product name in newly authored docs, status text, web UI copy, and future release material.
+- Keep legacy `docu-guard-mcp`, `docu-guard`, and `docs.*` references where they describe currently true package, CLI, server, storage, or tool behavior.
+- Treat older kickoff/PRD/spec documents as historical unless a current-status note is necessary for clarity.
+- Do not rewrite every historical reference mechanically; update current-facing docs first, then implementation surfaces in later phases.
+
+### 14.3 Phase 2: Internal Code and Package Naming
+
+Evaluate whether the package should become `xurgo-atlas` or remain temporarily `docu-guard-mcp`. The decision should account for npm package availability, whether this remains private, and whether downstream MCP client configurations already reference the package name.
+
+Likely implementation targets when this phase is approved:
+
+- `package.json` and `package-lock.json` package name and `bin` metadata.
+- `src/index.ts` CLI usage text and command examples.
+- `src/mcp/create-server.ts` server metadata.
+- `src/core/project.ts` generated AGENTS.md, docs README, STATUS.md template, initialization summary, and event path labels.
+- `src/cli/*.ts` command descriptions, errors, daemon startup text, and project-management usage.
+- Tests that assert package metadata, generated content, CLI output, server names, and legacy temp-path prefixes.
+
+Risks:
+
+- npm package identity changes can break installs, lockfiles, package exports, and binary resolution.
+- Import names and local package references may need coordinated updates even if source file names do not change.
+- Lockfile churn is expected and should be reviewed separately from behavioral code.
+- Historical docs may still include legacy names by design; implementation tests should not require historical specs to be rewritten.
+
+### 14.4 Phase 3: CLI and Server Compatibility
+
+Plan a new CLI alias, likely `xurgo-atlas`, only after the package-name decision is made. Keep `docu-guard` as a compatibility alias for at least one transition period.
+
+Compatibility requirements:
+
+- Existing commands such as `docu-guard init`, `docu-guard server`, `docu-guard daemon`, `docu-guard project ...`, `docu-guard list`, `docu-guard history`, and `docu-guard export` must continue to work unless explicitly deprecated later.
+- Help output can present `xurgo-atlas` as primary while documenting `docu-guard` as a legacy alias.
+- MCP server metadata may move from `docu-guard-mcp` to Xurgo Atlas, but client-visible tool names should remain stable.
+- Deprecation messaging should be informational and non-blocking during the compatibility period.
+
+### 14.5 Phase 4: Config and Storage Compatibility
+
+Do not destructively move config or data directories. Existing managed projects currently use legacy defaults such as `~/.config/docu-guard/projects.json` and `~/.local/share/docu-guard/projects/<id>/`. A future migration must preserve those stores.
+
+Potential strategy:
+
+1. Continue accepting explicit `--config-dir` and `--data-dir` paths exactly as today.
+2. Add new Xurgo Atlas defaults only behind a planned migration step, for example `~/.config/xurgo-atlas` and `~/.local/share/xurgo-atlas`.
+3. On startup, detect legacy registry/data locations if the new defaults are empty.
+4. Prefer alias/read-through behavior first: use the discovered legacy location without moving files.
+5. Offer an explicit migration command or documented manual copy before any physical move.
+6. If a move is implemented, copy before switching, verify registry and project store integrity, preserve the legacy directory, and record a rollback path.
+
+Rollback considerations:
+
+- The legacy store should remain untouched until a user explicitly removes it.
+- Registry records should include enough path information to reopen projects from either old or new locations.
+- Failed migrations should leave the old registry/data usable with the `docu-guard` alias.
+- Tests should cover legacy-only, new-only, both-present, explicit-dir, failed-copy, and rollback scenarios.
+
+### 14.6 Phase 5: MCP Namespace Compatibility
+
+Keep `docs.*` initially. The namespace is generic, already stable, and central to existing agent instructions. There is no compelling near-term reason to rename it as part of the product branding migration.
+
+If a future namespace such as `atlas.*` is considered, it must be a separate compatibility project with:
+
+- Aliases for all existing `docs.*` tools.
+- Clear deprecation windows and client migration docs.
+- Tool-list behavior that does not surprise existing MCP clients.
+- Tests proving both namespaces resolve to the same handlers and preserve proposal/audit semantics.
+
+### 14.7 Phase 6: Tests and Validation
+
+When implementation begins, update or add tests for:
+
+- Package metadata and binary aliases in `package.json` and `package-lock.json`.
+- CLI help, command dispatch, error hints, and compatibility alias behavior.
+- MCP server metadata and tool-list stability.
+- Generated AGENTS.md, STATUS.md, docs README, policy, manifest, and event-log text.
+- Config/data default path selection, legacy discovery, explicit path overrides, and non-destructive migration/rollback.
+- Existing managed project compatibility using a fixture or temp legacy store.
+- Pack/build/runtime smoke checks: `npm test`, `npm run build`, `npm pack --dry-run`, CLI help for both aliases, stdio MCP tool listing, daemon health, and read-only REST/UI smoke where relevant.
+
+### 14.8 Phase 7: Private Release Strategy
+
+This repo is private. Until explicit approval is given, do not push, tag, merge, publish, release, or make public artifacts.
+
+Allowed private work now:
+
+- Keep this plan and checklist updates in the private branch.
+- Prepare implementation branches locally.
+- Run validation, dry-run package checks, and local compatibility smoke tests.
+- Review diffs for accidental runtime behavior changes before any rename implementation.
+
+Requires explicit release approval:
+
+- Publishing an npm package under any name.
+- Removing or deprecating `docu-guard` workflows publicly.
+- Moving default storage paths for real users.
+- Pushing tags, merging milestone branches, creating releases, or making the repo/artifacts public.
+
+### 14.9 Implementation Gate
+
+Before any rename implementation starts, confirm:
+
+- The package name decision and CLI alias policy.
+- Whether storage defaults remain legacy for one more milestone or add Xurgo Atlas aliases.
+- That `docs.*` remains the only MCP namespace for the initial migration.
+- The exact test matrix and smoke commands.
+- That no proposal UI, `docs.merge_branch`, write REST endpoints, publishing, tagging, pushing, or release work is included in the rename implementation.
+
+---
+
+## 15. Migration Implementation Readiness Inventory (Phase B Audit)
+
+This audit refines the naming migration plan into an implementation inventory for a later small Phase B prompt. It is documentation-only. No package, CLI, config, storage, MCP namespace, source-module, repository metadata, or runtime behavior changes are made by this audit.
+
+### 15.1 Package Metadata Candidates
+
+| Surface | Current location | Current value | Later implementation note |
+|---------|------------------|---------------|---------------------------|
+| Package name | `package.json`, `package-lock.json` root package | `docu-guard-mcp` | Rename to `xurgo-atlas` only after package identity approval; this changes lockfile root metadata |
+| Binary names | `package.json` `bin`, lockfile `packages[""].bin` | `docu-guard` -> `dist/index.js` | A future `xurgo-atlas` alias can be added while retaining `docu-guard` |
+| Description | `package.json` | Safe, versioned, auditable documentation management for AI-assisted software projects | Candidate for Xurgo Atlas branding without changing behavior |
+| Keywords | `package.json` | `mcp`, `model-context-protocol`, `documentation`, `docs`, `ai`, `version-control` | Candidate additions: `xurgo-atlas`, `project-context`; verify package policy first |
+| Repository URLs | package metadata | None present | No package repository field to update in current state |
+| Docs references | README, docs, AGENTS, historical specs | Mixed Xurgo Atlas and legacy implementation names | Current-facing docs can brand as Xurgo Atlas; historical specs may remain legacy |
+
+Lockfile implication: any package name, bin, dependency, or metadata change must update `package-lock.json` in the same implementation commit. Expect root package metadata churn even when no dependencies change.
+
+### 15.2 CLI Compatibility Candidates
+
+Current CLI entrypoint is `src/index.ts`, exposed by `package.json` as the `docu-guard` binary. The parser does not inspect the invoked binary name, so adding `xurgo-atlas` as an additional bin pointing at `./dist/index.js` should be additive.
+
+Candidate files for a later CLI slice:
+
+- `package.json` and `package-lock.json`: add `xurgo-atlas` bin while keeping `docu-guard`.
+- `src/index.ts`: optionally make help text present Xurgo Atlas as primary and `docu-guard` as compatibility alias.
+- `src/cli/init.ts`, `src/cli/project.ts`, `src/cli/daemon.ts`: update display strings only if the slice includes user-facing branding.
+
+Tests needed later:
+
+- Package metadata test proving both `bin.docu-guard` and `bin.xurgo-atlas` point at `./dist/index.js`.
+- Lockfile metadata test proving both aliases are represented in `packages[""].bin`.
+- CLI smoke for `node dist/index.js --help` and, if package-link testing is added, both installed command aliases.
+- Regression test that existing `docu-guard` workflows still dispatch the same commands.
+
+### 15.3 Runtime and Server Naming Candidates
+
+| Surface | Current location | Current value | Later compatibility note |
+|---------|------------------|---------------|--------------------------|
+| MCP server metadata | `src/mcp/create-server.ts` | default `docu-guard-mcp` | Can become Xurgo Atlas display name without changing `docs.*` tools |
+| Stdio startup text | `src/cli/init.ts` server command | `Starting docu-guard server...` | Display-only candidate if tests capture stderr later |
+| Daemon logs | `src/cli/daemon.ts` | `docu-guard daemon ...` and listening message | Display-only candidate; do not change endpoint paths |
+| Help text | `src/index.ts`, `src/cli/project.ts` | `docu-guard` commands and storage defaults | Branding candidate, but must still document compatibility alias |
+| User-facing errors | `src/cli/init.ts`, `src/core/registry.ts`, `src/mcp/tools.ts` | Hints suggest `docu-guard init` and `docu-guard project ...` | Must preserve actionable legacy command or mention both aliases |
+| REST/MCP HTTP paths | `src/mcp/http.ts` | `/mcp`, REST context routes | Not a naming migration target in first slice |
+
+### 15.4 Config and Storage Compatibility Candidates
+
+Current defaults are active behavior:
+
+- `src/core/storage.ts` returns `$XDG_CONFIG_HOME/docu-guard` or `~/.config/docu-guard`.
+- `src/core/storage.ts` returns `$XDG_DATA_HOME/docu-guard` or `~/.local/share/docu-guard`.
+- `StoragePaths.projectDataDir(projectId)` stores managed state under `<dataDir>/projects/<projectId>/`.
+- `Registry.load(configDir, dataDir)` stores `configDir` and `dataDir` in registry schema v2 and resolves project stores through those paths.
+- `Project.init` and `initCommand` warn when project-local `.docu-guard/` exists but do not migrate it.
+- `src/core/git-store.ts` uses `.docu-guard-patch.tmp` as a temporary patch file name inside the managed workdir.
+- `src/core/project.ts` logs initialization events with path `.docu-guard/init`.
+
+Compatibility shim locations for a later storage phase:
+
+- `src/core/storage.ts`: default path selection, legacy discovery, or alias/read-through logic.
+- `src/core/registry.ts`: registry v2 path interpretation, both-present behavior, and error hints.
+- `src/cli/init.ts` and `src/cli/daemon.ts`: startup display and explicit `--config-dir`/`--data-dir` behavior.
+- `src/core/project.ts`: legacy project-local warning and generated event labels.
+- `tests/project.test.ts`, `tests/registry.test.ts`, `tests/http-server.test.ts`, `tests/daemon.test.ts`: path-default, managed-dir, no-project-local-store, and registry-resolution assertions.
+
+Storage migration should not be included in the first implementation slice. It risks orphaning existing managed stores unless legacy discovery, explicit directory precedence, both-present behavior, failed-migration rollback, and user-facing diagnostics are implemented together.
+
+### 15.5 MCP Namespace Decision
+
+Keep `docs.*` unchanged for now.
+
+Changing the namespace would break or require coordinated updates to:
+
+- Tool registration and dispatch cases in `src/mcp/tools.ts`.
+- Tool descriptions that reference other `docs.*` tools.
+- Resource URIs such as `docs://project/{id}/manifest` in `src/mcp/resources.ts` and docs.
+- Agent instructions in AGENTS.md and generated AGENTS.md templates.
+- README, changelog, specs, integration docs, and STATUS.md workflows.
+- Tests in `tests/project.test.ts`, `tests/daemon.test.ts`, and HTTP/MCP smoke tests.
+- Existing MCP client configurations and agent prompts that call `docs.read`, `docs.propose_patch`, or `docs.commit_patch`.
+
+Namespace migration should be deferred unless explicitly approved as its own compatibility project with aliases, deprecation docs, and tests proving both namespaces route to identical handlers.
+
+### 15.6 Documentation-Only Reference Classes
+
+Safe branding candidates:
+
+- Current-facing docs that describe the product direction, including STATUS.md, README, docs README, checklist summaries, and vision docs.
+- Package description text in future implementation, if it avoids implying package identity changed before it did.
+- UI/help copy that can say Xurgo Atlas while documenting legacy command aliases.
+
+References that should remain as legacy compatibility notes or historical record:
+
+- Current package, CLI, server metadata, config/data paths, and MCP namespace descriptions until implementation changes them.
+- Historical kickoff, PRD, v0.2, and v0.3 specs where `docu-guard` was the original design term.
+- AGENTS.md and generated AGENTS.md safety rules until the generated-template migration is explicitly included.
+- Changelog entries for prior work.
+
+### 15.7 Recommended First Implementation Slice
+
+Recommended Phase B slice: add an additive `xurgo-atlas` package bin alias while retaining `docu-guard`, then update only minimal help/package display text needed to make the alias understandable.
+
+Included in that slice:
+
+- Add `xurgo-atlas` to `package.json` `bin` pointing at `./dist/index.js`, keeping `docu-guard` unchanged.
+- Update `package-lock.json` root package bin metadata.
+- Add tests for package and lockfile bin aliases.
+- Optionally adjust `src/index.ts` help banner to show Xurgo Atlas as product name and `docu-guard` as compatibility alias.
+- Run `npm test`, `npm run build`, `npm pack --dry-run`, and CLI help smoke.
+
+Explicitly excluded from the first slice:
+
+- Package name rename from `docu-guard-mcp` to `xurgo-atlas`.
+- Config or data default path changes.
+- Managed storage moves or migration helpers.
+- MCP namespace changes away from `docs.*`.
+- Source module renames.
+- Proposal UI, `docs.merge_branch`, write REST endpoints, push/tag/merge/publish/release work.

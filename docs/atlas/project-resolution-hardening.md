@@ -2,48 +2,47 @@
 
 ## Purpose
 
-This document tracks release hardening and follow-up edge cases for Xurgo Atlas project resolution discovered during the `0.1.0` release candidate process. It applies to the Xurgo Atlas source repository itself and is not a template for downstream projects.
+This document tracks release hardening and follow-up edge cases for Xurgo Atlas project resolution discovered during the `0.1.0` RC process. It applies to the Xurgo Atlas source repository itself and is not a template for downstream projects.
 
 ## Current Invariants
 
-- One project id maps to one registered root.
-- One marked root maps to one project id.
+- one project id maps to one registered root.
+- one marked root maps to one project id.
 - `.xurgo-atlas/project.json` stores `schemaVersion` and `projectId`, not an absolute root.
 - `init` is idempotent only when identity matches.
-- Conflicting `init` fails clearly.
-- Duplicate project id in another root fails clearly.
-- Explicit project id and project root conflicts fail clearly.
-- Daemon startup prints the resolved project id, project root, and resolution source.
+- conflicting `init` fails clearly.
+- duplicate project id in another root fails clearly.
+- explicit project id and project root conflicts fail clearly.
+- daemon startup prints the resolved project id, project root, and resolution source.
 - `daemon start` does not silently use a registry default from a non-project directory.
-- For `0.1.0`, a running daemon is single-project-bound.
-- Starting an already-running daemon for the same project exits successfully and identifies the bound project when available.
-- Starting a daemon for a different project while another project-bound daemon is running fails clearly and tells the user to stop the current daemon first.
+- for `0.1.0`, a running daemon is single-project-bound.
+- same-project already-running daemon start exits successfully and identifies the bound project when available.
+- cross-project already-running daemon start fails clearly and tells the user to stop the current daemon first.
 - MCP requests without a project id may use the bound daemon project.
 - MCP requests for a different project id fail clearly instead of silently serving another project.
-- Starting the daemon from a non-project directory fails with a current-directory resolution error and does not imply a registry default fallback.
 
 ## Already Addressed in `fix/project-auto-resolution`
 
-- [x] Marker creation.
-- [x] Marker preservation.
-- [x] Conflicting marker rejection.
-- [x] Duplicate project id rejection.
-- [x] Current working directory and ancestor marker resolution.
-- [x] Explicit daemon id mismatch rejection.
-- [x] Conflicting `--project-id` and `--project-root` rejection.
-- [x] Simplified daemon happy path after `init`.
+- [x] marker creation.
+- [x] marker preservation.
+- [x] conflicting marker rejection.
+- [x] duplicate project id rejection.
+- [x] cwd and ancestor marker resolution.
+- [x] explicit daemon id mismatch rejection.
+- [x] conflicting `--project-id` and `--project-root` rejection.
+- [x] simplified daemon happy path after `init`.
 
 ## Addressed in `fix/daemon-bound-project-safety`
 
-- [x] Same-project already-running daemon exits successfully and identifies the bound project.
-- [x] Cross-project `daemon start` fails non-zero when an existing daemon is bound to another project.
-- [x] Explicit `--project-id` for another project fails non-zero while an existing daemon is bound to a different project.
-- [x] Daemon status identifies the bound project id/root when available.
-- [x] Bound MCP requests for the daemon project continue to work.
+- [x] same-project already-running daemon exits successfully and identifies the bound project.
+- [x] cross-project `daemon start` fails non-zero when an existing daemon is bound to another project.
+- [x] explicit `--project-id` for another project fails non-zero while an existing daemon is bound to a different project.
+- [x] daemon status identifies the bound project id/root when available.
+- [x] bound MCP requests for the daemon project continue to work.
 - [x] MCP requests without a project id use the bound daemon project.
 - [x] MCP requests for a different project id fail clearly.
-- [x] Non-project daemon start wording says no Xurgo Atlas project could be resolved from the current directory.
-- [x] Non-project daemon start still avoids registry-default fallback.
+- [x] non-project daemon start wording says no Xurgo Atlas project could be resolved from the current directory.
+- [x] non-project daemon start still avoids registry-default fallback.
 
 ## P0 Before Public `0.1.0`
 
@@ -73,14 +72,14 @@ This document tracks release hardening and follow-up edge cases for Xurgo Atlas 
 - [ ] Evaluate an optional multi-project daemon mode.
 - [ ] Define a team and shared project identity policy.
 - [ ] Decide whether `.xurgo-atlas/project.json` should normally be committed or remain local-only.
-- [ ] Add shell-safe reviewer command examples.
+- [ ] Add fish-safe and POSIX-safe reviewer command examples.
 - [ ] Consider broader parent-project agent docs such as `docs/AI/*`, if they are useful later outside this repo.
 
 ## Next Private RC Checklist
 
 - [ ] Source repo is clean.
 - [ ] `main == origin/main`.
-- [ ] `v0.1.0-rc.3` is left untouched.
+- [ ] `v0.1.0-rc.2` is left untouched.
 - [ ] Full validation passes.
 - [ ] Private RC bundle is created from a clean tree.
 - [ ] Bundle smoke passes.
