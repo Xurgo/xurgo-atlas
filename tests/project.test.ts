@@ -2061,6 +2061,60 @@ documents:
     });
   });
 
+  it('should create a docs/spec document proposal and commit it with a manifest update', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const proposeResult = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/spec/evaluation-strategy.md',
+      content: '# Evaluation Strategy\n\nSpec content.\n',
+      document: {
+        role: 'spec',
+        summary: 'Define the evaluation strategy',
+        priority: 'high',
+      },
+      intent: 'Create a new spec document',
+      summary: 'Add evaluation strategy spec',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposeResult.content[0].text);
+    expect(proposal.valid).toBe(true);
+    expect(proposal.requiresApproval).toBe(true);
+    expect(proposal.changedFiles).toEqual([
+      'docs/spec/evaluation-strategy.md',
+      'docs/manifest.yml',
+    ]);
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBeFalsy();
+    const commit = JSON.parse(commitResult.content[0].text);
+    expect(commit.changedFiles).toEqual([
+      'docs/spec/evaluation-strategy.md',
+      'docs/manifest.yml',
+    ]);
+
+    const createdDocument = await project.readFile('main', 'docs/spec/evaluation-strategy.md');
+    expect(createdDocument.content).toBe('# Evaluation Strategy\n\nSpec content.\n');
+    expect(createdDocument.revision).toBe(commit.commit);
+
+    const manifest = await project.readFile('main', 'docs/manifest.yml');
+    expect(manifest.content).toContain('path: docs/spec/evaluation-strategy.md');
+  });
+
   it('should keep docs.propose_document create-only flow unchanged', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
@@ -2187,7 +2241,7 @@ documents:
     expect(created.content).toBe('# End To End\n\nAtlas content.\n');
   });
 
-  it('should reject create-only document proposals outside docs/atlas/**', async () => {
+  it('should reject create-only document proposals outside the approved docs-managed scope', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
       projectId: 'test-project',
@@ -2211,7 +2265,7 @@ documents:
 
     expect(result.isError).toBe(true);
     const data = JSON.parse(result.content[0].text);
-    expect(data.error).toContain('must be under docs/atlas/');
+    expect(data.error).toContain('must be under docs/atlas/ or docs/spec/');
   });
 
   it('should reject create-only document proposals with path traversal', async () => {
@@ -2302,6 +2356,74 @@ documents:
     expect(result.isError).toBe(true);
     const data = JSON.parse(result.content[0].text);
     expect(data.error).toContain('already exists');
+  });
+
+  it('should repair a missing docs/spec document when the manifest already lists the path', async () => {
+    await fs.promises.mkdir(path.join(tmpDir, 'docs'), { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tmpDir, 'docs', 'manifest.yml'),
+      `version: 1
+documents:
+  - path: docs/spec/evaluation-strategy.md
+    role: spec
+    summary: Existing manifest entry
+`,
+      'utf-8',
+    );
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await handleProposeDocument(project, {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/spec/evaluation-strategy.md',
+      content: '# Evaluation Strategy\n',
+      document: {
+        role: 'spec',
+        summary: 'Short summary',
+      },
+      intent: 'Repair the missing spec document',
+      summary: 'Repair manifest-listed spec doc',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.valid).toBe(true);
+    expect(data.changedFiles).toEqual(['docs/spec/evaluation-strategy.md']);
+
+    const previewResult = await handlePreviewDiff(project, {
+      projectId: 'test-project',
+      proposalId: data.proposalId,
+    });
+
+    expect(previewResult.isError).toBeFalsy();
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.valid).toBe(true);
+    expect(preview.changedFiles).toEqual(['docs/spec/evaluation-strategy.md']);
+    expect(preview.diff).toContain('--- /dev/null');
+    expect(preview.diff).toContain('+++ b/docs/spec/evaluation-strategy.md');
+    expect(preview.diff).not.toContain('docs/manifest.yml');
+
+    const commitResult = await handleCommitPatch(project, {
+      projectId: 'test-project',
+      proposalId: data.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBeFalsy();
+    const commit = JSON.parse(commitResult.content[0].text);
+    expect(commit.changedFiles).toEqual(['docs/spec/evaluation-strategy.md']);
+
+    const createdDocument = await project.readFile('main', 'docs/spec/evaluation-strategy.md');
+    expect(createdDocument.content).toBe('# Evaluation Strategy\n');
+    expect(createdDocument.revision).toBe(commit.commit);
   });
 
   it('should repair a missing managed document when the manifest already lists the path', async () => {

@@ -226,7 +226,7 @@ export function registerTools(
         {
           name: 'docs.propose_document',
           description:
-            'Propose creation of a new Atlas-managed Markdown document under docs/atlas/** and the matching docs/manifest.yml entry. Stores a previewable two-file proposal that is committed through docs.commit_patch.',
+            'Propose creation of a new governed Markdown document under approved docs-managed paths such as docs/atlas/** or docs/spec/**, or repair a manifest-listed document that is missing on disk. Stores a previewable proposal that is committed through docs.commit_patch.',
           inputSchema: zodToJsonSchema(ProposeDocumentSchema),
         },
         {
@@ -737,6 +737,13 @@ async function handleCreateBranch(
 
 const MANIFEST_PATH = 'docs/manifest.yml';
 const ATLAS_DOCS_PREFIX = 'docs/atlas/';
+const SPEC_DOCS_PREFIX = 'docs/spec/';
+const RESERVED_CREATE_PATHS = new Set([
+  'STATUS.md',
+  'AGENTS.md',
+  '.docs-policy.yml',
+  'docs/manifest.yml',
+]);
 
 interface DocumentCreateProposalMetadata {
   role: string;
@@ -922,6 +929,18 @@ async function prepareDocumentCreateProposal(
     return manifestState;
   }
 
+  const manifestPaths = new Set(
+    manifestState.documents.flatMap((entry) => {
+      const filePath = entry.path;
+      return typeof filePath === 'string' ? [filePath] : [];
+    }),
+  );
+
+  const scopeError = validateCreateDocumentScope(normalizedPath, manifestPaths);
+  if (scopeError) {
+    return { valid: false, error: scopeError };
+  }
+
   const hasManifestPath = manifestState.documents.some(
     (entry) => entry.path === normalizedPath,
   );
@@ -1000,15 +1019,33 @@ function validateCreateDocumentPath(filePath: string): string | null {
     return `Path traversal detected: "${filePath}" is outside the project scope`;
   }
 
-  if (!filePath.startsWith(ATLAS_DOCS_PREFIX)) {
-    return `Path "${filePath}" must be under ${ATLAS_DOCS_PREFIX}`;
+  if (RESERVED_CREATE_PATHS.has(filePath)) {
+    return `Path "${filePath}" is reserved and cannot be created with docs.propose_document`;
   }
 
   if (!filePath.toLowerCase().endsWith('.md')) {
-    return `Path "${filePath}" must be a Markdown document under ${ATLAS_DOCS_PREFIX}`;
+    return `Path "${filePath}" must be a Markdown document`;
   }
 
   return null;
+}
+
+function validateCreateDocumentScope(
+  filePath: string,
+  manifestPaths: Set<string>,
+): string | null {
+  if (
+    filePath.startsWith(ATLAS_DOCS_PREFIX) ||
+    filePath.startsWith(SPEC_DOCS_PREFIX)
+  ) {
+    return null;
+  }
+
+  if (manifestPaths.has(filePath)) {
+    return null;
+  }
+
+  return `Path "${filePath}" must be under ${ATLAS_DOCS_PREFIX} or ${SPEC_DOCS_PREFIX}, or already listed in ${MANIFEST_PATH}`;
 }
 
 async function readManifestState(
@@ -1577,6 +1614,23 @@ async function validateStoredDocumentCreateProposal(
       failureType: 'invalid',
       applyable: false,
       error: manifestState.error,
+    };
+  }
+
+  const manifestPaths = new Set(
+    manifestState.documents.flatMap((entry) => {
+      const filePath = entry.path;
+      return typeof filePath === 'string' ? [filePath] : [];
+    }),
+  );
+
+  const scopeError = validateCreateDocumentScope(stored.path, manifestPaths);
+  if (scopeError) {
+    return {
+      valid: false,
+      failureType: 'invalid',
+      applyable: false,
+      error: scopeError,
     };
   }
 
