@@ -105,7 +105,7 @@ All documentation tools are exposed under the `docs.*` namespace:
 | `docs.propose_patch` | Propose a file change |
 | `docs.propose_document` | Propose a new document |
 | `docs.preview_diff` | Review a pending proposal diff |
-| `docs.commit_patch` | Commit a proposed patch and update managed state |
+| `docs.commit_patch` | Commit a proposed patch and update managed state. Run `docs.export` before disk reads or Git commits when the working tree needs to catch up. |
 | `docs.history` | View file change history |
 | `docs.restore_file` | Restore a file to a previous revision |
 | `docs.export` | Export branch to working tree and sync the target directory |
