@@ -124,6 +124,8 @@ Use `docs.discard_proposal` when you need to retire a pending or otherwise uncom
 
 After a proposal is committed, `docs.export` is the step that reconciles Atlas-managed branch content back to the working tree when the exported files need to be visible on disk. That export step remains separate from proposal cleanup and does not run when a draft is merely discarded.
 
+Discarded proposals no longer appear in the default pending list, but they remain available in audit history and in broader `docs.list_proposals` queries.
+
 ## Security
 
 - The daemon binds to `127.0.0.1` (localhost) by default.
