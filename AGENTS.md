@@ -16,7 +16,7 @@ This project uses **Xurgo Atlas** for safe, versioned, auditable documentation m
    - `summary` - a brief description of the change
    - `patch` - the unified diff of your changes
 
-4. **Use docs.commit_patch to finalize.** After proposing a patch, use `docs.commit_patch` to apply it. The server will re-validate the base revision before committing. `docs.commit_patch` updates Atlas-managed state only, so run `docs.export` before disk reads or Git commits when you need the working tree to catch up.
+4. **Use docs.commit_patch to finalize.** After proposing a patch, use `docs.commit_patch` to apply it. The server will re-validate the base revision before committing.
 
 5. **Create branches for complex changes.** Use `docs.create_branch` to create feature branches for multi-step edits.
 
