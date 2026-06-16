@@ -157,23 +157,7 @@ Xurgo events may reference Xurgo Atlas IDs for traceability:
 
 ---
 
-## 6. Retrieval Ownership and Contract Boundaries
-
-Atlas retrieval/search is for Atlas-managed docs and project context only. It is intentionally scoped to the Atlas docs and context surface, not to Xurgo runtime events, thread memory, or any other external project memory store.
-
-Xurgo owns its own runtime, event, and memory retrieval. Xurgo and Xurgo Atlas must not share a single retrieval database, and Xurgo must not import Atlas internals, read Atlas registry/database formats directly, hardcode Atlas paths, guess Atlas state, or require Atlas for normal validation.
-
-Xurgo should consume Atlas only through the documented CLI, MCP, and config boundaries. There is no immediate breaking contract change in this direction update, and `xurgo-atlas mcp-config --json` remains stable.
-
-Retrieval/search capabilities should be additive, generic Atlas project-context features rather than Xurgo-specific helpers. The current lexical search tool is:
-
-- `docs.search` for Atlas-scoped lexical retrieval over managed docs and context.
-- `docs.capabilities` for surfacing supported retrieval/context capabilities and scope.
-- Optional future `docs.semantic_search` only after local FTS is stable, and only as optional local infrastructure.
-
----
-
-## 7. Token-Efficiency Contract
+## 6. Token-Efficiency Contract
 
 Xurgo should consume Xurgo Atlas MCP output efficiently to keep model context under budget:
 
