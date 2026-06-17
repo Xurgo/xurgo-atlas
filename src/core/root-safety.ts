@@ -3,6 +3,12 @@ import * as path from 'node:path';
 import { Project } from './project.js';
 import { Registry } from './registry.js';
 import { inspectGitIdentity, normalizeExistingPath, type GitIdentity } from './git-identity.js';
+import { StoragePaths } from './storage.js';
+import {
+  recordRootObservationIfPossible,
+  unavailableRootLedgerSummary,
+  type RootLedgerSummary,
+} from './root-ledger.js';
 
 export interface RootSafetyContext {
   requestedCwd: string;
@@ -15,6 +21,7 @@ export interface RootSafetyContext {
   markerProjectId: string | null;
   git: GitIdentity;
   safety: RootSafetySummary;
+  rootLedger: RootLedgerSummary;
 }
 
 export interface RootSafetySummary {
@@ -49,21 +56,43 @@ export interface RootSafetyRefusal {
   isError: true;
 }
 
+export interface InspectResolvedRootSafetyContextOptions {
+  projectId: string;
+  projectRoot: string;
+  configDir?: string;
+  dataDir?: string;
+  requestedCwd?: string;
+  daemonProjectRoot?: string | null;
+}
+
 export async function inspectRootSafetyContext(
   project: Project,
   options: Pick<RootSafetyGuardOptions, 'requestedCwd' | 'daemonProjectRoot'> = {},
 ): Promise<RootSafetyContext> {
+  return inspectResolvedRootSafetyContext({
+    projectId: project.projectId,
+    projectRoot: project.root,
+    configDir: project.storage.configDir,
+    dataDir: project.storage.dataDir,
+    requestedCwd: options.requestedCwd,
+    daemonProjectRoot: options.daemonProjectRoot,
+  });
+}
+
+export async function inspectResolvedRootSafetyContext(
+  options: InspectResolvedRootSafetyContextOptions,
+): Promise<RootSafetyContext> {
   const requestedCwd = path.resolve(options.requestedCwd ?? process.cwd());
-  const canonicalProjectRoot = normalizeExistingPath(project.root) ?? path.resolve(project.root);
-  const registry = await Registry.load(project.storage.configDir, project.storage.dataDir);
-  const registeredProjectRoot = registry.getProject(project.projectId)?.projectRoot ?? null;
-  const markerPath = path.join(project.root, '.xurgo-atlas', 'project.json');
+  const canonicalProjectRoot = normalizeExistingPath(options.projectRoot) ?? path.resolve(options.projectRoot);
+  const registry = await Registry.load(options.configDir, options.dataDir);
+  const registeredProjectRoot = registry.getProject(options.projectId)?.projectRoot ?? null;
+  const markerPath = path.join(options.projectRoot, '.xurgo-atlas', 'project.json');
   const marker = await readJsonFile(markerPath);
-  const git = await inspectGitIdentity(project.root);
+  const git = await inspectGitIdentity(options.projectRoot);
 
   const markerMissing = marker === null;
   const markerMismatch = Boolean(
-    marker && typeof marker.projectId === 'string' && marker.projectId !== project.projectId,
+    marker && typeof marker.projectId === 'string' && marker.projectId !== options.projectId,
   );
   const registeredProjectRootMissing = registeredProjectRoot === null;
   const registeredProjectRootMismatch = registeredProjectRoot
@@ -84,14 +113,6 @@ export async function inspectRootSafetyContext(
     gitMismatch,
   });
 
-  const warnings: string[] = [];
-  if (gitUnavailable) {
-    warnings.push('Git worktree identity is unavailable for this checkout.');
-  }
-  if (registeredProjectRoot && comparePaths(registeredProjectRoot, canonicalProjectRoot)) {
-    // No-op. Keep the branch explicit so the helper remains easy to extend.
-  }
-
   const safeForWrites =
     !markerMissing &&
     !markerMismatch &&
@@ -108,10 +129,10 @@ export async function inspectRootSafetyContext(
     daemonProjectRootMismatch ||
     gitMismatch;
 
-  return {
+  const contextWithoutLedger = {
     requestedCwd,
-    projectId: project.projectId,
-    projectRoot: project.root,
+    projectId: options.projectId,
+    projectRoot: options.projectRoot,
     canonicalProjectRoot,
     registeredProjectRoot,
     daemonProjectRoot,
@@ -129,8 +150,24 @@ export async function inspectRootSafetyContext(
       daemonProjectRootMismatch,
       gitMismatch,
       gitUnavailable,
-      warnings,
+      warnings: buildSafetyWarnings({
+        markerMissing,
+        markerMismatch,
+        registeredProjectRootMissing,
+        registeredProjectRootMismatch,
+        daemonProjectRootMismatch,
+        gitMismatch,
+        gitUnavailable,
+      }),
     },
+  };
+
+  return {
+    ...contextWithoutLedger,
+    rootLedger: await observeRootLedger(contextWithoutLedger, {
+      configDir: options.configDir,
+      dataDir: options.dataDir,
+    }),
   };
 }
 
@@ -174,6 +211,7 @@ export async function guardRootSafety(
             markerProjectId: rootContext.markerProjectId,
             git: rootContext.git,
             safety: rootContext.safety,
+            rootLedger: rootContext.rootLedger,
             issues,
             nextStep: [
               'Run docs.status to inspect rootContext.',
@@ -230,6 +268,40 @@ function buildSafetyIssues(context: RootSafetyContext): string[] {
   return issues;
 }
 
+function buildSafetyWarnings(signals: {
+  markerMissing: boolean;
+  markerMismatch: boolean;
+  registeredProjectRootMissing: boolean;
+  registeredProjectRootMismatch: boolean;
+  daemonProjectRootMismatch: boolean;
+  gitMismatch: boolean;
+  gitUnavailable: boolean;
+}): string[] {
+  const warnings: string[] = [];
+  if (signals.markerMissing) {
+    warnings.push('missing local project marker');
+  }
+  if (signals.markerMismatch) {
+    warnings.push('marker project id mismatch');
+  }
+  if (signals.registeredProjectRootMissing) {
+    warnings.push('registered project root missing');
+  }
+  if (signals.registeredProjectRootMismatch) {
+    warnings.push('registered project root mismatch');
+  }
+  if (signals.daemonProjectRootMismatch) {
+    warnings.push('daemon-bound root mismatch');
+  }
+  if (signals.gitMismatch) {
+    warnings.push('git worktree mismatch');
+  }
+  if (signals.gitUnavailable) {
+    warnings.push('git identity unavailable');
+  }
+  return warnings;
+}
+
 async function readJsonFile(filePath: string): Promise<Record<string, unknown> | null> {
   try {
     const raw = await fs.promises.readFile(filePath, 'utf-8');
@@ -248,4 +320,40 @@ function comparePaths(left: string | null | undefined, right: string | null | un
   const normalizedLeft = normalizeExistingPath(left);
   const normalizedRight = normalizeExistingPath(right);
   return normalizedLeft !== null && normalizedLeft === normalizedRight;
+}
+
+async function observeRootLedger(
+  context: Omit<RootSafetyContext, 'rootLedger'>,
+  storage: { configDir?: string; dataDir?: string },
+): Promise<RootLedgerSummary> {
+  try {
+    const registry = await Registry.load(storage.configDir, storage.dataDir);
+    if (!registry.getProject(context.projectId)) {
+      return unavailableRootLedgerSummary(
+        `Root ledger storage is unavailable because project "${context.projectId}" is not registered.`,
+      );
+    }
+
+    const dbPath = new StoragePaths({
+      configDir: registry.configDir,
+      dataDir: registry.dataDir,
+    }).projectEventsPath(context.projectId);
+    return recordRootObservationIfPossible(dbPath, {
+      projectId: context.projectId,
+      requestedCwd: context.requestedCwd,
+      projectRoot: context.projectRoot,
+      canonicalProjectRoot: context.canonicalProjectRoot,
+      registeredProjectRoot: context.registeredProjectRoot,
+      daemonProjectRoot: context.daemonProjectRoot,
+      markerPath: context.markerPath,
+      markerRootPath: context.safety.markerMissing ? null : path.dirname(path.dirname(context.markerPath)),
+      markerProjectId: context.markerProjectId,
+      git: context.git,
+      safety: context.safety,
+    });
+  } catch (error) {
+    return unavailableRootLedgerSummary(
+      `Root ledger recording failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }

@@ -670,6 +670,14 @@ describe('mcp-config command', () => {
       expect(parsed.safety.warnings).toContain('missing local project marker');
       expect(parsed.safety.warnings).toContain('registered project root missing');
       expect(parsed.safety.warnings).toContain('git identity unavailable');
+      expect(parsed.rootLedger).toEqual({
+        available: false,
+        recorded: false,
+        knownObservationCount: null,
+        currentObservationCount: null,
+        lastObservedAt: null,
+        warnings: [],
+      });
       expect(output).not.toContain('Endpoint:');
       expect(output).not.toContain('Generic MCP client JSON');
     } finally {
@@ -717,6 +725,13 @@ describe('mcp-config command', () => {
       expect(parsed.safety.rootMismatch).toBe(false);
       expect(parsed.safety.safeForWrites).toBe(true);
       expect(parsed.git.insideWorkTree).toBe(false);
+      expect(parsed.rootLedger).toMatchObject({
+        available: true,
+        recorded: true,
+        knownObservationCount: 1,
+        currentObservationCount: 1,
+        warnings: [],
+      });
       expect(parsed.mcpServers['xurgo-atlas'].url).toBe('http://127.0.0.1:3737/mcp');
     } finally {
       logSpy.mockRestore();
@@ -775,6 +790,13 @@ describe('mcp-config command', () => {
       expect(parsed.safety.warnings).toEqual([]);
       expect(parsed.safety.rootMismatch).toBe(false);
       expect(parsed.safety.safeForWrites).toBe(true);
+      expect(parsed.rootLedger).toMatchObject({
+        available: true,
+        recorded: true,
+        knownObservationCount: 1,
+        currentObservationCount: 1,
+        warnings: [],
+      });
 
       await mcpConfigCommand({ json: true, cwd: nestedCwd, configDir, dataDir });
       const nestedParsed = JSON.parse(logLines.at(-1) ?? '');
@@ -790,6 +812,13 @@ describe('mcp-config command', () => {
       expect(nestedParsed.git.head).toBe(parsed.git.head);
       expect(nestedParsed.safety.rootMismatch).toBe(false);
       expect(nestedParsed.safety.safeForWrites).toBe(true);
+      expect(nestedParsed.rootLedger).toMatchObject({
+        available: true,
+        recorded: true,
+        knownObservationCount: 1,
+        currentObservationCount: 2,
+        warnings: [],
+      });
     } finally {
       logSpy.mockRestore();
       await fs.promises.rm(root, { recursive: true, force: true });
@@ -837,6 +866,13 @@ describe('mcp-config command', () => {
       expect(parsed.safety.ambiguous).toBe(true);
       expect(parsed.safety.safeForWrites).toBe(false);
       expect(parsed.safety.warnings).toContain('registered project root mismatch');
+      expect(parsed.rootLedger).toMatchObject({
+        available: true,
+        recorded: true,
+        knownObservationCount: 1,
+        currentObservationCount: 1,
+        warnings: [],
+      });
     } finally {
       logSpy.mockRestore();
       await fs.promises.rm(root, { recursive: true, force: true });
