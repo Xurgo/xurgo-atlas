@@ -28,7 +28,7 @@ export async function inspectGitIdentity(cwd: string): Promise<GitIdentity> {
     return {
       insideWorkTree: true,
       worktreeRoot: normalizeExistingPath(worktreeRoot),
-      commonDir: normalizeGitPath(commonDirRaw, worktreeRoot),
+      commonDir: normalizeGitPath(commonDirRaw, resolvedCwd),
       branch: normalizeGitBranch(branchInfo.current),
       head: head.length > 0 ? head : null,
     };
