@@ -190,6 +190,20 @@ export async function guardRootSafety(
   };
 }
 
+/**
+ * Strict root guard for managed-document writes and exports.
+ *
+ * Cleanup/recovery operations such as proposal discard intentionally do not
+ * use this gate so they can still retire stale proposal state when the root
+ * context is unsafe.
+ */
+export async function guardManagedWriteSafety(
+  project: Project,
+  options: RootSafetyGuardOptions,
+): Promise<RootSafetyRefusal | null> {
+  return guardRootSafety(project, options);
+}
+
 function buildSafetyIssues(context: RootSafetyContext): string[] {
   const issues: string[] = [];
   if (context.safety.markerMissing) {
