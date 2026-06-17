@@ -133,6 +133,25 @@ function getStoredProposalCount(project: Project, projectId = 'test-project'): n
   }
 }
 
+function getRootLedgerRows(project: Project, projectId = 'test-project'): Array<Record<string, unknown>> {
+  const db = new DatabaseSync(project.storage.projectEventsPath(projectId), {
+    readOnly: true,
+  });
+
+  try {
+    return db.prepare(
+      `
+      SELECT *
+      FROM root_worktree_ledger
+      WHERE project_id = ?
+      ORDER BY first_seen_at ASC, identity_key ASC
+      `,
+    ).all(projectId) as Array<Record<string, unknown>>;
+  } finally {
+    db.close();
+  }
+}
+
 async function setRegisteredProjectRoot(
   project: Project,
   projectRoot: string,
@@ -2902,6 +2921,15 @@ describe('docs.status', () => {
     expect(data.rootContext.registeredProjectRoot).toBe(tmpDir);
     expect(data.rootContext.safety.rootMismatch).toBe(false);
     expect(data.rootContext.safety.safeForWrites).toBe(true);
+    expect(data.rootContext.rootLedger).toMatchObject({
+      available: true,
+      recorded: true,
+      knownObservationCount: 1,
+      currentObservationCount: 1,
+      warnings: [],
+    });
+    expect(data.rootContext.rootLedger.lastObservedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(getRootLedgerRows(project)).toHaveLength(1);
   });
 });
 
@@ -4832,6 +4860,34 @@ describe('exporting documentation', () => {
     expect(data.code).toBe('ROOT_CONTEXT_UNSAFE');
     expect(data.message).toContain('docs.restore_file');
     expect(await fs.promises.readFile(statusPath, 'utf-8')).toBe(originalStatus);
+  });
+
+  it('keeps existing unsafe root checks authoritative when ledger recording fails', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    await setRegisteredProjectRoot(project, path.join(tmpDir, 'different-root'));
+
+    const eventsPath = project.storage.projectEventsPath(project.projectId);
+    await fs.promises.rm(eventsPath, { force: true });
+    await fs.promises.mkdir(eventsPath, { recursive: true });
+
+    const statusResult = await callTool(project, 'docs.status', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(statusResult.isError).toBeFalsy();
+    const status = JSON.parse(statusResult.content[0].text);
+    expect(status.rootContext.safety.rootMismatch).toBe(true);
+    expect(status.rootContext.safety.safeForWrites).toBe(false);
+    expect(status.rootContext.rootLedger.available).toBe(false);
+    expect(status.rootContext.rootLedger.recorded).toBe(false);
+    expect(status.rootContext.rootLedger.warnings[0]).toContain('Root ledger recording failed');
   });
 
   it('should allow canonical path aliases without false root-safety failures', async () => {
