@@ -14,6 +14,7 @@ Atlas exposes several different truth surfaces:
 |---------|--------------------|-------------------------|
 | Atlas managed/internal state | The canonical state Atlas mutates through guarded tools | Atlas storage / managed branch state |
 | Working-tree files | Files on disk in the checked-out repository | Local filesystem |
+| Root / worktree identity | Which checkout instance Atlas is bound to | Canonical root, Git common dir, worktree dir, branch, HEAD |
 | Git history and manifest | Versioned history plus the project map | Git commits and `docs/manifest.yml` |
 | Proposal/draft state | Pending edits that are not yet committed | Proposal records and lifecycle state |
 | Search/index state | Retrieval state and local lexical index freshness | Atlas search/index backend |
@@ -24,6 +25,7 @@ The important part is not that these surfaces exist. It is that they can drift i
 
 - `docs.commit_patch` updates Atlas-managed state, but working-tree files can remain stale until `docs.export` runs.
 - `docs.export` is a reconciliation step from managed state to disk, not a substitute for proposal cleanup.
+- `docs.status` and `mcp-config --json` should surface the bound root/worktree identity before any write or export is attempted.
 - If disk content or source `main` is newer than managed state, the correct next step is an explicit reconcile/import workflow, not a blind export.
 - Branch and revision mismatches should always fail clearly rather than silently switching the target surface.
 - Proposal cleanup and export safety are related but separate concerns. Cleaning up drafts should not hide export drift, and exporting should not implicitly discard proposals.
