@@ -2886,7 +2886,7 @@ describe('docs.status', () => {
     expect(result.isError).toBeFalsy();
     const data = JSON.parse(result.content[0].text);
     expect(data.rootContext.projectRoot).toBe(tmpDir);
-    expect(data.rootContext.canonicalProjectRoot).toBe(tmpDir);
+    expect(data.rootContext.canonicalProjectRoot).toBe(await fs.promises.realpath(tmpDir));
     expect(data.rootContext.git.insideWorkTree).toBe(true);
     expect(data.rootContext.git.worktreeRoot).toBe(await fs.promises.realpath(tmpDir));
     expect(data.rootContext.git.branch).toBe('main');
