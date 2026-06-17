@@ -60,6 +60,11 @@ documents:
     priority: high
     summary: Tracks project-resolution hardening follow-ups from the 0.1.0 RC process
 
+  - path: docs/atlas/root-worktree-safety.md
+    role: reference
+    priority: high
+    summary: Root/worktree safety model for Atlas project identity, daemon binding, and export boundaries
+
   - path: docs/atlas/development-workflow.md
     role: reference
     priority: high
@@ -88,6 +93,7 @@ documents:
     summary: Boundary and integration plan between Xurgo and Xurgo Atlas
     related:
       - docs/vision/project-context-mcp.md
+
   - path: docs/atlas/lifecycle-state-surfaces.md
     role: roadmap
     priority: high
