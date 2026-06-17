@@ -29,6 +29,14 @@ Root/worktree metadata should still be visible in `docs.status` and `mcp-config 
 
 Write and export tools should only fail closed when root identity is ambiguous, mismatched, copied, stale, or explicitly unsafe.
 
+## Git Tracking Policy
+
+`.xurgo-atlas/` should be treated as local root-bound state and ignored by Git. Normal operation does not require the marker to be committed, and `xurgo-atlas init` should create or repair it on demand.
+
+If a repository already tracks `.xurgo-atlas/`, migrate by adding the ignore rule, untracking it with `git rm --cached -r .xurgo-atlas`, and committing that removal. Existing checkouts can then run `xurgo-atlas init` to recreate the local marker as needed.
+
+Clones, copied checkouts, and secondary worktrees should not inherit a durable marker from Git history. They should get their own local marker only when `init` runs in that checkout.
+
 ## Recommended Model
 
 ### 1. Treat `projectId` as logical identity only

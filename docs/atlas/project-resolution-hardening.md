@@ -77,7 +77,7 @@ This document tracks release hardening and follow-up edge cases for Xurgo Atlas 
 - [ ] Define the root/worktree safety model and explicit checkout instance identity; see `docs/atlas/root-worktree-safety.md`.
 - [ ] Decide whether `mcp-config --json` and `docs.status` should surface root/worktree binding metadata before write guards land.
 - [ ] Decide whether the registry remains projectId-keyed or expands to an explicit logical-project plus checkout-instance model.
-- [ ] Decide whether `.xurgo-atlas/project.json` should normally be committed or remain local-only.
+- [ ] Treat `.xurgo-atlas/` as local root-bound state and ignore it in Git; migrate tracked copies carefully before relying on clones or worktrees.
 - [ ] Add shell-safe reviewer command examples.
 - [ ] Consider broader parent-project agent docs such as `docs/AI/*`, if they are useful later outside this repo.
 

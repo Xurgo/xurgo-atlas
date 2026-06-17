@@ -27,6 +27,7 @@ pnpm-debug.log*
 # Legacy/local managed artifacts
 .docu-guard/
 .docs-mcp/
+.xurgo-atlas/
 
 # Local/private generated artifacts
 artifacts/private-rc/
