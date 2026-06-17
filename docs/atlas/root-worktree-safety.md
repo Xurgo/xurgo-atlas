@@ -15,6 +15,16 @@ This document defines the safety model for Atlas-managed docs when a logical pro
 - `docs.read`, `docs.list`, `docs.context_pack`, and `docs.manifest` are read-only against managed state.
 - `docs.export` and `docs.preview_export` write or preview into a target directory that defaults to the resolved project root.
 
+## Landed Ledger Semantics
+
+The shipped `rootLedger` surfaces are additive, history-derived context rather than a lock system:
+
+- `docs.status.rootContext.rootLedger` and `mcp-config --json.rootLedger` report the per-project observation ledger.
+- `safety.safeForWrites` remains the authoritative write and export gate.
+- `rootMismatch` is preserved as a compatibility alias for older consumers, but it does not replace the write gate.
+- Ledger failures should degrade the summary to warnings or unavailable state rather than crash read-only surfaces or falsely certify safety.
+- Multiple observed roots, worktrees, or Git common dirs are warning signals for coordinators, not automatic write blockers.
+
 ## Safety Problem
 
 A copied repo, a secondary Git worktree, or a duplicated marker can make the project id look correct while the checkout identity is not. Without explicit checkout identity, Atlas cannot safely answer a basic question: which root is about to be read from, mutated, or exported into?

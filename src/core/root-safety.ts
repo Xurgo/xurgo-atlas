@@ -106,6 +106,8 @@ export async function inspectResolvedRootSafetyContext(
   const gitMismatch = git.insideWorkTree
     ? !comparePaths(git.worktreeRoot, canonicalProjectRoot)
     : false;
+  // Preserve the historical `rootMismatch` field for compatibility, but the
+  // actual write gate still comes from `safeForWrites`.
   const rootMismatch = computeRootMismatch({
     markerMismatch,
     registeredProjectRootMismatch,
@@ -327,6 +329,8 @@ async function observeRootLedger(
   storage: { configDir?: string; dataDir?: string },
 ): Promise<RootLedgerSummary> {
   try {
+    // Best-effort only: the ledger enriches status/config output, but failures
+    // must not veto root safety or break read-only command paths.
     const registry = await Registry.load(storage.configDir, storage.dataDir);
     if (!registry.getProject(context.projectId)) {
       return unavailableRootLedgerSummary(

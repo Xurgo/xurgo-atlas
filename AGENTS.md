@@ -24,6 +24,16 @@ This project uses **Xurgo Atlas** for safe, versioned, auditable documentation m
 
 7. **Never delete content silently.** All deletions must be explicit in the patch diff.
 
+### Code Comment Standards
+
+Keep comments focused on the why, not the obvious mechanics.
+
+- Add comments for non-obvious safety boundaries, invariants, compatibility aliases, failure modes, lifecycle and resource handling, schema intent, and consumer-facing JSON semantics.
+- For root/write safety code, document fail-closed versus fail-soft choices and recovery exceptions.
+- For SQLite and storage code, document schema purpose, identity keys, lazy creation or migration behavior, resource lifecycle, and fail-soft behavior.
+- For public JSON, MCP, and status fields, document whether a field is descriptive, authoritative, compatibility-preserving, or intended for consumers or coordinators.
+- Avoid noisy comments that merely restate code.
+
 ### Tracked Files
 
 The following active project documents are managed through Xurgo Atlas and must not be edited directly:
