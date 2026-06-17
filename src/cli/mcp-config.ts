@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { resolveProjectContext, ProjectResolutionError } from '../core/project-resolution.js';
 import { Registry } from '../core/registry.js';
@@ -56,9 +57,7 @@ interface McpProjectContext {
   registeredProjectRoot: string | null;
   cwd: string;
   git: Awaited<ReturnType<typeof inspectGitIdentity>>;
-  safeForWrites: boolean;
-  rootMismatch: boolean;
-  ambiguous: boolean;
+  safety: McpSafetySummary;
 }
 
 interface McpJsonConfig {
@@ -72,11 +71,7 @@ interface McpJsonConfig {
   requestedCwd: string;
   registeredProjectRoot: string | null;
   git: Awaited<ReturnType<typeof inspectGitIdentity>>;
-  safety: {
-    safeForWrites: boolean;
-    rootMismatch: boolean;
-    ambiguous: boolean;
-  };
+  safety: McpSafetySummary;
   startCommand: {
     command: string;
     args: string[];
@@ -86,6 +81,20 @@ interface McpJsonConfig {
       url: string;
     };
   };
+}
+
+interface McpSafetySummary {
+  safeForWrites: boolean;
+  rootMismatch: boolean;
+  ambiguous: boolean;
+  markerMissing: boolean;
+  markerMismatch: boolean;
+  registeredProjectRootMissing: boolean;
+  registeredProjectRootMismatch: boolean;
+  daemonProjectRootMismatch: boolean;
+  gitMismatch: boolean;
+  gitUnavailable: boolean;
+  warnings: string[];
 }
 
 async function resolveMcpProjectContext(
@@ -109,11 +118,20 @@ async function resolveMcpProjectContext(
     const gitMismatch = git.insideWorkTree
       ? !comparePaths(git.worktreeRoot, resolved.projectRoot)
       : false;
+    const markerState = await inspectMarkerState(resolved.projectRoot, resolved.projectId);
+    const safety = buildMcpSafetySummary({
+      markerMissing: markerState.markerMissing,
+      markerMismatch: markerState.markerMismatch,
+      registeredProjectRootMissing: registeredProjectRoot === null,
+      registeredProjectRootMismatch,
+      daemonProjectRootMismatch: false,
+      gitMismatch,
+      gitUnavailable: !git.insideWorkTree,
+    });
     const rootMismatch = computeRootMismatch({
       registeredProjectRootMismatch,
       gitMismatch,
     });
-    const ambiguous = rootMismatch;
     return {
       projectId: resolved.projectId,
       projectRoot: resolved.projectRoot,
@@ -121,12 +139,22 @@ async function resolveMcpProjectContext(
       registeredProjectRoot,
       cwd,
       git,
-      safeForWrites: !ambiguous,
-      rootMismatch,
-      ambiguous,
+      safety: {
+        ...safety,
+        rootMismatch,
+      },
     };
   } catch (error: unknown) {
     if (error instanceof ProjectResolutionError) {
+      const safety = buildMcpSafetySummary({
+        markerMissing: true,
+        markerMismatch: false,
+        registeredProjectRootMissing: true,
+        registeredProjectRootMismatch: false,
+        daemonProjectRootMismatch: false,
+        gitMismatch: false,
+        gitUnavailable: !git.insideWorkTree,
+      });
       return {
         projectId: null,
         projectRoot: null,
@@ -134,9 +162,10 @@ async function resolveMcpProjectContext(
         registeredProjectRoot: null,
         cwd,
         git,
-        safeForWrites: false,
-        rootMismatch: false,
-        ambiguous: true,
+        safety: {
+          ...safety,
+          rootMismatch: false,
+        },
       };
     }
     throw error;
@@ -158,11 +187,7 @@ function buildMcpJsonConfig(
     requestedCwd: project.cwd,
     registeredProjectRoot: project.registeredProjectRoot,
     git: project.git,
-    safety: {
-      safeForWrites: project.safeForWrites,
-      rootMismatch: project.rootMismatch,
-      ambiguous: project.ambiguous,
-    },
+    safety: project.safety,
     startCommand: {
       command: 'xurgo-atlas',
       args: ['daemon', 'start'],
@@ -211,7 +236,7 @@ export async function getMcpConfigOutput(options: McpConfigOptions): Promise<str
     `  git common dir: ${project.git.commonDir ?? 'unavailable'}`,
     `  git branch: ${project.git.branch ?? 'detached or unavailable'}`,
     `  git HEAD: ${project.git.head ?? 'unavailable'}`,
-    `  safe for writes: ${project.safeForWrites ? 'yes' : 'no'}`,
+    `  safe for writes: ${project.safety.safeForWrites ? 'yes' : 'no'}`,
     '',
     `Generic MCP client JSON:`,
     JSON.stringify(jsonConfig, null, 2),
@@ -225,4 +250,109 @@ export async function getMcpConfigOutput(options: McpConfigOptions): Promise<str
 
 export async function mcpConfigCommand(options: McpConfigOptions = {}): Promise<void> {
   console.log(await getMcpConfigOutput(options));
+}
+
+async function inspectMarkerState(
+  projectRoot: string | null,
+  projectId: string | null,
+): Promise<{ markerMissing: boolean; markerMismatch: boolean }> {
+  if (!projectRoot) {
+    return { markerMissing: true, markerMismatch: false };
+  }
+
+  const markerPath = path.join(projectRoot, '.xurgo-atlas', 'project.json');
+
+  try {
+    const raw = await fs.promises.readFile(markerPath, 'utf-8');
+    const parsed = JSON.parse(raw) as { projectId?: unknown } | null;
+    if (!parsed || typeof parsed.projectId !== 'string') {
+      return { markerMissing: true, markerMismatch: false };
+    }
+
+    return {
+      markerMissing: false,
+      markerMismatch: projectId !== null && parsed.projectId !== projectId,
+    };
+  } catch {
+    return { markerMissing: true, markerMismatch: false };
+  }
+}
+
+function buildMcpSafetySummary(signals: {
+  markerMissing: boolean;
+  markerMismatch: boolean;
+  registeredProjectRootMissing: boolean;
+  registeredProjectRootMismatch: boolean;
+  daemonProjectRootMismatch: boolean;
+  gitMismatch: boolean;
+  gitUnavailable: boolean;
+}): McpSafetySummary {
+  const rootMismatch = computeRootMismatch({
+    markerMismatch: signals.markerMismatch,
+    registeredProjectRootMismatch: signals.registeredProjectRootMismatch,
+    daemonProjectRootMismatch: signals.daemonProjectRootMismatch,
+    gitMismatch: signals.gitMismatch,
+  });
+  const ambiguous =
+    signals.markerMissing ||
+    signals.markerMismatch ||
+    signals.registeredProjectRootMissing ||
+    signals.registeredProjectRootMismatch ||
+    signals.daemonProjectRootMismatch ||
+    signals.gitMismatch;
+  const safeForWrites =
+    !signals.markerMissing &&
+    !signals.markerMismatch &&
+    !signals.registeredProjectRootMissing &&
+    !signals.registeredProjectRootMismatch &&
+    !signals.daemonProjectRootMismatch &&
+    !signals.gitMismatch;
+
+  return {
+    safeForWrites,
+    rootMismatch,
+    ambiguous,
+    markerMissing: signals.markerMissing,
+    markerMismatch: signals.markerMismatch,
+    registeredProjectRootMissing: signals.registeredProjectRootMissing,
+    registeredProjectRootMismatch: signals.registeredProjectRootMismatch,
+    daemonProjectRootMismatch: signals.daemonProjectRootMismatch,
+    gitMismatch: signals.gitMismatch,
+    gitUnavailable: signals.gitUnavailable,
+    warnings: buildMcpSafetyWarnings(signals),
+  };
+}
+
+function buildMcpSafetyWarnings(signals: {
+  markerMissing: boolean;
+  markerMismatch: boolean;
+  registeredProjectRootMissing: boolean;
+  registeredProjectRootMismatch: boolean;
+  daemonProjectRootMismatch: boolean;
+  gitMismatch: boolean;
+  gitUnavailable: boolean;
+}): string[] {
+  const warnings: string[] = [];
+  if (signals.markerMissing) {
+    warnings.push('missing local project marker');
+  }
+  if (signals.markerMismatch) {
+    warnings.push('marker project id mismatch');
+  }
+  if (signals.registeredProjectRootMissing) {
+    warnings.push('registered project root missing');
+  }
+  if (signals.registeredProjectRootMismatch) {
+    warnings.push('registered project root mismatch');
+  }
+  if (signals.daemonProjectRootMismatch) {
+    warnings.push('daemon-bound root mismatch');
+  }
+  if (signals.gitMismatch) {
+    warnings.push('git worktree mismatch');
+  }
+  if (signals.gitUnavailable) {
+    warnings.push('git identity unavailable');
+  }
+  return warnings;
 }

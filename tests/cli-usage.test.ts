@@ -658,6 +658,18 @@ describe('mcp-config command', () => {
       expect(parsed.registeredProjectRoot).toBeNull();
       expect(parsed.git.insideWorkTree).toBe(false);
       expect(parsed.safety.safeForWrites).toBe(false);
+      expect(parsed.safety.rootMismatch).toBe(false);
+      expect(parsed.safety.ambiguous).toBe(true);
+      expect(parsed.safety.markerMissing).toBe(true);
+      expect(parsed.safety.markerMismatch).toBe(false);
+      expect(parsed.safety.registeredProjectRootMissing).toBe(true);
+      expect(parsed.safety.registeredProjectRootMismatch).toBe(false);
+      expect(parsed.safety.daemonProjectRootMismatch).toBe(false);
+      expect(parsed.safety.gitMismatch).toBe(false);
+      expect(parsed.safety.gitUnavailable).toBe(true);
+      expect(parsed.safety.warnings).toContain('missing local project marker');
+      expect(parsed.safety.warnings).toContain('registered project root missing');
+      expect(parsed.safety.warnings).toContain('git identity unavailable');
       expect(output).not.toContain('Endpoint:');
       expect(output).not.toContain('Generic MCP client JSON');
     } finally {
@@ -694,6 +706,14 @@ describe('mcp-config command', () => {
       expect(parsed.projectSource).toBe('cwd-marker');
       expect(parsed.requestedCwd).toBe(projectRoot);
       expect(parsed.registeredProjectRoot).toBe(projectRoot);
+      expect(parsed.safety.markerMissing).toBe(false);
+      expect(parsed.safety.markerMismatch).toBe(false);
+      expect(parsed.safety.registeredProjectRootMissing).toBe(false);
+      expect(parsed.safety.registeredProjectRootMismatch).toBe(false);
+      expect(parsed.safety.daemonProjectRootMismatch).toBe(false);
+      expect(parsed.safety.gitMismatch).toBe(false);
+      expect(parsed.safety.gitUnavailable).toBe(true);
+      expect(parsed.safety.warnings).toContain('git identity unavailable');
       expect(parsed.safety.rootMismatch).toBe(false);
       expect(parsed.safety.safeForWrites).toBe(true);
       expect(parsed.git.insideWorkTree).toBe(false);
@@ -709,12 +729,14 @@ describe('mcp-config command', () => {
     const configDir = path.join(root, 'config');
     const dataDir = path.join(root, 'data');
     const projectRoot = path.join(root, 'project');
+    const nestedCwd = path.join(projectRoot, 'nested', 'child');
     const logLines: string[] = [];
     const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
       logLines.push(args.join(' '));
     });
 
     await fs.promises.mkdir(projectRoot, { recursive: true });
+    await fs.promises.mkdir(nestedCwd, { recursive: true });
     await fs.promises.writeFile(path.join(projectRoot, '.gitignore'), 'config/\ndata/\n', 'utf-8');
 
     const git = simpleGit({ baseDir: projectRoot });
@@ -740,10 +762,34 @@ describe('mcp-config command', () => {
       expect(parsed.projectSource).toBe('cwd-marker');
       expect(parsed.git.insideWorkTree).toBe(true);
       expect(parsed.git.worktreeRoot).toBe(await fs.promises.realpath(projectRoot));
+      expect(parsed.git.commonDir).toBe(await fs.promises.realpath(path.join(projectRoot, '.git')));
       expect(parsed.git.branch).toBe('main');
       expect(parsed.git.head).toMatch(/^[0-9a-f]{40}$/);
+      expect(parsed.safety.markerMissing).toBe(false);
+      expect(parsed.safety.markerMismatch).toBe(false);
+      expect(parsed.safety.registeredProjectRootMissing).toBe(false);
+      expect(parsed.safety.registeredProjectRootMismatch).toBe(false);
+      expect(parsed.safety.daemonProjectRootMismatch).toBe(false);
+      expect(parsed.safety.gitMismatch).toBe(false);
+      expect(parsed.safety.gitUnavailable).toBe(false);
+      expect(parsed.safety.warnings).toEqual([]);
       expect(parsed.safety.rootMismatch).toBe(false);
       expect(parsed.safety.safeForWrites).toBe(true);
+
+      await mcpConfigCommand({ json: true, cwd: nestedCwd, configDir, dataDir });
+      const nestedParsed = JSON.parse(logLines.at(-1) ?? '');
+
+      expect(nestedParsed.projectId).toBe('mcp-config-git');
+      expect(nestedParsed.projectRoot).toBe(projectRoot);
+      expect(nestedParsed.projectSource).toBe('ancestor-marker');
+      expect(nestedParsed.requestedCwd).toBe(nestedCwd);
+      expect(nestedParsed.git.insideWorkTree).toBe(true);
+      expect(nestedParsed.git.worktreeRoot).toBe(parsed.git.worktreeRoot);
+      expect(nestedParsed.git.commonDir).toBe(parsed.git.commonDir);
+      expect(nestedParsed.git.branch).toBe('main');
+      expect(nestedParsed.git.head).toBe(parsed.git.head);
+      expect(nestedParsed.safety.rootMismatch).toBe(false);
+      expect(nestedParsed.safety.safeForWrites).toBe(true);
     } finally {
       logSpy.mockRestore();
       await fs.promises.rm(root, { recursive: true, force: true });
@@ -780,8 +826,17 @@ describe('mcp-config command', () => {
 
       expect(parsed.projectId).toBe('mcp-config-mismatch');
       expect(parsed.registeredProjectRoot).toBe(otherRoot);
+      expect(parsed.safety.markerMissing).toBe(false);
+      expect(parsed.safety.markerMismatch).toBe(false);
+      expect(parsed.safety.registeredProjectRootMissing).toBe(false);
+      expect(parsed.safety.registeredProjectRootMismatch).toBe(true);
+      expect(parsed.safety.daemonProjectRootMismatch).toBe(false);
+      expect(parsed.safety.gitMismatch).toBe(false);
+      expect(parsed.safety.gitUnavailable).toBe(true);
       expect(parsed.safety.rootMismatch).toBe(true);
+      expect(parsed.safety.ambiguous).toBe(true);
       expect(parsed.safety.safeForWrites).toBe(false);
+      expect(parsed.safety.warnings).toContain('registered project root mismatch');
     } finally {
       logSpy.mockRestore();
       await fs.promises.rm(root, { recursive: true, force: true });
