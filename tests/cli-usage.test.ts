@@ -694,7 +694,7 @@ describe('mcp-config command', () => {
       expect(parsed.projectSource).toBe('cwd-marker');
       expect(parsed.requestedCwd).toBe(projectRoot);
       expect(parsed.registeredProjectRoot).toBe(projectRoot);
-      expect(parsed.safety.safeForWrites).toBe(false);
+      expect(parsed.safety.safeForWrites).toBe(true);
       expect(parsed.git.insideWorkTree).toBe(false);
       expect(parsed.mcpServers['xurgo-atlas'].url).toBe('http://127.0.0.1:3737/mcp');
     } finally {

@@ -1,10 +1,12 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { GitStore, FileEntry } from './git-store.js';
+import { Registry } from './registry.js';
 import { Policy } from './policy.js';
 import { EventLog } from './events.js';
 import { StoragePaths } from './storage.js';
 import { isPathOwned as resolveOwnedPath, listOwnedPaths } from './ownership.js';
+import { ensureProjectMarker } from './project-resolution.js';
 
 const STATUS_MD_TEMPLATE = `---
 docuGuard.type: status
@@ -210,6 +212,8 @@ export class Project {
       // .docu-guard/ does not exist — good
     }
 
+    await ensureProjectMarker(project.root, project.projectId);
+
     // Managed data directory is created in the constructor via _ensureDataDir
 
     // Initialize the Git-backed docs store
@@ -255,6 +259,9 @@ export class Project {
       summary: `Initialized Xurgo Atlas project "${project.projectId}" at ${project.root}`,
       result_revision: 'main',
     });
+
+    const registry = await Registry.load(config.configDir, config.dataDir);
+    await registry.addProject(project.projectId, project.root);
 
     return project;
   }

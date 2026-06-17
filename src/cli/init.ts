@@ -212,9 +212,6 @@ export async function initCommand(options: InitOptions): Promise<void> {
     dataDir: options.dataDir,
   });
 
-  // Register the project in the global registry
-  await registry.addProject(options.projectId, resolvedRoot);
-
   console.log(`✓ Initialized Git-backed docs store at ${storage.projectRepoPath(options.projectId)}`);
   console.log(`✓ Created event log at ${storage.projectEventsPath(options.projectId)}`);
   console.log(`✓ ${existed.policy ? 'Preserved existing' : 'Created'} .docs-policy.yml`);

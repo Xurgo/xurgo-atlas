@@ -8,7 +8,6 @@ import * as path from 'node:path';
 import { z } from 'zod';
 import { zodToJsonSchema } from '../utils.js';
 import { Project } from '../core/project.js';
-import { Registry } from '../core/registry.js';
 import { ProposalMetadata, StoredProposal } from '../core/events.js';
 import { ProjectResolver } from './types.js';
 import { validatePatch, PatchProposal, PatchValidation } from '../core/patch.js';
@@ -18,10 +17,13 @@ import {
   createUnifiedDiffForNewFile,
   createUnifiedDiffForReplacement,
 } from '../core/unified-diff.js';
+import {
+  guardRootSafety,
+  inspectRootSafetyContext,
+} from '../core/root-safety.js';
 import YAML from 'yaml';
 import { collectMarkdownHeadings, findMarkdownSection } from '../core/markdown.js';
 import { DocsSearchIndex } from '../core/docs-search.js';
-import { inspectGitIdentity, normalizeExistingPath } from '../core/git-identity.js';
 
 // ── Schemas ───────────────────────────────────────────────────────────
 
@@ -709,6 +711,12 @@ async function handleCreateBranch(
   rawArgs: Record<string, unknown>,
 ) {
   const args = CreateBranchSchema.parse(rawArgs);
+  const rootSafety = await guardRootSafety(project, {
+    operation: 'docs.create_branch',
+  });
+  if (rootSafety) {
+    return rootSafety;
+  }
 
   // Check if branch already exists
   const exists = await project.gitStore.branchExists(args.branch);
@@ -818,6 +826,12 @@ export async function handleProposeDocument(
   rawArgs: Record<string, unknown>,
 ) {
   const args = ProposeDocumentSchema.parse(rawArgs);
+  const rootSafety = await guardRootSafety(project, {
+    operation: 'docs.propose_document',
+  });
+  if (rootSafety) {
+    return rootSafety;
+  }
 
   if (args.document.priority !== undefined && args.document.priority.trim().length === 0) {
     return {
@@ -1217,6 +1231,12 @@ export async function handleProposePatch(
   rawArgs: Record<string, unknown>,
 ) {
   const args = ProposePatchSchema.parse(rawArgs);
+  const rootSafety = await guardRootSafety(project, {
+    operation: 'docs.propose_patch',
+  });
+  if (rootSafety) {
+    return rootSafety;
+  }
 
   const patchProposal: PatchProposal = {
     projectId: args.projectId,
@@ -1454,6 +1474,12 @@ export async function handleDiscardProposal(
   rawArgs: Record<string, unknown>,
 ) {
   const args = DiscardProposalSchema.parse(rawArgs);
+  const rootSafety = await guardRootSafety(project, {
+    operation: 'docs.discard_proposal',
+  });
+  if (rootSafety) {
+    return rootSafety;
+  }
   const stored = project.eventLog.getProposal(args.proposalId);
   if (!stored) {
     return {
@@ -1567,6 +1593,12 @@ export async function handleCommitPatch(
   rawArgs: Record<string, unknown>,
 ) {
   const args = CommitPatchSchema.parse(rawArgs);
+  const rootSafety = await guardRootSafety(project, {
+    operation: 'docs.commit_patch',
+  });
+  if (rootSafety) {
+    return rootSafety;
+  }
 
   // Look up the stored proposal
   const stored = project.eventLog.getProposal(args.proposalId);
@@ -2251,6 +2283,12 @@ async function handleRestoreFile(
   rawArgs: Record<string, unknown>,
 ) {
   const args = RestoreFileSchema.parse(rawArgs);
+  const rootSafety = await guardRootSafety(project, {
+    operation: 'docs.restore_file',
+  });
+  if (rootSafety) {
+    return rootSafety;
+  }
 
   // Validate path
   if (isPathTraversal(args.path)) {
@@ -2331,6 +2369,12 @@ async function handleExport(
   rawArgs: Record<string, unknown>,
 ) {
   const args = ExportSchema.parse(rawArgs);
+  const rootSafety = await guardRootSafety(project, {
+    operation: 'docs.export',
+  });
+  if (rootSafety) {
+    return rootSafety;
+  }
   const missingBranch = await managedBranchMissingError(project, args.branch);
   if (missingBranch) {
     return missingBranch;
@@ -2497,62 +2541,13 @@ export async function handleStatus(project: Project, rawArgs: Record<string, unk
 }
 
 async function buildDocsStatusRootContext(project: Project): Promise<Record<string, unknown>> {
-  const cwd = process.cwd();
-  const git = await inspectGitIdentity(project.root);
-  const registry = await Registry.load(project.storage.configDir, project.storage.dataDir);
-  const registeredProject = registry.getProject(project.projectId);
-  const markerPath = path.join(project.root, '.xurgo-atlas', 'project.json');
-  const marker = await readJsonFile(markerPath);
-
-  const registeredProjectRoot = registeredProject?.projectRoot ?? null;
-  const rootMismatch = registeredProjectRoot
-    ? !comparePaths(registeredProjectRoot, project.root)
-    : false;
-  const gitMismatch = git.insideWorkTree
-    ? !comparePaths(git.worktreeRoot, project.root)
-    : false;
-  const markerMismatch = Boolean(
-    marker?.projectId &&
-      marker.projectId !== project.projectId,
-  );
-
-  const safeForWrites = !rootMismatch && !gitMismatch && !markerMismatch && git.insideWorkTree;
-
+  const context = await inspectRootSafetyContext(project, {
+    requestedCwd: process.cwd(),
+  });
   return {
-    cwd,
-    projectRoot: project.root,
-    canonicalProjectRoot: normalizeExistingPath(project.root) ?? path.resolve(project.root),
-    projectId: project.projectId,
-    markerPath,
-    markerProjectId: marker?.projectId ?? null,
-    registeredProjectRoot,
-    git,
-    safety: {
-      safeForWrites,
-      rootMismatch: rootMismatch || gitMismatch,
-      ambiguous: rootMismatch || gitMismatch || markerMismatch || !git.insideWorkTree,
-    },
+    ...context,
+    cwd: context.requestedCwd,
   };
-}
-
-function comparePaths(left: string | null | undefined, right: string | null | undefined): boolean {
-  if (!left || !right) {
-    return false;
-  }
-
-  const normalizedLeft = normalizeExistingPath(left);
-  const normalizedRight = normalizeExistingPath(right);
-  return normalizedLeft !== null && normalizedLeft === normalizedRight;
-}
-
-async function readJsonFile(filePath: string): Promise<Record<string, unknown> | null> {
-  try {
-    const raw = await fs.promises.readFile(filePath, 'utf-8');
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return parsed;
-  } catch {
-    return null;
-  }
 }
 
 // ── docs.manifest handler ──────────────────────────────────────────────

@@ -108,7 +108,7 @@ async function resolveMcpProjectContext(
     const gitMismatch = git.insideWorkTree
       ? !comparePaths(git.worktreeRoot, resolved.projectRoot)
       : false;
-    const ambiguous = rootMismatch || gitMismatch || !git.insideWorkTree;
+    const ambiguous = rootMismatch || gitMismatch;
     return {
       projectId: resolved.projectId,
       projectRoot: resolved.projectRoot,

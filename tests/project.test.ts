@@ -133,6 +133,14 @@ function getStoredProposalCount(project: Project, projectId = 'test-project'): n
   }
 }
 
+async function setRegisteredProjectRoot(
+  project: Project,
+  projectRoot: string,
+): Promise<void> {
+  const registry = await Registry.load(project.storage.configDir, project.storage.dataDir);
+  await registry.addProject(project.projectId, projectRoot);
+}
+
 // ── Storage path resolution tests ─────────────────────────────────────
 
 describe('storage path resolution', () => {
@@ -744,7 +752,7 @@ Legacy generated content.
     const dbStat = await fs.promises.stat(eventsPath);
     expect(dbStat.isFile()).toBe(true);
 
-    // Registry is not written by Project.init() — that's a separate step.
+    // Project.init() now writes the registry entry for the initialized project.
     // Project root should NOT have .docu-guard/
     await expect(fs.promises.stat(path.join(tmpDir, '.docu-guard'))).rejects.toThrow();
   });
@@ -2890,8 +2898,8 @@ describe('docs.status', () => {
     expect(data.rootContext.git.insideWorkTree).toBe(true);
     expect(data.rootContext.git.worktreeRoot).toBe(await fs.promises.realpath(tmpDir));
     expect(data.rootContext.git.branch).toBe('main');
-    expect(data.rootContext.markerProjectId).toBeNull();
-    expect(data.rootContext.registeredProjectRoot).toBeNull();
+    expect(data.rootContext.markerProjectId).toBe('test-project');
+    expect(data.rootContext.registeredProjectRoot).toBe(tmpDir);
     expect(data.rootContext.safety.safeForWrites).toBe(true);
   });
 });
@@ -4560,6 +4568,194 @@ describe('exporting documentation', () => {
       const stat = await fs.promises.stat(fullPath);
       expect(stat.isFile()).toBe(true);
     }
+  });
+
+  it('should refuse managed writes when the registered root does not match the resolved root', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const statusPath = path.join(tmpDir, 'STATUS.md');
+    const originalStatus = await fs.promises.readFile(statusPath, 'utf-8');
+    await project.gitStore.applyAndCommit(
+      'main',
+      'STATUS.md',
+      `${originalStatus}\nManaged main branch update.\n`,
+      'Update status on managed main',
+    );
+
+    await setRegisteredProjectRoot(project, path.join(tmpDir, 'different-root'));
+
+    const result = await callTool(project, 'docs.export', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.code).toBe('ROOT_CONTEXT_UNSAFE');
+    expect(data.message).toContain('docs.export');
+    expect(data.projectId).toBe('test-project');
+    expect(data.projectRoot).toBe(tmpDir);
+    expect(data.registeredProjectRoot).toBe(path.join(tmpDir, 'different-root'));
+    expect(data.nextStep).toContain('docs.status');
+    expect(data.nextStep).toContain('mcp-config');
+    expect(data.safety.safeForWrites).toBe(false);
+    expect(await fs.promises.readFile(statusPath, 'utf-8')).toBe(originalStatus);
+  });
+
+  it('should refuse docs.propose_patch before storing a proposal when the root context is unsafe', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'docs/README.md');
+    expect(content).not.toBeNull();
+    expect(revision).toBeTruthy();
+    const beforeCount = getStoredProposalCount(project);
+
+    await setRegisteredProjectRoot(project, path.join(tmpDir, 'different-root'));
+
+    const result = await callTool(project, 'docs.propose_patch', {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'docs/README.md',
+      baseRevision: revision,
+      patch: createSimplePatch(content!, `${content!}\nUnsafe root guard test.\n`, 'docs/README.md'),
+      intent: 'Try to store a proposal while the root context is unsafe',
+      summary: 'Guard root mismatches before proposal storage',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.code).toBe('ROOT_CONTEXT_UNSAFE');
+    expect(data.message).toContain('docs.propose_patch');
+    expect(getStoredProposalCount(project)).toBe(beforeCount);
+  });
+
+  it('should refuse docs.propose_document before storing a proposal when the root context is unsafe', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const beforeCount = getStoredProposalCount(project);
+    await setRegisteredProjectRoot(project, path.join(tmpDir, 'different-root'));
+
+    const result = await callTool(project, 'docs.propose_document', {
+      projectId: 'test-project',
+      branch: 'main',
+      mode: 'create',
+      path: 'docs/atlas/root-guard.md',
+      content: '# Root Guard\n',
+      document: {
+        role: 'reference',
+        summary: 'Guard root mismatches before proposal storage',
+      },
+      intent: 'Try to store a document proposal while the root context is unsafe',
+      summary: 'Guard root mismatches before document proposal storage',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.code).toBe('ROOT_CONTEXT_UNSAFE');
+    expect(data.message).toContain('docs.propose_document');
+    expect(getStoredProposalCount(project)).toBe(beforeCount);
+  });
+
+  it('should refuse docs.commit_patch before applying a stored proposal when the root context is unsafe', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'STATUS.md');
+    expect(content).not.toBeNull();
+    expect(revision).toBeTruthy();
+
+    const proposalResult = await callTool(project, 'docs.propose_patch', {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      baseRevision: revision,
+      patch: createSimplePatch(content!, `${content!}\nPending commit root guard test.\n`, 'STATUS.md'),
+      intent: 'Create a proposal that will later be blocked by root safety',
+      summary: 'Store a pending proposal for guarded commit testing',
+    });
+    expect(proposalResult.isError).toBeFalsy();
+    const proposal = JSON.parse(proposalResult.content[0].text);
+
+    await setRegisteredProjectRoot(project, path.join(tmpDir, 'different-root'));
+
+    const commitResult = await callTool(project, 'docs.commit_patch', {
+      projectId: 'test-project',
+      proposalId: proposal.proposalId,
+      actor: 'test',
+      riskOverride: 'accept',
+    });
+
+    expect(commitResult.isError).toBe(true);
+    const data = JSON.parse(commitResult.content[0].text);
+    expect(data.code).toBe('ROOT_CONTEXT_UNSAFE');
+    expect(data.message).toContain('docs.commit_patch');
+    const stored = project.eventLog.getProposal(proposal.proposalId);
+    expect(stored?.status).toBe('pending');
+  });
+
+  it('should allow canonical path aliases without false root-safety failures', async () => {
+    const actualRoot = path.join(tmpDir, 'actual-root');
+    const aliasRoot = path.join(tmpDir, 'alias-root');
+    await fs.promises.mkdir(actualRoot, { recursive: true });
+    await fs.promises.symlink(actualRoot, aliasRoot, 'dir');
+
+    const project = await Project.init({
+      projectRoot: aliasRoot,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    await setRegisteredProjectRoot(project, actualRoot);
+
+    const statusPath = path.join(aliasRoot, 'STATUS.md');
+    const originalStatus = await fs.promises.readFile(statusPath, 'utf-8');
+    const updatedStatus = `${originalStatus}\nAlias path guard test.\n`;
+    await project.gitStore.applyAndCommit(
+      'main',
+      'STATUS.md',
+      updatedStatus,
+      'Update status for alias-path safety test',
+    );
+
+    const result = await callTool(project, 'docs.export', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.exported).toBe(true);
+    expect(await fs.promises.readFile(statusPath, 'utf-8')).toBe(updatedStatus);
+
+    const statusResult = await callTool(project, 'docs.status', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+    expect(statusResult.isError).toBeFalsy();
+    const status = JSON.parse(statusResult.content[0].text);
+    expect(status.rootContext.projectRoot).toBe(aliasRoot);
+    expect(status.rootContext.registeredProjectRoot).toBe(actualRoot);
+    expect(status.rootContext.safety.safeForWrites).toBe(true);
   });
 
   it('should refuse exporting a managed branch into a different checked-out source branch', async () => {
