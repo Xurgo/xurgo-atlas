@@ -20,6 +20,7 @@ export interface RootSafetyContext {
 export interface RootSafetySummary {
   safeForWrites: boolean;
   ambiguous: boolean;
+  rootMismatch: boolean;
   markerMismatch: boolean;
   markerMissing: boolean;
   registeredProjectRootMissing: boolean;
@@ -34,6 +35,13 @@ export interface RootSafetyGuardOptions {
   operation: string;
   requestedCwd?: string;
   daemonProjectRoot?: string | null;
+}
+
+export interface RootMismatchSignals {
+  markerMismatch?: boolean;
+  registeredProjectRootMismatch?: boolean;
+  daemonProjectRootMismatch?: boolean;
+  gitMismatch?: boolean;
 }
 
 export interface RootSafetyRefusal {
@@ -69,6 +77,12 @@ export async function inspectRootSafetyContext(
   const gitMismatch = git.insideWorkTree
     ? !comparePaths(git.worktreeRoot, canonicalProjectRoot)
     : false;
+  const rootMismatch = computeRootMismatch({
+    markerMismatch,
+    registeredProjectRootMismatch,
+    daemonProjectRootMismatch,
+    gitMismatch,
+  });
 
   const warnings: string[] = [];
   if (gitUnavailable) {
@@ -107,6 +121,7 @@ export async function inspectRootSafetyContext(
     safety: {
       safeForWrites,
       ambiguous,
+      rootMismatch,
       markerMismatch,
       markerMissing,
       registeredProjectRootMissing,
@@ -117,6 +132,15 @@ export async function inspectRootSafetyContext(
       warnings,
     },
   };
+}
+
+export function computeRootMismatch(signals: RootMismatchSignals): boolean {
+  return Boolean(
+    signals.markerMismatch ||
+      signals.registeredProjectRootMismatch ||
+      signals.daemonProjectRootMismatch ||
+      signals.gitMismatch,
+  );
 }
 
 export async function guardRootSafety(

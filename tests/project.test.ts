@@ -2900,6 +2900,7 @@ describe('docs.status', () => {
     expect(data.rootContext.git.branch).toBe('main');
     expect(data.rootContext.markerProjectId).toBe('test-project');
     expect(data.rootContext.registeredProjectRoot).toBe(tmpDir);
+    expect(data.rootContext.safety.rootMismatch).toBe(false);
     expect(data.rootContext.safety.safeForWrites).toBe(true);
   });
 });
@@ -4696,6 +4697,15 @@ describe('exporting documentation', () => {
     const proposal = JSON.parse(proposalResult.content[0].text);
 
     await setRegisteredProjectRoot(project, path.join(tmpDir, 'different-root'));
+
+    const statusResult = await callTool(project, 'docs.status', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+    expect(statusResult.isError).toBeFalsy();
+    const status = JSON.parse(statusResult.content[0].text);
+    expect(status.rootContext.safety.rootMismatch).toBe(true);
+    expect(status.rootContext.safety.safeForWrites).toBe(false);
 
     const commitResult = await callTool(project, 'docs.commit_patch', {
       projectId: 'test-project',
