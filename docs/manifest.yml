@@ -98,3 +98,8 @@ documents:
     role: roadmap
     priority: high
     summary: Atlas lifecycle/state-surface hardening plan for managed state, working tree, export/reconcile, and search freshness
+
+  - path: docs/atlas/sqlite-root-safety-ledger.md
+    role: reference
+    priority: high
+    summary: SQLite-backed root/worktree safety ledger design, schema, guards, and rollout plan.
