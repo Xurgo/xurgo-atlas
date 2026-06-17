@@ -675,6 +675,13 @@ describe('mcp-config command', () => {
         recorded: false,
         knownObservationCount: null,
         currentObservationCount: null,
+        distinctCanonicalProjectRootCount: null,
+        distinctGitWorktreeRootCount: null,
+        distinctGitCommonDirCount: null,
+        multipleRootsObserved: null,
+        multipleWorktreesObserved: null,
+        multipleGitCommonDirsObserved: null,
+        currentObservationIsOnlyKnownIdentity: null,
         lastObservedAt: null,
         warnings: [],
       });
@@ -730,6 +737,13 @@ describe('mcp-config command', () => {
         recorded: true,
         knownObservationCount: 1,
         currentObservationCount: 1,
+        distinctCanonicalProjectRootCount: 1,
+        distinctGitWorktreeRootCount: 0,
+        distinctGitCommonDirCount: 0,
+        multipleRootsObserved: false,
+        multipleWorktreesObserved: false,
+        multipleGitCommonDirsObserved: false,
+        currentObservationIsOnlyKnownIdentity: true,
         warnings: [],
       });
       expect(parsed.mcpServers['xurgo-atlas'].url).toBe('http://127.0.0.1:3737/mcp');
@@ -795,6 +809,13 @@ describe('mcp-config command', () => {
         recorded: true,
         knownObservationCount: 1,
         currentObservationCount: 1,
+        distinctCanonicalProjectRootCount: 1,
+        distinctGitWorktreeRootCount: 1,
+        distinctGitCommonDirCount: 1,
+        multipleRootsObserved: false,
+        multipleWorktreesObserved: false,
+        multipleGitCommonDirsObserved: false,
+        currentObservationIsOnlyKnownIdentity: true,
         warnings: [],
       });
 
@@ -817,6 +838,13 @@ describe('mcp-config command', () => {
         recorded: true,
         knownObservationCount: 1,
         currentObservationCount: 2,
+        distinctCanonicalProjectRootCount: 1,
+        distinctGitWorktreeRootCount: 1,
+        distinctGitCommonDirCount: 1,
+        multipleRootsObserved: false,
+        multipleWorktreesObserved: false,
+        multipleGitCommonDirsObserved: false,
+        currentObservationIsOnlyKnownIdentity: true,
         warnings: [],
       });
     } finally {
@@ -871,6 +899,13 @@ describe('mcp-config command', () => {
         recorded: true,
         knownObservationCount: 1,
         currentObservationCount: 1,
+        distinctCanonicalProjectRootCount: 1,
+        distinctGitWorktreeRootCount: 0,
+        distinctGitCommonDirCount: 0,
+        multipleRootsObserved: false,
+        multipleWorktreesObserved: false,
+        multipleGitCommonDirsObserved: false,
+        currentObservationIsOnlyKnownIdentity: true,
         warnings: [],
       });
     } finally {
