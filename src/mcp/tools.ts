@@ -2521,7 +2521,7 @@ async function buildDocsStatusRootContext(project: Project): Promise<Record<stri
   return {
     cwd,
     projectRoot: project.root,
-    canonicalProjectRoot: path.resolve(project.root),
+    canonicalProjectRoot: normalizeExistingPath(project.root) ?? path.resolve(project.root),
     projectId: project.projectId,
     markerPath,
     markerProjectId: marker?.projectId ?? null,
