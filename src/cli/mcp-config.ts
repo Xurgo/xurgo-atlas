@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import { resolveProjectContext, ProjectResolutionError } from '../core/project-resolution.js';
 import { Registry } from '../core/registry.js';
 import { inspectGitIdentity, normalizeExistingPath } from '../core/git-identity.js';
+import { computeRootMismatch } from '../core/root-safety.js';
 
 // ── MCP config guidance (read-only) ──────────────────────────────────────
 
@@ -102,13 +103,17 @@ async function resolveMcpProjectContext(
       cwd: options.cwd,
     });
     const registeredProjectRoot = registry.getProject(resolved.projectId)?.projectRoot ?? null;
-    const rootMismatch = registeredProjectRoot
+    const registeredProjectRootMismatch = registeredProjectRoot
       ? !comparePaths(registeredProjectRoot, resolved.projectRoot)
       : false;
     const gitMismatch = git.insideWorkTree
       ? !comparePaths(git.worktreeRoot, resolved.projectRoot)
       : false;
-    const ambiguous = rootMismatch || gitMismatch;
+    const rootMismatch = computeRootMismatch({
+      registeredProjectRootMismatch,
+      gitMismatch,
+    });
+    const ambiguous = rootMismatch;
     return {
       projectId: resolved.projectId,
       projectRoot: resolved.projectRoot,
@@ -117,7 +122,7 @@ async function resolveMcpProjectContext(
       cwd,
       git,
       safeForWrites: !ambiguous,
-      rootMismatch: rootMismatch || gitMismatch,
+      rootMismatch,
       ambiguous,
     };
   } catch (error: unknown) {

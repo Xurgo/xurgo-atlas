@@ -694,6 +694,7 @@ describe('mcp-config command', () => {
       expect(parsed.projectSource).toBe('cwd-marker');
       expect(parsed.requestedCwd).toBe(projectRoot);
       expect(parsed.registeredProjectRoot).toBe(projectRoot);
+      expect(parsed.safety.rootMismatch).toBe(false);
       expect(parsed.safety.safeForWrites).toBe(true);
       expect(parsed.git.insideWorkTree).toBe(false);
       expect(parsed.mcpServers['xurgo-atlas'].url).toBe('http://127.0.0.1:3737/mcp');
@@ -741,7 +742,46 @@ describe('mcp-config command', () => {
       expect(parsed.git.worktreeRoot).toBe(await fs.promises.realpath(projectRoot));
       expect(parsed.git.branch).toBe('main');
       expect(parsed.git.head).toMatch(/^[0-9a-f]{40}$/);
+      expect(parsed.safety.rootMismatch).toBe(false);
       expect(parsed.safety.safeForWrites).toBe(true);
+    } finally {
+      logSpy.mockRestore();
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('sets rootMismatch when the registered root diverges from the resolved project root', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-mcp-config-mismatch-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+    const projectRoot = path.join(root, 'project');
+    const otherRoot = path.join(root, 'other-project-root');
+    const logLines: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+      logLines.push(args.join(' '));
+    });
+
+    await fs.promises.mkdir(projectRoot, { recursive: true });
+    await fs.promises.mkdir(otherRoot, { recursive: true });
+
+    try {
+      await initCli.initCommand({
+        projectRoot,
+        projectId: 'mcp-config-mismatch',
+        configDir,
+        dataDir,
+      });
+
+      const registry = await Registry.load(configDir, dataDir);
+      await registry.addProject('mcp-config-mismatch', otherRoot);
+
+      await mcpConfigCommand({ json: true, cwd: projectRoot, configDir, dataDir });
+      const parsed = JSON.parse(logLines.at(-1) ?? '');
+
+      expect(parsed.projectId).toBe('mcp-config-mismatch');
+      expect(parsed.registeredProjectRoot).toBe(otherRoot);
+      expect(parsed.safety.rootMismatch).toBe(true);
+      expect(parsed.safety.safeForWrites).toBe(false);
     } finally {
       logSpy.mockRestore();
       await fs.promises.rm(root, { recursive: true, force: true });
