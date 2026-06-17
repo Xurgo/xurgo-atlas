@@ -57,8 +57,6 @@ The JSON output includes:
 - `projectId` and `projectRoot` when the current project can be resolved
 - descriptive root/worktree history (`rootLedger`) and the accompanying root-safety snapshot (`safety`)
 
-The `rootLedger` payload is additive history-derived context. It helps humans and coordinators understand which roots were observed, but `safety.safeForWrites` remains the authoritative gate and `rootLedger` warnings never act as locks.
-
 ### opencode
 
 ```json
@@ -126,7 +124,7 @@ Use `docs.list_proposals` to inspect active or historical proposal records. By d
 
 Use `docs.discard_proposal` when you need to retire a pending or otherwise uncommitted proposal by exact proposal id. The discard operation preserves the stored record, does not touch disk or the manifest for an uncommitted draft, and keeps committed proposals protected from discard by default. That makes it the recovery cleanup path when the root context is unsafe, because it does not depend on managed-doc write safety.
 
-After a proposal is committed, `docs.preview_export` is the read-only step that shows what `docs.export` would add, modify, or overwrite on disk before any write happens. The preview reports managed and source revisions when available, highlights drift and overwrite risk, and is especially helpful when managed state or the checked-out source branch may be stale. `docs.export` remains the mutating step that reconciles Atlas-managed branch content back to the working tree when the exported files need to be visible on disk. That export step remains separate from proposal cleanup and does not run when a draft is merely discarded.
+After a proposal is committed, `docs.preview_export` is the read-only step that shows what `docs.export` would add, modify, or overwrite on disk before any write happens. The preview reports managed and source revisions when available, highlights drift and overwrite risk, and now carries root-safety visibility (`rootUnsafe`, `rootContext`, `rootWarnings`) so unsafe or degraded bindings are visible before any export decision. `docs.export` remains the mutating step that reconciles Atlas-managed branch content back to the working tree when the exported files need to be visible on disk. That export step remains separate from proposal cleanup and does not run when a draft is merely discarded.
 
 Discarded proposals no longer appear in the default pending list, but they remain available in audit history and in broader `docs.list_proposals` queries.
 
