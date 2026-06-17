@@ -2867,6 +2867,33 @@ describe('docs.status', () => {
     expect(data.error).toContain('Managed docs branch "v0.2-daemon" does not exist');
     expect(data.hint).toContain('docs.create_branch');
   });
+
+  it('includes root/worktree safety context when the project root is a git worktree', async () => {
+    await initSourceRepo();
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await callTool(project, 'docs.status', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.rootContext.projectRoot).toBe(tmpDir);
+    expect(data.rootContext.canonicalProjectRoot).toBe(tmpDir);
+    expect(data.rootContext.git.insideWorkTree).toBe(true);
+    expect(data.rootContext.git.worktreeRoot).toBe(await fs.promises.realpath(tmpDir));
+    expect(data.rootContext.git.branch).toBe('main');
+    expect(data.rootContext.markerProjectId).toBeNull();
+    expect(data.rootContext.registeredProjectRoot).toBeNull();
+    expect(data.rootContext.safety.safeForWrites).toBe(true);
+  });
 });
 
 // ── docs.manifest tool tests ──────────────────────────────────────────

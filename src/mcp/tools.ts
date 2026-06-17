@@ -8,6 +8,7 @@ import * as path from 'node:path';
 import { z } from 'zod';
 import { zodToJsonSchema } from '../utils.js';
 import { Project } from '../core/project.js';
+import { Registry } from '../core/registry.js';
 import { ProposalMetadata, StoredProposal } from '../core/events.js';
 import { ProjectResolver } from './types.js';
 import { validatePatch, PatchProposal, PatchValidation } from '../core/patch.js';
@@ -20,6 +21,7 @@ import {
 import YAML from 'yaml';
 import { collectMarkdownHeadings, findMarkdownSection } from '../core/markdown.js';
 import { DocsSearchIndex } from '../core/docs-search.js';
+import { inspectGitIdentity, normalizeExistingPath } from '../core/git-identity.js';
 
 // ── Schemas ───────────────────────────────────────────────────────────
 
@@ -2460,6 +2462,7 @@ export async function handleStatus(project: Project, rawArgs: Record<string, unk
   }
 
   const syncState = await getManagedWorkingTreeSyncState(project, args.branch);
+  const rootContext = await buildDocsStatusRootContext(project);
 
   return {
     content: [
@@ -2477,6 +2480,7 @@ export async function handleStatus(project: Project, rawArgs: Record<string, unk
             body: truncatedBody,
             truncated,
             maxChars: args.maxChars,
+            rootContext,
             exportRequired: syncState.exportRequired,
             workingTreeOutOfSync: syncState.workingTreeOutOfSync,
             outOfSyncPaths: syncState.outOfSyncPaths,
@@ -2490,6 +2494,65 @@ export async function handleStatus(project: Project, rawArgs: Record<string, unk
       },
     ],
   };
+}
+
+async function buildDocsStatusRootContext(project: Project): Promise<Record<string, unknown>> {
+  const cwd = process.cwd();
+  const git = await inspectGitIdentity(project.root);
+  const registry = await Registry.load(project.storage.configDir, project.storage.dataDir);
+  const registeredProject = registry.getProject(project.projectId);
+  const markerPath = path.join(project.root, '.xurgo-atlas', 'project.json');
+  const marker = await readJsonFile(markerPath);
+
+  const registeredProjectRoot = registeredProject?.projectRoot ?? null;
+  const rootMismatch = registeredProjectRoot
+    ? !comparePaths(registeredProjectRoot, project.root)
+    : false;
+  const gitMismatch = git.insideWorkTree
+    ? !comparePaths(git.worktreeRoot, project.root)
+    : false;
+  const markerMismatch = Boolean(
+    marker?.projectId &&
+      marker.projectId !== project.projectId,
+  );
+
+  const safeForWrites = !rootMismatch && !gitMismatch && !markerMismatch && git.insideWorkTree;
+
+  return {
+    cwd,
+    projectRoot: project.root,
+    canonicalProjectRoot: path.resolve(project.root),
+    projectId: project.projectId,
+    markerPath,
+    markerProjectId: marker?.projectId ?? null,
+    registeredProjectRoot,
+    git,
+    safety: {
+      safeForWrites,
+      rootMismatch: rootMismatch || gitMismatch,
+      ambiguous: rootMismatch || gitMismatch || markerMismatch || !git.insideWorkTree,
+    },
+  };
+}
+
+function comparePaths(left: string | null | undefined, right: string | null | undefined): boolean {
+  if (!left || !right) {
+    return false;
+  }
+
+  const normalizedLeft = normalizeExistingPath(left);
+  const normalizedRight = normalizeExistingPath(right);
+  return normalizedLeft !== null && normalizedLeft === normalizedRight;
+}
+
+async function readJsonFile(filePath: string): Promise<Record<string, unknown> | null> {
+  try {
+    const raw = await fs.promises.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 // ── docs.manifest handler ──────────────────────────────────────────────

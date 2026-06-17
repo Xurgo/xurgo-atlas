@@ -1,4 +1,7 @@
+import * as path from 'node:path';
 import { resolveProjectContext, ProjectResolutionError } from '../core/project-resolution.js';
+import { Registry } from '../core/registry.js';
+import { inspectGitIdentity, normalizeExistingPath } from '../core/git-identity.js';
 
 // ── MCP config guidance (read-only) ──────────────────────────────────────
 
@@ -48,6 +51,13 @@ export function printMcpConfigUsage(): void {
 interface McpProjectContext {
   projectId: string | null;
   projectRoot: string | null;
+  projectSource: string | null;
+  registeredProjectRoot: string | null;
+  cwd: string;
+  git: Awaited<ReturnType<typeof inspectGitIdentity>>;
+  safeForWrites: boolean;
+  rootMismatch: boolean;
+  ambiguous: boolean;
 }
 
 interface McpJsonConfig {
@@ -57,6 +67,15 @@ interface McpJsonConfig {
   url: string;
   projectId: string | null;
   projectRoot: string | null;
+  projectSource: string | null;
+  requestedCwd: string;
+  registeredProjectRoot: string | null;
+  git: Awaited<ReturnType<typeof inspectGitIdentity>>;
+  safety: {
+    safeForWrites: boolean;
+    rootMismatch: boolean;
+    ambiguous: boolean;
+  };
   startCommand: {
     command: string;
     args: string[];
@@ -71,6 +90,10 @@ interface McpJsonConfig {
 async function resolveMcpProjectContext(
   options: McpConfigOptions,
 ): Promise<McpProjectContext> {
+  const cwd = path.resolve(options.cwd ?? process.cwd());
+  const registry = await Registry.load(options.configDir, options.dataDir);
+  const git = await inspectGitIdentity(cwd);
+
   try {
     const resolved = await resolveProjectContext({
       projectRoot: options.projectRoot,
@@ -78,13 +101,38 @@ async function resolveMcpProjectContext(
       dataDir: options.dataDir,
       cwd: options.cwd,
     });
+    const registeredProjectRoot = registry.getProject(resolved.projectId)?.projectRoot ?? null;
+    const rootMismatch = registeredProjectRoot
+      ? !comparePaths(registeredProjectRoot, resolved.projectRoot)
+      : false;
+    const gitMismatch = git.insideWorkTree
+      ? !comparePaths(git.worktreeRoot, resolved.projectRoot)
+      : false;
+    const ambiguous = rootMismatch || gitMismatch || !git.insideWorkTree;
     return {
       projectId: resolved.projectId,
       projectRoot: resolved.projectRoot,
+      projectSource: resolved.source,
+      registeredProjectRoot,
+      cwd,
+      git,
+      safeForWrites: !ambiguous,
+      rootMismatch: rootMismatch || gitMismatch,
+      ambiguous,
     };
   } catch (error: unknown) {
     if (error instanceof ProjectResolutionError) {
-      return { projectId: null, projectRoot: null };
+      return {
+        projectId: null,
+        projectRoot: null,
+        projectSource: null,
+        registeredProjectRoot: null,
+        cwd,
+        git,
+        safeForWrites: false,
+        rootMismatch: false,
+        ambiguous: true,
+      };
     }
     throw error;
   }
@@ -101,6 +149,15 @@ function buildMcpJsonConfig(
     url: endpoint,
     projectId: project.projectId,
     projectRoot: project.projectRoot,
+    projectSource: project.projectSource,
+    requestedCwd: project.cwd,
+    registeredProjectRoot: project.registeredProjectRoot,
+    git: project.git,
+    safety: {
+      safeForWrites: project.safeForWrites,
+      rootMismatch: project.rootMismatch,
+      ambiguous: project.ambiguous,
+    },
     startCommand: {
       command: 'xurgo-atlas',
       args: ['daemon', 'start'],
@@ -111,6 +168,16 @@ function buildMcpJsonConfig(
       },
     },
   };
+}
+
+function comparePaths(left: string | null | undefined, right: string | null | undefined): boolean {
+  if (!left || !right) {
+    return false;
+  }
+
+  const normalizedLeft = normalizeExistingPath(left);
+  const normalizedRight = normalizeExistingPath(right);
+  return normalizedLeft !== null && normalizedLeft === normalizedRight;
 }
 
 export async function getMcpConfigOutput(options: McpConfigOptions): Promise<string> {
@@ -128,7 +195,18 @@ export async function getMcpConfigOutput(options: McpConfigOptions): Promise<str
     `Xurgo Atlas MCP client configuration`,
     '',
     `Endpoint:`,
-    `  ${endpoint}`,
+      `  ${endpoint}`,
+    '',
+    `Project binding:`,
+    `  cwd: ${project.cwd}`,
+    `  project: ${project.projectId ?? 'unresolved'}${project.projectRoot ? ` -> ${project.projectRoot}` : ''}`,
+    `  source: ${project.projectSource ?? 'unresolved'}`,
+    `  registered root: ${project.registeredProjectRoot ?? 'unresolved'}`,
+    `  git worktree: ${project.git.worktreeRoot ?? 'unavailable'}`,
+    `  git common dir: ${project.git.commonDir ?? 'unavailable'}`,
+    `  git branch: ${project.git.branch ?? 'detached or unavailable'}`,
+    `  git HEAD: ${project.git.head ?? 'unavailable'}`,
+    `  safe for writes: ${project.safeForWrites ? 'yes' : 'no'}`,
     '',
     `Generic MCP client JSON:`,
     JSON.stringify(jsonConfig, null, 2),
