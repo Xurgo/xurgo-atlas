@@ -1529,6 +1529,10 @@ documents:
     expect(preview.previewed).toBe(true);
     expect(preview.projectId).toBe('test-project');
     expect(preview.branch).toBe('main');
+    expect(preview.rootUnsafe).toBe(false);
+    expect(preview.rootContext.safety.safeForWrites).toBe(true);
+    expect(preview.rootContext.safety.rootMismatch).toBe(false);
+    expect(preview.rootWarnings).toEqual([]);
     expect(preview.managedRevision).toBeTruthy();
     expect(preview.sourceRevision).toBeTruthy();
     expect(preview.exportRequired).toBe(true);
@@ -1558,6 +1562,32 @@ documents:
     expect(after.exportRequired).toBe(true);
     expect(after.workingTreeOutOfSync).toBe(true);
     expect(after.outOfSyncPaths).toContain(filePath);
+  });
+
+  it('should surface unsafe root visibility without blocking preview export', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    await setRegisteredProjectRoot(project, path.join(tmpDir, 'different-root'));
+
+    const previewResult = await callTool(project, 'docs.preview_export', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(previewResult.isError).toBeFalsy();
+    const preview = JSON.parse(previewResult.content[0].text);
+    expect(preview.previewed).toBe(true);
+    expect(preview.rootUnsafe).toBe(true);
+    expect(preview.rootContext.safety.safeForWrites).toBe(false);
+    expect(preview.rootContext.safety.rootMismatch).toBe(true);
+    expect(preview.rootWarnings).toContain('registered project root mismatch');
+    expect(preview.exportBlocked).toBe(false);
+    expect(preview.exportable).toBe(true);
   });
 
   it('should report no export changes when managed state and disk are aligned', async () => {

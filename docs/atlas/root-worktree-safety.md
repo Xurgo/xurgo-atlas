@@ -82,7 +82,7 @@ If Atlas later allows the same `projectId` in multiple roots, those roots should
 |------------|----------|
 | `docs.status`, `docs.capabilities`, `mcp-config --json` | Report binding metadata and whether writes are currently safe. |
 | `docs.read`, `docs.read_section`, `docs.list`, `docs.manifest`, `docs.context_pack` | May remain read-only, but must clearly report the resolved root instance. |
-| `docs.export`, `docs.preview_export`, proposal commit flows, any disk write | Fail closed when the resolved root instance is ambiguous or mismatched. |
+| `docs.export`, proposal commit flows, any disk write | Fail closed when the resolved root instance is ambiguous or mismatched. `docs.preview_export` remains read-only and should surface unsafe or degraded root context instead of acting as a lock. |
 | daemon startup and MCP request binding | Refuse to serve a different root instance than the one the daemon was started for. |
 
 ## Specific Answers

@@ -20,6 +20,7 @@ import {
 import {
   guardManagedWriteSafety,
   inspectRootSafetyContext,
+  type RootSafetyContext,
 } from '../core/root-safety.js';
 import YAML from 'yaml';
 import { collectMarkdownHeadings, findMarkdownSection } from '../core/markdown.js';
@@ -297,7 +298,7 @@ export function registerTools(
         {
           name: 'docs.preview_export',
           description:
-            'Preview what docs.export would change without writing to disk. Reports drift, overwrite risk, and guidance for the next step.',
+            'Preview what docs.export would change without writing to disk. Reports drift, overwrite risk, root-safety visibility, and guidance for the next step.',
           inputSchema: zodToJsonSchema(PreviewExportSchema),
         },
         {
@@ -2129,6 +2130,12 @@ async function handlePreviewExport(
     return preview.branchMissing;
   }
 
+  const rootContext = await buildDocsStatusRootContext(project);
+  const rootWarnings = dedupeStrings([
+    ...rootContext.safety.warnings,
+    ...rootContext.rootLedger.warnings,
+  ]);
+
   return {
     content: [
       {
@@ -2139,6 +2146,9 @@ async function handlePreviewExport(
             projectId: project.projectId,
             branch: args.branch,
             targetDir: preview.targetDir,
+            rootUnsafe: !rootContext.safety.safeForWrites,
+            rootContext,
+            rootWarnings,
             managedRevision: preview.managedRevision,
             sourceRevision: preview.sourceRevision,
             exportRequired: preview.exportRequired,
@@ -2537,7 +2547,7 @@ export async function handleStatus(project: Project, rawArgs: Record<string, unk
   };
 }
 
-async function buildDocsStatusRootContext(project: Project): Promise<Record<string, unknown>> {
+async function buildDocsStatusRootContext(project: Project): Promise<RootSafetyContext & { cwd: string }> {
   const context = await inspectRootSafetyContext(project, {
     requestedCwd: process.cwd(),
   });
@@ -2545,6 +2555,10 @@ async function buildDocsStatusRootContext(project: Project): Promise<Record<stri
     ...context,
     cwd: context.requestedCwd,
   };
+}
+
+function dedupeStrings(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.trim().length > 0))];
 }
 
 // ── docs.manifest handler ──────────────────────────────────────────────
