@@ -18,7 +18,7 @@ import {
   createUnifiedDiffForReplacement,
 } from '../core/unified-diff.js';
 import {
-  guardRootSafety,
+  guardManagedWriteSafety,
   inspectRootSafetyContext,
 } from '../core/root-safety.js';
 import YAML from 'yaml';
@@ -711,7 +711,7 @@ async function handleCreateBranch(
   rawArgs: Record<string, unknown>,
 ) {
   const args = CreateBranchSchema.parse(rawArgs);
-  const rootSafety = await guardRootSafety(project, {
+  const rootSafety = await guardManagedWriteSafety(project, {
     operation: 'docs.create_branch',
   });
   if (rootSafety) {
@@ -826,7 +826,7 @@ export async function handleProposeDocument(
   rawArgs: Record<string, unknown>,
 ) {
   const args = ProposeDocumentSchema.parse(rawArgs);
-  const rootSafety = await guardRootSafety(project, {
+  const rootSafety = await guardManagedWriteSafety(project, {
     operation: 'docs.propose_document',
   });
   if (rootSafety) {
@@ -1231,7 +1231,7 @@ export async function handleProposePatch(
   rawArgs: Record<string, unknown>,
 ) {
   const args = ProposePatchSchema.parse(rawArgs);
-  const rootSafety = await guardRootSafety(project, {
+  const rootSafety = await guardManagedWriteSafety(project, {
     operation: 'docs.propose_patch',
   });
   if (rootSafety) {
@@ -1474,12 +1474,9 @@ export async function handleDiscardProposal(
   rawArgs: Record<string, unknown>,
 ) {
   const args = DiscardProposalSchema.parse(rawArgs);
-  const rootSafety = await guardRootSafety(project, {
-    operation: 'docs.discard_proposal',
-  });
-  if (rootSafety) {
-    return rootSafety;
-  }
+
+  // Proposal discard is recovery-only cleanup. It must stay available even
+  // when the managed write/export root context is unsafe.
   const stored = project.eventLog.getProposal(args.proposalId);
   if (!stored) {
     return {
@@ -1593,7 +1590,7 @@ export async function handleCommitPatch(
   rawArgs: Record<string, unknown>,
 ) {
   const args = CommitPatchSchema.parse(rawArgs);
-  const rootSafety = await guardRootSafety(project, {
+  const rootSafety = await guardManagedWriteSafety(project, {
     operation: 'docs.commit_patch',
   });
   if (rootSafety) {
@@ -2283,7 +2280,7 @@ async function handleRestoreFile(
   rawArgs: Record<string, unknown>,
 ) {
   const args = RestoreFileSchema.parse(rawArgs);
-  const rootSafety = await guardRootSafety(project, {
+  const rootSafety = await guardManagedWriteSafety(project, {
     operation: 'docs.restore_file',
   });
   if (rootSafety) {
@@ -2369,7 +2366,7 @@ async function handleExport(
   rawArgs: Record<string, unknown>,
 ) {
   const args = ExportSchema.parse(rawArgs);
-  const rootSafety = await guardRootSafety(project, {
+  const rootSafety = await guardManagedWriteSafety(project, {
     operation: 'docs.export',
   });
   if (rootSafety) {

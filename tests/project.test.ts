@@ -4458,6 +4458,65 @@ describe('proposal storage', () => {
     expect(missingData.error).toContain('not found');
   });
 
+  it('should allow docs.discard_proposal cleanup even when the root context is unsafe', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const statusPath = path.join(tmpDir, 'STATUS.md');
+    const readmePath = path.join(tmpDir, 'docs', 'README.md');
+    const manifestPath = path.join(tmpDir, 'docs', 'manifest.yml');
+    const originalStatus = await fs.promises.readFile(statusPath, 'utf-8');
+    const originalReadme = await fs.promises.readFile(readmePath, 'utf-8');
+    const originalManifest = await fs.promises.readFile(manifestPath, 'utf-8');
+
+    const proposal = project.eventLog.storeProposal({
+      project_id: 'test-project',
+      branch: 'main',
+      path: 'docs/README.md',
+      base_revision: 'cleanup-base',
+      patch: '--- a/docs/README.md\n+++ b/docs/README.md\n@@ -1 +1,2 @@\n-Docs\n+Docs\n+Cleanup\n',
+      intent: 'Retire a stale proposal even when the root is unsafe',
+      summary: 'Stale proposal cleanup',
+      risk_level: 'low',
+      requires_approval: false,
+    });
+
+    const exportBranchSpy = vi.spyOn(project.gitStore, 'exportBranch');
+    const applyPatchSpy = vi.spyOn(project.gitStore, 'applyPatchAndCommit');
+    const createBranchSpy = vi.spyOn(project.gitStore, 'createBranch');
+
+    await setRegisteredProjectRoot(project, path.join(tmpDir, 'different-root'));
+
+    const result = await callTool(project, 'docs.discard_proposal', {
+      projectId: 'test-project',
+      proposalId: proposal.id,
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data).toMatchObject({
+      proposalId: proposal.id,
+      previousStatus: 'pending',
+      status: 'discarded',
+      diskTouched: false,
+      manifestTouched: false,
+      exportRelevant: false,
+      noOp: false,
+    });
+    expect(data.message).toContain('without touching disk or manifest state');
+    expect(project.eventLog.getProposal(proposal.id)?.status).toBe('discarded');
+    expect(await fs.promises.readFile(statusPath, 'utf-8')).toBe(originalStatus);
+    expect(await fs.promises.readFile(readmePath, 'utf-8')).toBe(originalReadme);
+    expect(await fs.promises.readFile(manifestPath, 'utf-8')).toBe(originalManifest);
+    expect(exportBranchSpy).not.toHaveBeenCalled();
+    expect(applyPatchSpy).not.toHaveBeenCalled();
+    expect(createBranchSpy).not.toHaveBeenCalled();
+  });
+
   it('should return null for non-existent proposal', async () => {
     const project = new Project({
       projectRoot: tmpDir,
@@ -4608,6 +4667,29 @@ describe('exporting documentation', () => {
     expect(await fs.promises.readFile(statusPath, 'utf-8')).toBe(originalStatus);
   });
 
+  it('should refuse docs.create_branch when the root context is unsafe', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    await setRegisteredProjectRoot(project, path.join(tmpDir, 'different-root'));
+
+    const result = await callTool(project, 'docs.create_branch', {
+      projectId: 'test-project',
+      branch: 'unsafe-branch',
+      from: 'main',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.code).toBe('ROOT_CONTEXT_UNSAFE');
+    expect(data.message).toContain('docs.create_branch');
+    expect(await project.gitStore.branchExists('unsafe-branch')).toBe(false);
+  });
+
   it('should refuse docs.propose_patch before storing a proposal when the root context is unsafe', async () => {
     const project = await Project.init({
       projectRoot: tmpDir,
@@ -4720,6 +4802,36 @@ describe('exporting documentation', () => {
     expect(data.message).toContain('docs.commit_patch');
     const stored = project.eventLog.getProposal(proposal.proposalId);
     expect(stored?.status).toBe('pending');
+  });
+
+  it('should refuse docs.restore_file when the root context is unsafe', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const statusPath = path.join(tmpDir, 'STATUS.md');
+    const originalStatus = await fs.promises.readFile(statusPath, 'utf-8');
+    const { revision } = await project.readFile('main', 'STATUS.md');
+    expect(revision).toBeTruthy();
+
+    await setRegisteredProjectRoot(project, path.join(tmpDir, 'different-root'));
+
+    const result = await callTool(project, 'docs.restore_file', {
+      projectId: 'test-project',
+      path: 'STATUS.md',
+      revision,
+      branch: 'main',
+      intent: 'Try to restore a file while the root context is unsafe',
+    });
+
+    expect(result.isError).toBe(true);
+    const data = JSON.parse(result.content[0].text);
+    expect(data.code).toBe('ROOT_CONTEXT_UNSAFE');
+    expect(data.message).toContain('docs.restore_file');
+    expect(await fs.promises.readFile(statusPath, 'utf-8')).toBe(originalStatus);
   });
 
   it('should allow canonical path aliases without false root-safety failures', async () => {
