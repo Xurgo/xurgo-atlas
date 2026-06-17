@@ -2926,6 +2926,13 @@ describe('docs.status', () => {
       recorded: true,
       knownObservationCount: 1,
       currentObservationCount: 1,
+      distinctCanonicalProjectRootCount: 1,
+      distinctGitWorktreeRootCount: 1,
+      distinctGitCommonDirCount: 1,
+      multipleRootsObserved: false,
+      multipleWorktreesObserved: false,
+      multipleGitCommonDirsObserved: false,
+      currentObservationIsOnlyKnownIdentity: true,
       warnings: [],
     });
     expect(data.rootContext.rootLedger.lastObservedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
