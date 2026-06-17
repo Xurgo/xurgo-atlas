@@ -2,6 +2,7 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { simpleGit } from 'simple-git';
 import { getUsageText, main } from '../src/index.js';
 import { getDaemonUsageText } from '../src/cli/daemon.js';
 import * as daemonCli from '../src/cli/daemon.js';
@@ -652,6 +653,11 @@ describe('mcp-config command', () => {
       expect(parsed.mcpServers['xurgo-atlas'].url).toBe('http://127.0.0.1:3737/mcp');
       expect(parsed.projectId).toBeNull();
       expect(parsed.projectRoot).toBeNull();
+      expect(parsed.requestedCwd).toBe(cwd);
+      expect(parsed.projectSource).toBeNull();
+      expect(parsed.registeredProjectRoot).toBeNull();
+      expect(parsed.git.insideWorkTree).toBe(false);
+      expect(parsed.safety.safeForWrites).toBe(false);
       expect(output).not.toContain('Endpoint:');
       expect(output).not.toContain('Generic MCP client JSON');
     } finally {
@@ -685,7 +691,57 @@ describe('mcp-config command', () => {
 
       expect(parsed.projectId).toBe('mcp-config-test');
       expect(parsed.projectRoot).toBe(projectRoot);
+      expect(parsed.projectSource).toBe('cwd-marker');
+      expect(parsed.requestedCwd).toBe(projectRoot);
+      expect(parsed.registeredProjectRoot).toBe(projectRoot);
+      expect(parsed.safety.safeForWrites).toBe(false);
+      expect(parsed.git.insideWorkTree).toBe(false);
       expect(parsed.mcpServers['xurgo-atlas'].url).toBe('http://127.0.0.1:3737/mcp');
+    } finally {
+      logSpy.mockRestore();
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('includes git identity when run from a git-backed project root', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-mcp-config-git-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+    const projectRoot = path.join(root, 'project');
+    const logLines: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+      logLines.push(args.join(' '));
+    });
+
+    await fs.promises.mkdir(projectRoot, { recursive: true });
+    await fs.promises.writeFile(path.join(projectRoot, '.gitignore'), 'config/\ndata/\n', 'utf-8');
+
+    const git = simpleGit({ baseDir: projectRoot });
+    await git.init();
+    await git.addConfig('user.name', 'Test User');
+    await git.addConfig('user.email', 'test@example.com');
+    await git.add('.');
+    await git.commit('Initial source commit');
+    await git.raw(['branch', '-M', 'main']);
+
+    try {
+      await initCli.initCommand({
+        projectRoot,
+        projectId: 'mcp-config-git',
+        configDir,
+        dataDir,
+      });
+
+      await mcpConfigCommand({ json: true, cwd: projectRoot, configDir, dataDir });
+      const parsed = JSON.parse(logLines.at(-1) ?? '');
+
+      expect(parsed.projectId).toBe('mcp-config-git');
+      expect(parsed.projectSource).toBe('cwd-marker');
+      expect(parsed.git.insideWorkTree).toBe(true);
+      expect(parsed.git.worktreeRoot).toBe(await fs.promises.realpath(projectRoot));
+      expect(parsed.git.branch).toBe('main');
+      expect(parsed.git.head).toMatch(/^[0-9a-f]{40}$/);
+      expect(parsed.safety.safeForWrites).toBe(true);
     } finally {
       logSpy.mockRestore();
       await fs.promises.rm(root, { recursive: true, force: true });
