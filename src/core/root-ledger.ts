@@ -92,12 +92,16 @@ export class RootLedgerStore {
 
   constructor(dbPath: string) {
     this.db = new DatabaseSync(dbPath);
+    // Keep the per-project ledger local and self-contained; callers open it
+    // briefly, record one observation, then close it again.
     this.db.exec('PRAGMA journal_mode = WAL');
     this.init();
   }
 
   recordObservation(observation: RootLedgerObservation): RootLedgerSummary {
     const observedAt = observation.observedAt ?? new Date().toISOString();
+    // Fingerprint the concrete checkout context so repeat observations merge,
+    // without turning the ledger into an ownership or lock registry.
     const identityKey = buildObservationIdentityKey(observation);
     const warningsJson = JSON.stringify(observation.safety.warnings);
 
@@ -265,6 +269,8 @@ export class RootLedgerStore {
   }
 
   private init(): void {
+    // Create the schema lazily in the existing events.sqlite store so a fresh
+    // project can record observations without a separate provisioning step.
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS root_worktree_ledger (
         project_id TEXT NOT NULL,
@@ -324,6 +330,8 @@ export class RootLedgerStore {
 }
 
 export function unavailableRootLedgerSummary(...warnings: string[]): RootLedgerSummary {
+  // Fail soft: an unavailable ledger must not make a readable surface crash or
+  // invent a false sense of safety.
   return {
     available: false,
     recorded: false,
@@ -360,6 +368,8 @@ export function recordRootObservationIfPossible(
 }
 
 export function buildObservationIdentityKey(observation: RootLedgerObservation): string {
+  // The key captures the concrete identity signals that distinguish one
+  // checkout instance from another for ledger de-duplication.
   return JSON.stringify({
     projectId: observation.projectId,
     canonicalProjectRoot: observation.canonicalProjectRoot,
@@ -409,6 +419,8 @@ function buildRootLedgerSummary(options: {
     currentObservationIsOnlyKnownIdentity:
       knownObservationCount === null ? null : knownObservationCount === 1,
     lastObservedAt: options.aggregate?.lastObservedAt ?? options.lastObservedAt,
+    // These warnings are coordinator-facing signals; they do not override the
+    // authoritative write guard in root-safety.
     warnings: buildRootLedgerWarnings({
       multipleRootsObserved,
       multipleWorktreesObserved,
@@ -426,6 +438,8 @@ function buildRootLedgerWarnings(signals: {
 }): string[] {
   const warnings = [...signals.additionalWarnings];
 
+  // Multiple observed identities indicate drift or ambiguity, but the ledger
+  // itself stays descriptive.
   if (signals.multipleRootsObserved) {
     warnings.push('multiple canonical project roots observed for this project');
   }

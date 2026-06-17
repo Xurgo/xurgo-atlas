@@ -78,7 +78,10 @@ interface McpJsonConfig {
   requestedCwd: string;
   registeredProjectRoot: string | null;
   git: Awaited<ReturnType<typeof inspectGitIdentity>>;
+  // Authoritative safety snapshot for mutating boundaries.
   safety: RootSafetySummary;
+  // Descriptive root/worktree history for consumers and coordinators; it does
+  // not override `safety.safeForWrites`.
   rootLedger: RootLedgerSummary;
   startCommand: {
     command: string;

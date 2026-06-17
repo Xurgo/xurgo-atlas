@@ -12,17 +12,29 @@ The goal is narrow:
 - preserve the current registry and marker behavior where it still helps
 - avoid turning Atlas into a scheduler or general multiagent coordinator
 
+## Landed Implementation
+
+Atlas has already landed a descriptive ledger in the existing per-project `events.sqlite` store:
+
+- `root_worktree_ledger` is created lazily the first time a project records an observation.
+- rows are keyed by `project_id` and `identity_key`; the key fingerprints checkout context so repeat observations merge without becoming an ownership token.
+- each observation records requested cwd, canonical root, registry and daemon roots, marker details, Git identity, and the safety snapshot that produced the observation.
+- the resulting summary is surfaced on `docs.status.rootContext.rootLedger` and `mcp-config --json.rootLedger`.
+- summary failures are fail-soft: they return warnings or an unavailable summary instead of crashing read-only surfaces.
+- distinct-root, distinct-worktree, and distinct-common-dir counts feed coordinator-facing warnings only; they do not override `safeForWrites`.
+
 ## Design Summary
 
 The current model can be summarized as:
 
 - `.xurgo-atlas/project.json` is a tiny ignored local marker that claims a `projectId`
 - the existing registry keeps the durable project-id to root binding for compatibility and simple resolution
-- the SQLite Atlas store becomes the authoritative local safety ledger for checkout identity, root observations, guard decisions, and lock state
+- the SQLite Atlas store records a descriptive local safety ledger for checkout identity, root observations, and coordinator-facing guard signals
 - `docs.status.rootContext` and `xurgo-atlas mcp-config --json` remain the public read surfaces for now
-- future mutating tools should consult the ledger before writing
+- future mutating tools should consult the ledger before writing, but `root-safety` remains the authoritative write gate
 
 Atlas should treat the logical project id and the concrete checkout instance as different concepts. `projectId` says which project family the root belongs to. The checkout instance says which filesystem root, worktree, and daemon binding are actually safe.
+
 
 ## Current Registry and Marker Behavior
 
