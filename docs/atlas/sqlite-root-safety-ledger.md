@@ -308,7 +308,7 @@ This applies to current and future mutating boundaries, including:
 - `docs.commit_patch`
 - any future docs or project mutation tool
 
-`docs.preview_export` should remain the preferred first step when a user wants to understand whether an export is safe. It stays read-only, remains available when the root context is unsafe, and may surface descriptive `rootContext.recovery` hints about pending proposal cleanup or recent unsafe preview observations. `docs.export` should be the mutating boundary that actually reconciles managed state to disk.
+`docs.preview_export` should remain the preferred first step when a user wants to understand whether an export is safe. It stays read-only with respect to disk, managed document content, manifest state, proposal state, and working-tree files, remains available when the root context is unsafe, and may surface descriptive `rootContext.recovery` hints about pending proposal cleanup or recent unsafe preview observations. Atlas may record best-effort internal recovery breadcrumbs in the event log so later status and preview responses can describe what the last safe or unsafe preview observed, but that audit write must never make the preview fail when the preview payload itself can still be produced. `docs.export` should be the mutating boundary that actually reconciles managed state to disk.
 
 ## Interaction With MCP Surfaces
 

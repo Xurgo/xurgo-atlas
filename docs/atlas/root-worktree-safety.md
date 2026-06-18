@@ -23,7 +23,7 @@ The shipped `rootLedger` surfaces are additive, history-derived context rather t
 - `docs.status.rootContext.recovery` and `docs.preview_export.rootContext.recovery` report pending proposal cleanup signals plus the latest preview/export recovery observations.
 - `safety.safeForWrites` remains the authoritative write and export gate.
 - `rootMismatch` is preserved as a compatibility alias for older consumers, but it does not replace the write gate.
-- Recovery summaries are coordinator-facing and descriptive. They do not create locks, and `docs.discard_proposal` remains the cleanup path when pending proposals should be retired.
+- Recovery summaries are coordinator-facing and descriptive. They do not create locks, and `docs.discard_proposal` remains the cleanup path when pending proposals should be retired. `docs.preview_export` stays read-only with respect to disk, managed docs, manifest state, proposal state, and working-tree files even when it records best-effort internal recovery breadcrumbs.
 - Ledger failures should degrade the summary to warnings or unavailable state rather than crash read-only surfaces or falsely certify safety.
 - Multiple observed roots, worktrees, or Git common dirs are warning signals for coordinators, not automatic write blockers.
 
