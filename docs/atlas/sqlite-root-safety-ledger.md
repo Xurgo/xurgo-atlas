@@ -20,8 +20,10 @@ Atlas has already landed a descriptive ledger in the existing per-project `event
 - rows are keyed by `project_id` and `identity_key`; the key fingerprints checkout context so repeat observations merge without becoming an ownership token.
 - each observation records requested cwd, canonical root, registry and daemon roots, marker details, Git identity, and the safety snapshot that produced the observation.
 - the resulting summary is surfaced on `docs.status.rootContext.rootLedger` and `mcp-config --json.rootLedger`.
+- `docs.status.rootContext.recovery` and `docs.preview_export.rootContext.recovery` add descriptive cleanup signals and the latest preview/export recovery observations.
 - summary failures are fail-soft: they return warnings or an unavailable summary instead of crashing read-only surfaces.
 - distinct-root, distinct-worktree, and distinct-common-dir counts feed coordinator-facing warnings only; they do not override `safeForWrites`.
+- recovery state is descriptive and coordinator-facing only. It does not turn the ledger into a lock system, and it does not weaken the managed write/export guard.
 
 ## Design Summary
 
@@ -29,12 +31,12 @@ The current model can be summarized as:
 
 - `.xurgo-atlas/project.json` is a tiny ignored local marker that claims a `projectId`
 - the existing registry keeps the durable project-id to root binding for compatibility and simple resolution
-- the SQLite Atlas store records a descriptive local safety ledger for checkout identity, root observations, and coordinator-facing guard signals
-- `docs.status.rootContext` and `xurgo-atlas mcp-config --json` remain the public read surfaces for now
-- future mutating tools should consult the ledger before writing, but `root-safety` remains the authoritative write gate
+- the SQLite Atlas store records a descriptive local safety ledger for checkout identity, root observations, recovery breadcrumbs, and coordinator-facing guard signals
+- `docs.status.rootContext` and `xurgo-atlas mcp-config --json` remain the public root and ledger read surfaces for now
+- `docs.status.rootContext.recovery` and `docs.preview_export.rootContext.recovery` add descriptive cleanup signals and the latest preview/export recovery observations
+- future mutating tools may consult ledger and recovery state before writing, but `root-safety` remains the authoritative write and export gate until an explicit lock or enforcement system exists
 
 Atlas should treat the logical project id and the concrete checkout instance as different concepts. `projectId` says which project family the root belongs to. The checkout instance says which filesystem root, worktree, and daemon binding are actually safe.
-
 
 ## Current Registry and Marker Behavior
 
@@ -301,13 +303,12 @@ When in doubt, the tool should fail closed.
 This applies to current and future mutating boundaries, including:
 
 - `docs.export`
-- `docs.preview_export`
 - `docs.propose_patch`
 - `docs.propose_document`
 - `docs.commit_patch`
 - any future docs or project mutation tool
 
-`docs.preview_export` should remain the preferred first step when a user wants to understand whether an export is safe. `docs.export` should be the mutating boundary that actually reconciles managed state to disk.
+`docs.preview_export` should remain the preferred first step when a user wants to understand whether an export is safe. It stays read-only, remains available when the root context is unsafe, and may surface descriptive `rootContext.recovery` hints about pending proposal cleanup or recent unsafe preview observations. `docs.export` should be the mutating boundary that actually reconciles managed state to disk.
 
 ## Interaction With MCP Surfaces
 
@@ -323,7 +324,7 @@ Current public surfaces are enough for now:
 - `docs.read`
 - `docs.read_section`
 
-As the ledger matures, these surfaces should remain audit-friendly and conservative. They should explain when the checkout instance is unsafe, stale, or ambiguous instead of hiding that state behind a generic failure.
+As the ledger matures, these surfaces should remain audit-friendly and conservative. They should explain when the checkout instance is unsafe, stale, or ambiguous instead of hiding that state behind a generic failure. The recovery summaries exposed on `docs.status.rootContext` and `docs.preview_export` should stay descriptive and additive rather than becoming silent write locks.
 
 ## Rollout Shape
 

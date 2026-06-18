@@ -8,7 +8,11 @@ import * as path from 'node:path';
 import { z } from 'zod';
 import { zodToJsonSchema } from '../utils.js';
 import { Project } from '../core/project.js';
-import { ProposalMetadata, StoredProposal } from '../core/events.js';
+import {
+  ProposalMetadata,
+  RecoveryObservationMetadata,
+  StoredProposal,
+} from '../core/events.js';
 import { ProjectResolver } from './types.js';
 import { validatePatch, PatchProposal, PatchValidation } from '../core/patch.js';
 import { isPathTraversal } from '../core/patch.js';
@@ -22,6 +26,9 @@ import {
   inspectRootSafetyContext,
   type RootSafetyContext,
 } from '../core/root-safety.js';
+import { inspectGitIdentity, normalizeExistingPath } from '../core/git-identity.js';
+import { Registry } from '../core/registry.js';
+import { buildRootLedgerIdentityKey } from '../core/root-ledger.js';
 import YAML from 'yaml';
 import { collectMarkdownHeadings, findMarkdownSection } from '../core/markdown.js';
 import { DocsSearchIndex } from '../core/docs-search.js';
@@ -822,6 +829,51 @@ interface DocumentCreatePreparation {
   changedFiles: string[];
 }
 
+interface RecoveryObservationSummary {
+  observedAt: string;
+  branch: string;
+  path: string;
+  rootIdentityKey: string;
+  canonicalProjectRoot: string;
+  gitWorktreeRoot: string | null;
+  gitCommonDir: string | null;
+  rootUnsafe: boolean;
+  safeForWrites: boolean;
+  rootMismatch: boolean;
+  exportRequired: boolean;
+  exportBlocked: boolean;
+  currentRoot: boolean;
+  warnings: string[];
+}
+
+interface RecoveryObservationFallback {
+  branch: string;
+  path: string;
+  createdAt: string;
+  metadata: RecoveryObservationMetadata;
+}
+
+interface RootRecoverySummary {
+  available: boolean;
+  recoveryRequired: boolean | null;
+  proposalRecoveryRequired: boolean | null;
+  exportRecoveryRequired: boolean | null;
+  pendingProposalCount: number | null;
+  currentRootProposalCount: number | null;
+  foreignRootProposalCount: number | null;
+  unknownRootProposalCount: number | null;
+  recommendedCleanupTool: 'docs.discard_proposal' | null;
+  nextStep: string | null;
+  lastPreviewObservation: RecoveryObservationSummary | null;
+  lastExportObservation: RecoveryObservationSummary | null;
+  warnings: string[];
+}
+
+type DocsStatusRootContext = RootSafetyContext & {
+  cwd: string;
+  recovery: RootRecoverySummary;
+};
+
 export async function handleProposeDocument(
   project: Project,
   rawArgs: Record<string, unknown>,
@@ -892,6 +944,7 @@ export async function handleProposeDocument(
     };
   }
 
+  const recoveryMetadata = await buildCurrentProjectProposalRecoveryMetadata(project);
   const metadata: ProposalMetadata = {
     kind: 'document_create',
     mode: 'create',
@@ -900,6 +953,7 @@ export async function handleProposeDocument(
       [MANIFEST_PATH]: prepared.manifestRevision,
     },
     riskReasons: prepared.riskReasons,
+    recovery: recoveryMetadata,
   };
 
   const stored = project.eventLog.storeProposal({
@@ -1289,6 +1343,7 @@ export async function handleProposePatch(
 
   const riskLevel = validation.risk?.highRisk ? 'high' : 'low';
   const requiresApproval = !!validation.risk?.highRisk;
+  const recoveryMetadata = await buildCurrentProjectProposalRecoveryMetadata(project);
 
   // Store the proposal
   const stored = project.eventLog.storeProposal({
@@ -1301,6 +1356,9 @@ export async function handleProposePatch(
     summary: args.summary,
     risk_level: riskLevel,
     requires_approval: requiresApproval,
+    metadata: {
+      recovery: recoveryMetadata,
+    },
   });
 
   // Log the proposal event
@@ -1851,7 +1909,15 @@ async function validateStoredDocumentCreateProposal(
     };
   }
 
-  const expectedManifestRevision = stored.metadata.baseRevisions[MANIFEST_PATH];
+  const expectedManifestRevision = stored.metadata.baseRevisions?.[MANIFEST_PATH];
+  if (typeof expectedManifestRevision !== 'string' || expectedManifestRevision.length === 0) {
+    return {
+      valid: false,
+      failureType: 'invalid',
+      applyable: false,
+      error: 'Stored proposal metadata is missing the manifest base revision for docs.propose_document',
+    };
+  }
   const currentManifestRevision = await project.gitStore.getFileRevision(
     stored.branch,
     MANIFEST_PATH,
@@ -1941,7 +2007,12 @@ async function validateStoredDocumentCreateProposal(
 function isDocumentCreateProposal(
   stored: StoredProposal,
 ): stored is StoredProposal & { metadata: ProposalMetadata } {
-  return stored.metadata?.kind === 'document_create' && stored.metadata.mode === 'create';
+  return (
+    stored.metadata?.kind === 'document_create' &&
+    stored.metadata.mode === 'create' &&
+    Array.isArray(stored.metadata.changedFiles) &&
+    !!stored.metadata.baseRevisions
+  );
 }
 
 function getProposalChangedFiles(stored: StoredProposal): string[] {
@@ -2130,7 +2201,14 @@ async function handlePreviewExport(
     return preview.branchMissing;
   }
 
-  const rootContext = await buildDocsStatusRootContext(project);
+  const rootContext = await buildDocsStatusRootContext(project, {
+    branch: args.branch,
+    exportState: {
+      exportRequired: preview.exportRequired,
+      exportBlocked: preview.exportBlocked,
+    },
+    observation: 'preview_export',
+  });
   const rootWarnings = dedupeStrings([
     ...rootContext.safety.warnings,
     ...rootContext.rootLedger.warnings,
@@ -2433,6 +2511,20 @@ async function handleExport(
     result_revision: revision ?? undefined,
   });
 
+  try {
+    const recoveryObservation = await buildCurrentProjectRecoveryObservationMetadata(
+      project,
+      'export',
+      {
+        exportRequired: syncState.exportRequired,
+        exportBlocked: false,
+      },
+    );
+    logRecoveryObservationEvent(project, args.branch, 'export', recoveryObservation);
+  } catch {
+    // Export success remains authoritative; recovery breadcrumbs are best-effort only.
+  }
+
   return {
     content: [
       {
@@ -2513,7 +2605,13 @@ export async function handleStatus(project: Project, rawArgs: Record<string, unk
   }
 
   const syncState = await getManagedWorkingTreeSyncState(project, args.branch);
-  const rootContext = await buildDocsStatusRootContext(project);
+  const rootContext = await buildDocsStatusRootContext(project, {
+    branch: args.branch,
+    exportState: {
+      exportRequired: syncState.exportRequired,
+      exportBlocked: false,
+    },
+  });
 
   return {
     content: [
@@ -2547,13 +2645,394 @@ export async function handleStatus(project: Project, rawArgs: Record<string, unk
   };
 }
 
-async function buildDocsStatusRootContext(project: Project): Promise<RootSafetyContext & { cwd: string }> {
+async function buildDocsStatusRootContext(
+  project: Project,
+  options: {
+    branch?: string;
+    exportState?: {
+      exportRequired: boolean;
+      exportBlocked: boolean;
+    };
+    observation?: RecoveryObservationMetadata['operation'];
+  } = {},
+): Promise<DocsStatusRootContext> {
   const context = await inspectRootSafetyContext(project, {
     requestedCwd: process.cwd(),
   });
+  const recoveryWarnings: string[] = [];
+  let previewObservationFallback: RecoveryObservationFallback | null = null;
+
+  if (options.branch && options.exportState && options.observation) {
+    const observation = buildRecoveryObservationMetadataFromRootContext(
+      context,
+      options.exportState,
+      options.observation,
+    );
+
+    try {
+      logRecoveryObservationEvent(project, options.branch, options.observation, observation);
+    } catch (error) {
+      recoveryWarnings.push(
+        `Recovery observation recording failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      if (options.observation === 'preview_export') {
+        previewObservationFallback = {
+          branch: options.branch,
+          path: '.preview-export',
+          createdAt: new Date().toISOString(),
+          metadata: observation,
+        };
+      }
+    }
+  }
+
   return {
     ...context,
     cwd: context.requestedCwd,
+    recovery: buildRootRecoverySummary(project, context, {
+      exportRequired: options.exportState?.exportRequired ?? null,
+      previewObservationFallback,
+      warnings: recoveryWarnings,
+    }),
+  };
+}
+
+async function buildCurrentProjectProposalRecoveryMetadata(
+  project: Project,
+): Promise<NonNullable<ProposalMetadata['recovery']>> {
+  const identity = await loadCurrentProjectRecoveryIdentity(project);
+  return {
+    rootIdentityKey: identity.rootIdentityKey,
+    canonicalProjectRoot: identity.canonicalProjectRoot,
+    gitWorktreeRoot: identity.gitWorktreeRoot,
+    gitCommonDir: identity.gitCommonDir,
+    observedAt: identity.observedAt,
+  };
+}
+
+async function buildCurrentProjectRecoveryObservationMetadata(
+  project: Project,
+  operation: RecoveryObservationMetadata['operation'],
+  exportState: {
+    exportRequired: boolean;
+    exportBlocked: boolean;
+  },
+): Promise<RecoveryObservationMetadata> {
+  const identity = await loadCurrentProjectRecoveryIdentity(project);
+  return {
+    kind: 'recovery_observation',
+    operation,
+    rootIdentityKey: identity.rootIdentityKey,
+    canonicalProjectRoot: identity.canonicalProjectRoot,
+    gitWorktreeRoot: identity.gitWorktreeRoot,
+    gitCommonDir: identity.gitCommonDir,
+    rootUnsafe: false,
+    safeForWrites: true,
+    rootMismatch: false,
+    exportRequired: exportState.exportRequired,
+    exportBlocked: exportState.exportBlocked,
+    warnings: [],
+  };
+}
+
+async function loadCurrentProjectRecoveryIdentity(project: Project): Promise<{
+  rootIdentityKey: string;
+  canonicalProjectRoot: string;
+  gitWorktreeRoot: string | null;
+  gitCommonDir: string | null;
+  observedAt: string;
+}> {
+  const registry = await Registry.load(project.storage.configDir, project.storage.dataDir);
+  const registeredProjectRoot = registry.getProject(project.projectId)?.projectRoot ?? project.root;
+  const canonicalProjectRoot = normalizeExistingPath(project.root) ?? path.resolve(project.root);
+  const git = await inspectGitIdentity(project.root);
+  const markerRootPath = project.root;
+
+  return {
+    rootIdentityKey: buildRootLedgerIdentityKey({
+      projectId: project.projectId,
+      canonicalProjectRoot,
+      registeredProjectRoot,
+      daemonProjectRoot: null,
+      markerProjectId: project.projectId,
+      markerRootPath,
+      gitWorktreeRoot: git.worktreeRoot,
+      gitCommonDir: git.commonDir,
+    }),
+    canonicalProjectRoot,
+    gitWorktreeRoot: git.worktreeRoot,
+    gitCommonDir: git.commonDir,
+    observedAt: new Date().toISOString(),
+  };
+}
+
+function buildRecoveryObservationMetadataFromRootContext(
+  context: RootSafetyContext,
+  exportState: {
+    exportRequired: boolean;
+    exportBlocked: boolean;
+  },
+  operation: RecoveryObservationMetadata['operation'],
+): RecoveryObservationMetadata {
+  return {
+    kind: 'recovery_observation',
+    operation,
+    rootIdentityKey: buildCurrentRootIdentityKey(context),
+    canonicalProjectRoot: context.canonicalProjectRoot,
+    gitWorktreeRoot: context.git.worktreeRoot,
+    gitCommonDir: context.git.commonDir,
+    rootUnsafe: !context.safety.safeForWrites,
+    safeForWrites: context.safety.safeForWrites,
+    rootMismatch: context.safety.rootMismatch,
+    exportRequired: exportState.exportRequired,
+    exportBlocked: exportState.exportBlocked,
+    warnings: dedupeStrings([
+      ...context.safety.warnings,
+      ...context.rootLedger.warnings,
+    ]),
+  };
+}
+
+function buildCurrentRootIdentityKey(context: RootSafetyContext): string {
+  return buildRootLedgerIdentityKey({
+    projectId: context.projectId,
+    canonicalProjectRoot: context.canonicalProjectRoot,
+    registeredProjectRoot: context.registeredProjectRoot,
+    daemonProjectRoot: context.daemonProjectRoot,
+    markerProjectId: context.markerProjectId,
+    markerRootPath: context.safety.markerMissing ? null : path.dirname(path.dirname(context.markerPath)),
+    gitWorktreeRoot: context.git.worktreeRoot,
+    gitCommonDir: context.git.commonDir,
+  });
+}
+
+function logRecoveryObservationEvent(
+  project: Project,
+  branch: string,
+  operation: RecoveryObservationMetadata['operation'],
+  metadata: RecoveryObservationMetadata,
+): void {
+  // Recovery observations are descriptive breadcrumbs for coordinators. They
+  // never relax the authoritative write/export guard in root-safety.
+  project.eventLog.logEvent({
+    project_id: project.projectId,
+    branch,
+    path: operation === 'preview_export' ? '.preview-export' : '.export',
+    tool_name: operation,
+    summary:
+      operation === 'preview_export'
+        ? `Observed preview export recovery state for branch "${branch}"`
+        : `Observed export recovery state for branch "${branch}"`,
+    metadata,
+  });
+}
+
+function buildRootRecoverySummary(
+  project: Project,
+  context: RootSafetyContext,
+  options: {
+    exportRequired: boolean | null;
+    previewObservationFallback?: RecoveryObservationFallback | null;
+    warnings?: string[];
+  },
+): RootRecoverySummary {
+  try {
+    const currentRootIdentityKey = buildCurrentRootIdentityKey(context);
+    const pendingProposals = project.eventLog.listProposals({
+      projectId: project.projectId,
+      status: 'pending',
+    });
+
+    let currentRootProposalCount = 0;
+    let foreignRootProposalCount = 0;
+    let unknownRootProposalCount = 0;
+
+    for (const proposal of pendingProposals) {
+      const proposalIdentityKey = proposal.metadata?.recovery?.rootIdentityKey;
+      if (!proposalIdentityKey) {
+        unknownRootProposalCount += 1;
+      } else if (proposalIdentityKey === currentRootIdentityKey) {
+        currentRootProposalCount += 1;
+      } else {
+        foreignRootProposalCount += 1;
+      }
+    }
+
+    const lastPreviewStored = project.eventLog.getLatestRecoveryObservation(project.projectId, 'preview_export');
+    const lastPreviewObservation = toRecoveryObservationSummary(
+      lastPreviewStored?.metadata ?? options.previewObservationFallback?.metadata ?? null,
+      lastPreviewStored?.createdAt ?? options.previewObservationFallback?.createdAt ?? null,
+      lastPreviewStored?.branch ?? options.previewObservationFallback?.branch ?? null,
+      lastPreviewStored?.path ?? options.previewObservationFallback?.path ?? null,
+      currentRootIdentityKey,
+    );
+    const lastExportStored = project.eventLog.getLatestRecoveryObservation(project.projectId, 'export');
+    const lastExportObservation = toRecoveryObservationSummary(
+      lastExportStored?.metadata ?? null,
+      lastExportStored?.createdAt ?? null,
+      lastExportStored?.branch ?? null,
+      lastExportStored?.path ?? null,
+      currentRootIdentityKey,
+    );
+
+    const proposalRecoveryRequired =
+      pendingProposals.length > 0 &&
+      (foreignRootProposalCount > 0 || !context.safety.safeForWrites);
+    const exportRecoveryRequired =
+      !context.safety.safeForWrites &&
+      Boolean(
+        options.exportRequired ??
+          lastPreviewObservation?.exportRequired ??
+          lastExportObservation?.exportRequired ??
+          false,
+      );
+    const warnings = dedupeStrings([
+      ...(options.warnings ?? []),
+      ...buildRecoveryWarnings({
+        safeForWrites: context.safety.safeForWrites,
+        pendingProposalCount: pendingProposals.length,
+        foreignRootProposalCount,
+        unknownRootProposalCount,
+        exportRecoveryRequired,
+        lastPreviewObservation,
+        lastExportObservation,
+      }),
+    ]);
+    const recoveryRequired = proposalRecoveryRequired || exportRecoveryRequired;
+
+    return {
+      available: true,
+      recoveryRequired,
+      proposalRecoveryRequired,
+      exportRecoveryRequired,
+      pendingProposalCount: pendingProposals.length,
+      currentRootProposalCount,
+      foreignRootProposalCount,
+      unknownRootProposalCount,
+      recommendedCleanupTool: proposalRecoveryRequired ? 'docs.discard_proposal' : null,
+      nextStep: buildRecoveryNextStep({
+        proposalRecoveryRequired,
+        exportRecoveryRequired,
+        safeForWrites: context.safety.safeForWrites,
+      }),
+      lastPreviewObservation,
+      lastExportObservation,
+      warnings,
+    };
+  } catch (error) {
+    return unavailableRootRecoverySummary(
+      ...(options.warnings ?? []),
+      `Recovery summary unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function buildRecoveryWarnings(options: {
+  safeForWrites: boolean;
+  pendingProposalCount: number;
+  foreignRootProposalCount: number;
+  unknownRootProposalCount: number;
+  exportRecoveryRequired: boolean;
+  lastPreviewObservation: RecoveryObservationSummary | null;
+  lastExportObservation: RecoveryObservationSummary | null;
+}): string[] {
+  const warnings: string[] = [];
+
+  if (options.foreignRootProposalCount > 0) {
+    warnings.push(
+      `${options.foreignRootProposalCount} pending proposal(s) were created from a different root/worktree identity.`,
+    );
+  }
+  if (options.unknownRootProposalCount > 0) {
+    warnings.push(
+      `${options.unknownRootProposalCount} pending proposal(s) do not include root recovery metadata and cannot be attributed to the current checkout.`,
+    );
+  }
+  if (!options.safeForWrites && options.pendingProposalCount > 0) {
+    warnings.push(
+      'Managed writes are currently blocked; use docs.discard_proposal to retire stale pending proposals if they no longer belong to this checkout.',
+    );
+  }
+  if (options.lastPreviewObservation?.rootUnsafe) {
+    warnings.push(
+      `The latest docs.preview_export observation for branch "${options.lastPreviewObservation.branch}" was recorded under an unsafe root context.`,
+    );
+  }
+  if (options.lastExportObservation && !options.lastExportObservation.currentRoot) {
+    warnings.push(
+      'The latest docs.export recovery observation was recorded from a different root/worktree identity.',
+    );
+  }
+  if (options.exportRecoveryRequired) {
+    warnings.push(
+      'Export drift is visible while the root context is unsafe. Use docs.preview_export for read-only inspection until write safety is restored.',
+    );
+  }
+
+  return warnings;
+}
+
+function buildRecoveryNextStep(options: {
+  proposalRecoveryRequired: boolean;
+  exportRecoveryRequired: boolean;
+  safeForWrites: boolean;
+}): string | null {
+  if (options.proposalRecoveryRequired) {
+    return 'Use docs.list_proposals to inspect pending work and docs.discard_proposal to clean up stale proposals.';
+  }
+  if (options.exportRecoveryRequired) {
+    return options.safeForWrites
+      ? 'Run docs.export once you are ready to reconcile managed changes to disk.'
+      : 'Use docs.preview_export for read-only inspection, then restore root safety before running docs.export.';
+  }
+
+  return null;
+}
+
+function unavailableRootRecoverySummary(...warnings: string[]): RootRecoverySummary {
+  return {
+    available: false,
+    recoveryRequired: null,
+    proposalRecoveryRequired: null,
+    exportRecoveryRequired: null,
+    pendingProposalCount: null,
+    currentRootProposalCount: null,
+    foreignRootProposalCount: null,
+    unknownRootProposalCount: null,
+    recommendedCleanupTool: null,
+    nextStep: null,
+    lastPreviewObservation: null,
+    lastExportObservation: null,
+    warnings: dedupeStrings(warnings),
+  };
+}
+
+function toRecoveryObservationSummary(
+  metadata: RecoveryObservationMetadata | null,
+  observedAt: string | null,
+  branch: string | null,
+  observedPath: string | null,
+  currentRootIdentityKey: string,
+): RecoveryObservationSummary | null {
+  if (!metadata || !observedAt || !branch || !observedPath) {
+    return null;
+  }
+
+  return {
+    observedAt,
+    branch,
+    path: observedPath,
+    rootIdentityKey: metadata.rootIdentityKey,
+    canonicalProjectRoot: metadata.canonicalProjectRoot,
+    gitWorktreeRoot: metadata.gitWorktreeRoot,
+    gitCommonDir: metadata.gitCommonDir,
+    rootUnsafe: metadata.rootUnsafe,
+    safeForWrites: metadata.safeForWrites,
+    rootMismatch: metadata.rootMismatch,
+    exportRequired: metadata.exportRequired,
+    exportBlocked: metadata.exportBlocked,
+    currentRoot: metadata.rootIdentityKey === currentRootIdentityKey,
+    warnings: metadata.warnings,
   };
 }
 
