@@ -103,3 +103,8 @@ documents:
     role: reference
     priority: high
     summary: SQLite-backed root/worktree safety ledger design, schema, guards, and rollout plan.
+
+  - path: docs/atlas/readonly-identity-tools.md
+    role: roadmap
+    priority: high
+    summary: Design and checkpoint plan for optional read-only Atlas identity, roots, and future lock-status MCP tools.
