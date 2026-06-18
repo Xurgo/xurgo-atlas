@@ -207,6 +207,10 @@ const SearchSchema = z.object({
 
 const CapabilitiesSchema = z.object({});
 
+const AtlasProjectIdentitySchema = z.object({
+  projectId: z.string().min(1, 'projectId is required').optional(),
+});
+
 // ── Tool Registration ────────────────────────────────────────────────
 
 /**
@@ -338,6 +342,12 @@ export function registerTools(
             'Return a read-only Atlas capability summary for MCP clients. Reports managed-docs scope, currently available context tools, guarded-write support, and retrieval/search status without requiring any project-specific assumptions.',
           inputSchema: zodToJsonSchema(CapabilitiesSchema),
         },
+        {
+          name: 'atlas.project_identity',
+          description:
+            'Return a compact read-only runtime identity and root-safety snapshot for the resolved Atlas project. Reports the active project/root binding, marker and Git identity, authoritative write safety, descriptive root-ledger/recovery warnings, and the recommended next step. Does not replace xurgo-atlas mcp-config --json.',
+          inputSchema: zodToJsonSchema(AtlasProjectIdentitySchema),
+        },
       ],
     };
   });
@@ -402,6 +412,8 @@ export function registerTools(
           return await handleContextPack(project, rawArgs);
         case 'docs.search':
           return await handleSearch(project, rawArgs);
+        case 'atlas.project_identity':
+          return await handleAtlasProjectIdentity(project, rawArgs);
         default:
           return {
             content: [
@@ -3040,6 +3052,28 @@ function dedupeStrings(values: string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))];
 }
 
+function buildProjectIdentityNextStep(context: DocsStatusRootContext): string {
+  if (!context.safety.safeForWrites) {
+    const nextSteps = [
+      'Run docs.status to inspect rootContext.',
+      'Run xurgo-atlas mcp-config --json from the intended project root.',
+      'Restore the expected root/worktree binding before running managed-doc writes or exports.',
+    ];
+
+    if (context.recovery.nextStep) {
+      nextSteps.push(context.recovery.nextStep);
+    }
+
+    return nextSteps.join(' ');
+  }
+
+  if (context.recovery.nextStep) {
+    return context.recovery.nextStep;
+  }
+
+  return 'Root identity is currently safe for managed writes and exports.';
+}
+
 // ── docs.manifest handler ──────────────────────────────────────────────
 
 export async function handleManifest(project: Project, rawArgs: Record<string, unknown>) {
@@ -3420,6 +3454,7 @@ export function handleCapabilities() {
               read: true,
               readSection: true,
               contextPack: true,
+              projectIdentity: true,
               guardedWrites: true,
               exportPreview: true,
               proposalCleanup: true,
@@ -3441,6 +3476,60 @@ export function handleCapabilities() {
               },
               externalVectorDatabaseDefault: false,
             },
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  };
+}
+
+async function handleAtlasProjectIdentity(
+  project: Project,
+  rawArgs: Record<string, unknown>,
+) {
+  AtlasProjectIdentitySchema.parse(rawArgs);
+
+  const rootContext = await buildDocsStatusRootContext(project);
+  const warnings = dedupeStrings([
+    ...rootContext.safety.warnings,
+    ...rootContext.rootLedger.warnings,
+    ...rootContext.recovery.warnings,
+  ]);
+
+  return {
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify(
+          {
+            projectId: project.projectId,
+            requestedCwd: rootContext.requestedCwd,
+            projectRoot: rootContext.projectRoot,
+            canonicalProjectRoot: rootContext.canonicalProjectRoot,
+            registeredProjectRoot: rootContext.registeredProjectRoot,
+            daemonProjectRoot: rootContext.daemonProjectRoot,
+            marker: {
+              path: rootContext.markerPath,
+              projectId: rootContext.markerProjectId,
+              present: !rootContext.safety.markerMissing,
+              matchesProject:
+                !rootContext.safety.markerMissing && !rootContext.safety.markerMismatch,
+            },
+            git: {
+              available: rootContext.git.insideWorkTree,
+              insideWorkTree: rootContext.git.insideWorkTree,
+              worktreeRoot: rootContext.git.worktreeRoot,
+              commonDir: rootContext.git.commonDir,
+              branch: rootContext.git.branch,
+              head: rootContext.git.head,
+            },
+            safety: rootContext.safety,
+            rootLedger: rootContext.rootLedger,
+            recovery: rootContext.recovery,
+            warnings,
+            nextStep: buildProjectIdentityNextStep(rootContext),
           },
           null,
           2,

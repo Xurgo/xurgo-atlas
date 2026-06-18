@@ -25,5 +25,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Configure git author for validation tests
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Run quick validation
         run: npm run validate:quick
