@@ -105,6 +105,8 @@ The historical \`docu-guard-mcp\` name is retained for transitional compatibilit
 
 7. **Never delete content silently.** All deletions must be explicit in the patch diff.
 
+8. **Classify managed-doc export drift before commit.** Before commit, inspect all managed-doc/export changes. Do not keep drift just because export produced it. Classify unexpected managed-doc changes as required for this branch, valid managed-store/source synchronization, or unrelated stale drift to revert, and report the classification before commit.
+
 ### Tracked Files
 
 The following files and directories are managed through Xurgo Atlas and must not be edited directly:

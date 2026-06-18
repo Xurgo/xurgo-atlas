@@ -314,6 +314,9 @@ describe('template init creates files', () => {
       expect(await fileExists(path.join(root, 'AGENTS.md'))).toBe(true);
       expect(await fileExists(path.join(root, '.docs-policy.yml'))).toBe(true);
       expect(await fileExists(path.join(root, 'docs', 'manifest.yml'))).toBe(true);
+      const agentsContent = await fs.promises.readFile(path.join(root, 'AGENTS.md'), 'utf-8');
+      expect(agentsContent).toContain('inspect all managed-doc/export changes');
+      expect(agentsContent).toContain('required for this branch, valid managed-store/source synchronization, or unrelated stale drift to revert');
 
       // Verify template-specific files exist
       const tpl = getTemplate(name)!;

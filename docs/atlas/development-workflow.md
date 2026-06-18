@@ -106,6 +106,10 @@ The script creates an isolated temp consumer workspace, installs the `.tgz` into
 - **Installed-package verify** (`verify:installed`) packs and installs into a clean consumer workspace, exactly like an end user would do.
 - **Artifact bundle** (`bundle:private-rc`) wraps the installed-package verify into a portable bundle with reviewer instructions, checksums, and a standalone script — so someone else can verify without running a full build.
 
+## Managed-Doc Export Drift
+
+Before commit, inspect all managed-doc/export changes. Do not keep drift just because export produced it. Classify unexpected managed-doc changes as required for the branch, valid managed-store/source synchronization, or stale drift to revert, and report that classification before commit.
+
 ## Boundaries
 
 - No tag is created.
