@@ -10,8 +10,8 @@ This document defines the safety model for Atlas-managed docs when a logical pro
 - The registry is keyed by `projectId`.
 - Project resolution prefers a local marker, then registry roots, then a registry default if explicitly allowed.
 - `daemon` records `projectId` and `projectRoot` in its pid file and rejects obvious project mismatches.
-- `mcp-config --json` currently exposes `projectId` and `projectRoot`, but not Git worktree identity.
-- `docs.status` reports managed-vs-working-tree sync, not root identity.
+- `mcp-config --json` exposes `projectId`, `projectRoot`, `git`, `safety`, and descriptive `rootLedger` history.
+- `docs.status` reports managed-vs-working-tree sync together with `rootContext`, including root identity, authoritative safety flags, and descriptive recovery state.
 - `docs.read`, `docs.list`, `docs.context_pack`, and `docs.manifest` are read-only against managed state.
 - `docs.export` and `docs.preview_export` write or preview into a target directory that defaults to the resolved project root.
 
@@ -20,8 +20,10 @@ This document defines the safety model for Atlas-managed docs when a logical pro
 The shipped `rootLedger` surfaces are additive, history-derived context rather than a lock system:
 
 - `docs.status.rootContext.rootLedger` and `mcp-config --json.rootLedger` report the per-project observation ledger.
+- `docs.status.rootContext.recovery` and `docs.preview_export.rootContext.recovery` report pending proposal cleanup signals plus the latest preview/export recovery observations.
 - `safety.safeForWrites` remains the authoritative write and export gate.
 - `rootMismatch` is preserved as a compatibility alias for older consumers, but it does not replace the write gate.
+- Recovery summaries are coordinator-facing and descriptive. They do not create locks, and `docs.discard_proposal` remains the cleanup path when pending proposals should be retired.
 - Ledger failures should degrade the summary to warnings or unavailable state rather than crash read-only surfaces or falsely certify safety.
 - Multiple observed roots, worktrees, or Git common dirs are warning signals for coordinators, not automatic write blockers.
 
@@ -82,7 +84,7 @@ If Atlas later allows the same `projectId` in multiple roots, those roots should
 |------------|----------|
 | `docs.status`, `docs.capabilities`, `mcp-config --json` | Report binding metadata and whether writes are currently safe. |
 | `docs.read`, `docs.read_section`, `docs.list`, `docs.manifest`, `docs.context_pack` | May remain read-only, but must clearly report the resolved root instance. |
-| `docs.export`, proposal commit flows, any disk write | Fail closed when the resolved root instance is ambiguous or mismatched. `docs.preview_export` remains read-only and should surface unsafe or degraded root context instead of acting as a lock. |
+| `docs.export`, proposal commit flows, any disk write | Fail closed when the resolved root instance is ambiguous or mismatched. `docs.preview_export` remains read-only and may surface descriptive recovery hints, while `docs.discard_proposal` remains available for pending-proposal cleanup. |
 | daemon startup and MCP request binding | Refuse to serve a different root instance than the one the daemon was started for. |
 
 ## Specific Answers

@@ -15,6 +15,7 @@ export interface DocEvent {
   risk_level?: string;
   diff?: string;
   created_at?: string;
+  metadata?: DocEventMetadata;
 }
 
 export interface StoredProposal {
@@ -35,12 +36,45 @@ export interface StoredProposal {
   metadata: ProposalMetadata | null;
 }
 
+export interface ProposalRecoveryMetadata {
+  rootIdentityKey: string;
+  canonicalProjectRoot: string;
+  gitWorktreeRoot: string | null;
+  gitCommonDir: string | null;
+  observedAt: string;
+}
+
 export interface ProposalMetadata {
-  kind: 'document_create';
-  mode: 'create';
-  changedFiles: string[];
-  baseRevisions: Record<string, string>;
+  kind?: 'document_create';
+  mode?: 'create';
+  changedFiles?: string[];
+  baseRevisions?: Record<string, string>;
   riskReasons?: string[];
+  recovery?: ProposalRecoveryMetadata;
+}
+
+export interface RecoveryObservationMetadata {
+  kind: 'recovery_observation';
+  operation: 'preview_export' | 'export';
+  rootIdentityKey: string;
+  canonicalProjectRoot: string;
+  gitWorktreeRoot: string | null;
+  gitCommonDir: string | null;
+  rootUnsafe: boolean;
+  safeForWrites: boolean;
+  rootMismatch: boolean;
+  exportRequired: boolean;
+  exportBlocked: boolean;
+  warnings: string[];
+}
+
+export type DocEventMetadata = RecoveryObservationMetadata;
+
+export interface StoredRecoveryObservation {
+  branch: string;
+  path: string;
+  createdAt: string;
+  metadata: RecoveryObservationMetadata;
 }
 
 export class EventLog {
@@ -98,6 +132,7 @@ export class EventLog {
         metadata_json TEXT
       )
     `);
+    this.ensureEventColumns();
     this.ensureProposalColumns();
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_doc_proposals_status ON doc_proposals(status)
@@ -121,13 +156,23 @@ export class EventLog {
     }
   }
 
+  private ensureEventColumns(): void {
+    const columns = this.db.prepare('PRAGMA table_info(doc_events)').all() as Array<{
+      name: string;
+    }>;
+
+    if (!columns.some((column) => column.name === 'metadata_json')) {
+      this.db.exec('ALTER TABLE doc_events ADD COLUMN metadata_json TEXT');
+    }
+  }
+
   logEvent(event: DocEvent): DocEvent {
     const id = event.id ?? crypto.randomUUID();
     const createdAt = event.created_at ?? new Date().toISOString();
 
     const stmt = this.db.prepare(`
-      INSERT INTO doc_events (id, project_id, branch, path, actor, tool_name, intent, summary, base_revision, result_revision, risk_level, diff, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO doc_events (id, project_id, branch, path, actor, tool_name, intent, summary, base_revision, result_revision, risk_level, diff, created_at, metadata_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -144,6 +189,7 @@ export class EventLog {
       event.risk_level ?? null,
       event.diff ?? null,
       createdAt,
+      event.metadata ? JSON.stringify(event.metadata) : null,
     );
 
     return { ...event, id, created_at: createdAt };
@@ -229,23 +275,7 @@ export class EventLog {
     const row = stmt.get(id) as Record<string, unknown> | undefined;
     if (!row) return null;
 
-    return {
-      id: row.id as string,
-      project_id: row.project_id as string,
-      branch: row.branch as string,
-      path: row.path as string,
-      base_revision: row.base_revision as string,
-      patch: row.patch as string,
-      intent: row.intent as string,
-      summary: row.summary as string,
-      risk_level: row.risk_level as string,
-      requires_approval: (row.requires_approval as number) === 1,
-      status: row.status as StoredProposal['status'],
-      created_at: row.created_at as string,
-      committed_at: (row.committed_at as string) ?? null,
-      discarded_at: (row.discarded_at as string) ?? null,
-      metadata: parseProposalMetadata(row.metadata_json),
-    };
+    return mapStoredProposalRow(row);
   }
 
   /**
@@ -274,7 +304,39 @@ export class EventLog {
       `SELECT * FROM doc_proposals ${whereClause} ORDER BY created_at DESC`,
     );
 
-    return stmt.all(...params) as unknown as StoredProposal[];
+    const rows = stmt.all(...params) as Array<Record<string, unknown>>;
+    return rows.map((row) => mapStoredProposalRow(row));
+  }
+
+  getLatestRecoveryObservation(
+    projectId: string,
+    operation: RecoveryObservationMetadata['operation'],
+  ): StoredRecoveryObservation | null {
+    const row = this.db.prepare(
+      `
+      SELECT branch, path, created_at, metadata_json
+      FROM doc_events
+      WHERE project_id = ? AND tool_name = ? AND metadata_json IS NOT NULL
+      ORDER BY created_at DESC, rowid DESC
+      LIMIT 1
+      `,
+    ).get(projectId, operation) as Record<string, unknown> | undefined;
+
+    if (!row) {
+      return null;
+    }
+
+    const metadata = parseDocEventMetadata(row.metadata_json);
+    if (!metadata || metadata.kind !== 'recovery_observation' || metadata.operation !== operation) {
+      return null;
+    }
+
+    return {
+      branch: row.branch as string,
+      path: row.path as string,
+      createdAt: row.created_at as string,
+      metadata,
+    };
   }
 
   /**
@@ -325,19 +387,124 @@ function parseProposalMetadata(raw: unknown): ProposalMetadata | null {
 
   try {
     const parsed = JSON.parse(raw) as ProposalMetadata;
-    if (
+    const recovery = parseProposalRecoveryMetadata(parsed.recovery);
+    const documentCreate =
       parsed.kind === 'document_create' &&
       parsed.mode === 'create' &&
       Array.isArray(parsed.changedFiles) &&
       parsed.changedFiles.every((filePath) => typeof filePath === 'string') &&
       parsed.baseRevisions &&
-      typeof parsed.baseRevisions === 'object'
-    ) {
-      return parsed;
+      typeof parsed.baseRevisions === 'object';
+
+    if (documentCreate) {
+      return {
+        kind: 'document_create',
+        mode: 'create',
+        changedFiles: parsed.changedFiles,
+        baseRevisions: parsed.baseRevisions,
+        riskReasons:
+          Array.isArray(parsed.riskReasons) && parsed.riskReasons.every((reason) => typeof reason === 'string')
+            ? parsed.riskReasons
+            : undefined,
+        recovery,
+      };
+    }
+
+    if (recovery) {
+      return { recovery };
     }
   } catch {
     // Ignore malformed metadata from older or partial rows.
   }
 
   return null;
+}
+
+function parseProposalRecoveryMetadata(raw: unknown): ProposalRecoveryMetadata | undefined {
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+
+  const parsed = raw as Record<string, unknown>;
+  if (
+    typeof parsed.rootIdentityKey === 'string' &&
+    typeof parsed.canonicalProjectRoot === 'string' &&
+    typeof parsed.observedAt === 'string' &&
+    (parsed.gitWorktreeRoot === null || typeof parsed.gitWorktreeRoot === 'string') &&
+    (parsed.gitCommonDir === null || typeof parsed.gitCommonDir === 'string')
+  ) {
+    return {
+      rootIdentityKey: parsed.rootIdentityKey,
+      canonicalProjectRoot: parsed.canonicalProjectRoot,
+      gitWorktreeRoot: (parsed.gitWorktreeRoot as string | null) ?? null,
+      gitCommonDir: (parsed.gitCommonDir as string | null) ?? null,
+      observedAt: parsed.observedAt,
+    };
+  }
+
+  return undefined;
+}
+
+function parseDocEventMetadata(raw: unknown): DocEventMetadata | null {
+  if (typeof raw !== 'string' || raw.length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      parsed.kind === 'recovery_observation' &&
+      (parsed.operation === 'preview_export' || parsed.operation === 'export') &&
+      typeof parsed.rootIdentityKey === 'string' &&
+      typeof parsed.canonicalProjectRoot === 'string' &&
+      typeof parsed.rootUnsafe === 'boolean' &&
+      typeof parsed.safeForWrites === 'boolean' &&
+      typeof parsed.rootMismatch === 'boolean' &&
+      typeof parsed.exportRequired === 'boolean' &&
+      typeof parsed.exportBlocked === 'boolean' &&
+      Array.isArray(parsed.warnings) &&
+      parsed.warnings.every((warning) => typeof warning === 'string') &&
+      (parsed.gitWorktreeRoot === null || typeof parsed.gitWorktreeRoot === 'string') &&
+      (parsed.gitCommonDir === null || typeof parsed.gitCommonDir === 'string')
+    ) {
+      return {
+        kind: 'recovery_observation',
+        operation: parsed.operation,
+        rootIdentityKey: parsed.rootIdentityKey,
+        canonicalProjectRoot: parsed.canonicalProjectRoot,
+        gitWorktreeRoot: (parsed.gitWorktreeRoot as string | null) ?? null,
+        gitCommonDir: (parsed.gitCommonDir as string | null) ?? null,
+        rootUnsafe: parsed.rootUnsafe,
+        safeForWrites: parsed.safeForWrites,
+        rootMismatch: parsed.rootMismatch,
+        exportRequired: parsed.exportRequired,
+        exportBlocked: parsed.exportBlocked,
+        warnings: parsed.warnings as string[],
+      };
+    }
+  } catch {
+    // Ignore malformed metadata from older or partial rows.
+  }
+
+  return null;
+}
+
+function mapStoredProposalRow(row: Record<string, unknown>): StoredProposal {
+  return {
+    id: row.id as string,
+    project_id: row.project_id as string,
+    branch: row.branch as string,
+    path: row.path as string,
+    base_revision: row.base_revision as string,
+    patch: row.patch as string,
+    intent: row.intent as string,
+    summary: row.summary as string,
+    risk_level: row.risk_level as string,
+    requires_approval: (row.requires_approval as number) === 1,
+    status: row.status as StoredProposal['status'],
+    created_at: row.created_at as string,
+    committed_at: (row.committed_at as string) ?? null,
+    discarded_at: (row.discarded_at as string) ?? null,
+    metadata: parseProposalMetadata(row.metadata_json),
+  };
 }

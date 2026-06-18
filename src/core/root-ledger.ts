@@ -31,6 +31,17 @@ export interface RootLedgerObservation {
   observedAt?: string;
 }
 
+export interface RootLedgerIdentityInput {
+  projectId: string;
+  canonicalProjectRoot: string;
+  registeredProjectRoot: string | null;
+  daemonProjectRoot: string | null;
+  markerProjectId: string | null;
+  markerRootPath: string | null;
+  gitWorktreeRoot: string | null;
+  gitCommonDir: string | null;
+}
+
 export interface RootLedgerEntry {
   project_id: string;
   identity_key: string;
@@ -368,9 +379,7 @@ export function recordRootObservationIfPossible(
 }
 
 export function buildObservationIdentityKey(observation: RootLedgerObservation): string {
-  // The key captures the concrete identity signals that distinguish one
-  // checkout instance from another for ledger de-duplication.
-  return JSON.stringify({
+  return buildRootLedgerIdentityKey({
     projectId: observation.projectId,
     canonicalProjectRoot: observation.canonicalProjectRoot,
     registeredProjectRoot: observation.registeredProjectRoot,
@@ -379,6 +388,21 @@ export function buildObservationIdentityKey(observation: RootLedgerObservation):
     markerRootPath: observation.markerRootPath,
     gitWorktreeRoot: observation.git.worktreeRoot,
     gitCommonDir: observation.git.commonDir,
+  });
+}
+
+export function buildRootLedgerIdentityKey(identity: RootLedgerIdentityInput): string {
+  // The key captures the concrete identity signals that distinguish one
+  // checkout instance from another for ledger de-duplication.
+  return JSON.stringify({
+    projectId: identity.projectId,
+    canonicalProjectRoot: identity.canonicalProjectRoot,
+    registeredProjectRoot: identity.registeredProjectRoot,
+    daemonProjectRoot: identity.daemonProjectRoot,
+    markerProjectId: identity.markerProjectId,
+    markerRootPath: identity.markerRootPath,
+    gitWorktreeRoot: identity.gitWorktreeRoot,
+    gitCommonDir: identity.gitCommonDir,
   });
 }
 

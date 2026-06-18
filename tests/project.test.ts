@@ -152,6 +152,41 @@ function getRootLedgerRows(project: Project, projectId = 'test-project'): Array<
   }
 }
 
+function getLatestRecoveryObservationEvent(
+  project: Project,
+  toolName: 'preview_export' | 'export',
+  projectId = 'test-project',
+): { createdAt: string; metadata: Record<string, unknown> } | null {
+  const db = new DatabaseSync(project.storage.projectEventsPath(projectId), {
+    readOnly: true,
+  });
+
+  try {
+    const row = db.prepare(
+      `
+      SELECT created_at, metadata_json
+      FROM doc_events
+      WHERE project_id = ? AND tool_name = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+    ).get(projectId, toolName) as
+      | { created_at: string; metadata_json: string | null }
+      | undefined;
+
+    if (!row?.metadata_json) {
+      return null;
+    }
+
+    return {
+      createdAt: row.created_at,
+      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
+    };
+  } finally {
+    db.close();
+  }
+}
+
 async function setRegisteredProjectRoot(
   project: Project,
   projectRoot: string,
@@ -1458,6 +1493,11 @@ documents:
     expect(statusBefore.workingTreeOutOfSync).toBe(true);
     expect(statusBefore.outOfSyncPaths).toContain(filePath);
     expect(statusBefore.nextStep).toContain('docs.export');
+    expect(statusBefore.rootContext.recovery).toMatchObject({
+      available: true,
+      recoveryRequired: false,
+      exportRecoveryRequired: false,
+    });
 
     const exportResult = await callTool(project, 'docs.export', {
       projectId: 'test-project',
@@ -1482,6 +1522,12 @@ documents:
     expect(statusAfter.exportRequired).toBe(false);
     expect(statusAfter.workingTreeOutOfSync).toBe(false);
     expect(statusAfter.outOfSyncPaths).toHaveLength(0);
+    expect(statusAfter.rootContext.recovery.lastExportObservation).toMatchObject({
+      rootUnsafe: false,
+      exportRequired: false,
+      currentRoot: true,
+    });
+    expect(getLatestRecoveryObservationEvent(project, 'export')?.metadata.exportRequired).toBe(false);
   });
 
   it('should preview export drift without mutating disk or managed state', async () => {
@@ -1533,6 +1579,21 @@ documents:
     expect(preview.rootContext.safety.safeForWrites).toBe(true);
     expect(preview.rootContext.safety.rootMismatch).toBe(false);
     expect(preview.rootWarnings).toEqual([]);
+    expect(preview.rootContext.recovery).toMatchObject({
+      available: true,
+      recoveryRequired: false,
+      proposalRecoveryRequired: false,
+      exportRecoveryRequired: false,
+      pendingProposalCount: 0,
+      currentRootProposalCount: 0,
+      foreignRootProposalCount: 0,
+      unknownRootProposalCount: 0,
+      lastPreviewObservation: {
+        rootUnsafe: false,
+        exportRequired: true,
+        currentRoot: true,
+      },
+    });
     expect(preview.managedRevision).toBeTruthy();
     expect(preview.sourceRevision).toBeTruthy();
     expect(preview.exportRequired).toBe(true);
@@ -1586,8 +1647,26 @@ documents:
     expect(preview.rootContext.safety.safeForWrites).toBe(false);
     expect(preview.rootContext.safety.rootMismatch).toBe(true);
     expect(preview.rootWarnings).toContain('registered project root mismatch');
+    expect(preview.rootContext.recovery).toMatchObject({
+      available: true,
+      recoveryRequired: false,
+      proposalRecoveryRequired: false,
+      exportRecoveryRequired: false,
+      lastPreviewObservation: {
+        rootUnsafe: true,
+        exportRequired: false,
+        currentRoot: true,
+      },
+    });
+    expect(preview.rootContext.recovery.warnings).toContain(
+      'The latest docs.preview_export observation for branch "main" was recorded under an unsafe root context.',
+    );
     expect(preview.exportBlocked).toBe(false);
     expect(preview.exportable).toBe(true);
+
+    const recoveryEvent = getLatestRecoveryObservationEvent(project, 'preview_export');
+    expect(recoveryEvent?.metadata.rootUnsafe).toBe(true);
+    expect(recoveryEvent?.metadata.exportRequired).toBe(false);
   });
 
   it('should report no export changes when managed state and disk are aligned', async () => {
@@ -2966,6 +3045,20 @@ describe('docs.status', () => {
       warnings: [],
     });
     expect(data.rootContext.rootLedger.lastObservedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(data.rootContext.recovery).toMatchObject({
+      available: true,
+      recoveryRequired: false,
+      proposalRecoveryRequired: false,
+      exportRecoveryRequired: false,
+      pendingProposalCount: 0,
+      currentRootProposalCount: 0,
+      foreignRootProposalCount: 0,
+      unknownRootProposalCount: 0,
+      recommendedCleanupTool: null,
+      lastPreviewObservation: null,
+      lastExportObservation: null,
+      warnings: [],
+    });
     expect(getRootLedgerRows(project)).toHaveLength(1);
   });
 });
@@ -4287,6 +4380,56 @@ describe('writing an event log row', () => {
     expect(history.length).toBe(1);
     expect(history[0].summary).toBe('A test event entry');
   });
+
+  it('should prefer the latest metadata-bearing recovery observation when export logs share a timestamp', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const createdAt = '2026-01-02T03:04:05.000Z';
+    project.eventLog.logEvent({
+      project_id: 'test-project',
+      branch: 'main',
+      path: '.export',
+      tool_name: 'export',
+      summary: 'Exported managed docs',
+      created_at: createdAt,
+    });
+    project.eventLog.logEvent({
+      project_id: 'test-project',
+      branch: 'main',
+      path: '.export',
+      tool_name: 'export',
+      summary: 'Observed export recovery state',
+      created_at: createdAt,
+      metadata: {
+        kind: 'recovery_observation',
+        operation: 'export',
+        rootIdentityKey: 'root-1',
+        canonicalProjectRoot: tmpDir,
+        gitWorktreeRoot: tmpDir,
+        gitCommonDir: path.join(tmpDir, '.git'),
+        rootUnsafe: false,
+        safeForWrites: true,
+        rootMismatch: false,
+        exportRequired: false,
+        exportBlocked: false,
+        warnings: [],
+      },
+    });
+
+    expect(project.eventLog.getLatestRecoveryObservation('test-project', 'export')).toMatchObject({
+      createdAt,
+      metadata: {
+        operation: 'export',
+        rootIdentityKey: 'root-1',
+        exportRequired: false,
+      },
+    });
+  });
 });
 
 describe('restoring a file from history', () => {
@@ -4580,6 +4723,94 @@ describe('proposal storage', () => {
     expect(exportBranchSpy).not.toHaveBeenCalled();
     expect(applyPatchSpy).not.toHaveBeenCalled();
     expect(createBranchSpy).not.toHaveBeenCalled();
+  });
+
+  it('should surface pending proposal recovery state when the current root identity changes', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'STATUS.md');
+    expect(content).not.toBeNull();
+    expect(revision).toBeTruthy();
+
+    const updated = content!.replace(
+      '<!-- What is the team working on right now? -->',
+      'Track pending proposal recovery visibility',
+    );
+    const patch = createUnifiedDiffForReplacement('STATUS.md', content!, updated);
+
+    const proposeResult = await callTool(project, 'docs.propose_patch', {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      baseRevision: revision,
+      patch,
+      intent: 'Create a pending proposal before switching root identity',
+      summary: 'Pending proposal recovery visibility',
+    });
+
+    expect(proposeResult.isError).toBeFalsy();
+
+    await setRegisteredProjectRoot(project, path.join(tmpDir, 'different-root'));
+
+    const statusResult = await callTool(project, 'docs.status', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(statusResult.isError).toBeFalsy();
+    const status = JSON.parse(statusResult.content[0].text);
+    expect(status.rootContext.safety.rootMismatch).toBe(true);
+    expect(status.rootContext.recovery).toMatchObject({
+      available: true,
+      recoveryRequired: true,
+      proposalRecoveryRequired: true,
+      exportRecoveryRequired: false,
+      pendingProposalCount: 1,
+      currentRootProposalCount: 0,
+      foreignRootProposalCount: 1,
+      unknownRootProposalCount: 0,
+      recommendedCleanupTool: 'docs.discard_proposal',
+    });
+    expect(status.rootContext.recovery.warnings).toContain(
+      '1 pending proposal(s) were created from a different root/worktree identity.',
+    );
+    expect(status.rootContext.recovery.nextStep).toContain('docs.discard_proposal');
+  });
+
+  it('should fail soft when recovery aggregation raises an error', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const listProposalsSpy = vi
+      .spyOn(project.eventLog, 'listProposals')
+      .mockImplementation(() => {
+        throw new Error('synthetic recovery failure');
+      });
+
+    const statusResult = await callTool(project, 'docs.status', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+
+    expect(statusResult.isError).toBeFalsy();
+    const status = JSON.parse(statusResult.content[0].text);
+    expect(status.rootContext.safety.safeForWrites).toBe(true);
+    expect(status.rootContext.recovery.available).toBe(false);
+    expect(status.rootContext.recovery.recoveryRequired).toBeNull();
+    expect(status.rootContext.recovery.warnings[0]).toContain(
+      'Recovery summary unavailable: synthetic recovery failure',
+    );
+
+    listProposalsSpy.mockRestore();
   });
 
   it('should return null for non-existent proposal', async () => {
