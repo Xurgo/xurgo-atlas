@@ -12,6 +12,7 @@ This document defines the safety model for Atlas-managed docs when a logical pro
 - `daemon` records `projectId` and `projectRoot` in its pid file and rejects obvious project mismatches.
 - `mcp-config --json` exposes `projectId`, `projectRoot`, `git`, `safety`, and descriptive `rootLedger` history.
 - `docs.status` reports managed-vs-working-tree sync together with `rootContext`, including root identity, authoritative safety flags, and descriptive recovery state.
+- `atlas.project_identity` provides a compact read-only runtime identity and root-safety snapshot without replacing `mcp-config --json`.
 - `docs.read`, `docs.list`, `docs.context_pack`, and `docs.manifest` are read-only against managed state.
 - `docs.export` and `docs.preview_export` write or preview into a target directory that defaults to the resolved project root.
 
@@ -82,7 +83,7 @@ If Atlas later allows the same `projectId` in multiple roots, those roots should
 
 | Tool group | Behavior |
 |------------|----------|
-| `docs.status`, `docs.capabilities`, `mcp-config --json` | Report binding metadata and whether writes are currently safe. |
+| `docs.status`, `atlas.project_identity`, `docs.capabilities`, `mcp-config --json` | Report binding metadata and whether writes are currently safe. |
 | `docs.read`, `docs.read_section`, `docs.list`, `docs.manifest`, `docs.context_pack` | May remain read-only, but must clearly report the resolved root instance. |
 | `docs.export`, proposal commit flows, any disk write | Fail closed when the resolved root instance is ambiguous or mismatched. `docs.preview_export` remains read-only and may surface descriptive recovery hints, while `docs.discard_proposal` remains available for pending-proposal cleanup. |
 | daemon startup and MCP request binding | Refuse to serve a different root instance than the one the daemon was started for. |

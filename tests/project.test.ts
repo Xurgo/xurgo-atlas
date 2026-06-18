@@ -3063,6 +3063,108 @@ describe('docs.status', () => {
   });
 });
 
+describe('atlas.project_identity', () => {
+  it('returns a compact runtime identity and safety snapshot for the resolved project root', async () => {
+    await initSourceRepo();
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const result = await callTool(project, 'atlas.project_identity', {
+      projectId: 'test-project',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+    expect(data).toMatchObject({
+      projectId: 'test-project',
+      requestedCwd: process.cwd(),
+      projectRoot: tmpDir,
+      canonicalProjectRoot: await fs.promises.realpath(tmpDir),
+      registeredProjectRoot: tmpDir,
+      daemonProjectRoot: null,
+      marker: {
+        projectId: 'test-project',
+        present: true,
+        matchesProject: true,
+      },
+      git: {
+        available: true,
+        insideWorkTree: true,
+        worktreeRoot: await fs.promises.realpath(tmpDir),
+        branch: 'main',
+      },
+      safety: {
+        safeForWrites: true,
+        ambiguous: false,
+        rootMismatch: false,
+      },
+      recovery: {
+        available: true,
+        recoveryRequired: false,
+        warnings: [],
+      },
+      nextStep: 'Root identity is currently safe for managed writes and exports.',
+    });
+    expect(data.marker.path).toBe(path.join(tmpDir, '.xurgo-atlas', 'project.json'));
+    expect(data.git.commonDir).toContain('.git');
+    expect(data.git.head).toMatch(/^[0-9a-f]{40}$/);
+    expect(data.rootLedger).toMatchObject({
+      available: true,
+      recorded: true,
+      knownObservationCount: 1,
+      currentObservationCount: 1,
+      multipleRootsObserved: false,
+      multipleWorktreesObserved: false,
+      multipleGitCommonDirsObserved: false,
+      warnings: [],
+    });
+    expect(data.warnings).toEqual([]);
+  });
+
+  it('remains available when the root context is unsafe and preserves safety compatibility fields', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    await setRegisteredProjectRoot(project, path.join(tmpDir, 'different-root'));
+
+    const result = await callTool(project, 'atlas.project_identity', {
+      projectId: 'test-project',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0].text);
+
+    expect(data.projectId).toBe('test-project');
+    expect(data.projectRoot).toBe(tmpDir);
+    expect(data.registeredProjectRoot).toBe(path.join(tmpDir, 'different-root'));
+    expect(data.safety).toMatchObject({
+      safeForWrites: false,
+      ambiguous: true,
+      rootMismatch: true,
+      markerMissing: false,
+      markerMismatch: false,
+      registeredProjectRootMissing: false,
+      registeredProjectRootMismatch: true,
+      daemonProjectRootMismatch: false,
+      gitMismatch: false,
+    });
+    expect(data.rootLedger.available).toBe(true);
+    expect(data.warnings).toContain('registered project root mismatch');
+    expect(data.nextStep).toContain('docs.status');
+    expect(data.nextStep).toContain('mcp-config --json');
+    expect(data.nextStep).toContain('Restore the expected root/worktree binding');
+  });
+});
+
 // ── docs.manifest tool tests ──────────────────────────────────────────
 
 describe('docs.manifest', () => {

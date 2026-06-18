@@ -48,6 +48,8 @@ Run `xurgo-atlas mcp-config` for a human-readable setup summary.
 
 Prefer `xurgo-atlas mcp-config --json` for machine-readable setup. The command is non-mutating, does not require the daemon to be running, and returns the authoritative HTTP MCP connection details for clients such as Xurgo Agent.
 
+Use `atlas.project_identity` after a client is connected when it needs a compact runtime identity and root-safety snapshot for the currently resolved Atlas project. The tool is read-only and does not replace `xurgo-atlas mcp-config --json`, which remains the discovery and startup boundary.
+
 The JSON output includes:
 
 - stable server metadata (`serverName`, `displayName`)
@@ -115,6 +117,7 @@ All documentation tools are exposed under the `docs.*` namespace:
 | `docs.export` | Export branch to working tree |
 | `docs.search` | Search Atlas-managed docs/context with local SQLite FTS |
 | `docs.capabilities` | Report read-only Atlas capability and retrieval/search support |
+| `atlas.project_identity` | Report the active project/root binding, runtime safety snapshot, and recommended next step |
 
 ## Proposal Lifecycle
 

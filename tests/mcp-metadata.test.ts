@@ -271,6 +271,7 @@ describe('MCP server metadata', () => {
         read: true,
         readSection: true,
         contextPack: true,
+        projectIdentity: true,
         guardedWrites: true,
         exportPreview: true,
         proposalCleanup: true,
@@ -291,6 +292,39 @@ describe('MCP server metadata', () => {
           required: false,
         },
         externalVectorDatabaseDefault: false,
+      },
+    });
+  });
+
+  it('registers atlas.project_identity in tools/list', async () => {
+    const server = createMcpServer(async () => {
+      throw new Error('not used');
+    });
+
+    const handlers = (server as unknown as {
+      _requestHandlers: Map<string, (request: unknown) => Promise<{ tools: Array<{ name: string; description?: string; inputSchema: unknown }> }>>;
+    })._requestHandlers;
+    const listTools = handlers.get('tools/list');
+
+    expect(listTools).toBeTypeOf('function');
+
+    const result = await listTools!({
+      method: 'tools/list',
+      params: {},
+    });
+    const projectIdentityTool = result.tools.find((tool) => tool.name === 'atlas.project_identity');
+    const projectRootsTool = result.tools.find((tool) => tool.name === 'atlas.project_roots');
+    const lockStatusTool = result.tools.find((tool) => tool.name === 'atlas.lock_status');
+
+    expect(projectIdentityTool).toBeDefined();
+    expect(projectRootsTool).toBeUndefined();
+    expect(lockStatusTool).toBeUndefined();
+    expect(projectIdentityTool?.description).toContain('read-only runtime identity');
+    expect(projectIdentityTool?.description).toContain('mcp-config --json');
+    expect(projectIdentityTool?.inputSchema).toMatchObject({
+      type: 'object',
+      properties: {
+        projectId: { type: 'string' },
       },
     });
   });
