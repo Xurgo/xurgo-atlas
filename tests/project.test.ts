@@ -720,6 +720,8 @@ describe('project initialization', () => {
     expect(agentsContent).toContain('Never directly overwrite');
     expect(agentsContent).toContain('docs.propose_patch');
     expect(agentsContent).toContain('baseRevision');
+    expect(agentsContent).toContain('inspect all managed-doc/export changes');
+    expect(agentsContent).toContain('required for this branch, valid managed-store/source synchronization, or unrelated stale drift to revert');
 
     // Verify Git store has files tracked
     const files = await project.getTrackedFiles();

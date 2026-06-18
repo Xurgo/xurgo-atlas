@@ -24,6 +24,8 @@ This project uses **Xurgo Atlas** for safe, versioned, auditable documentation m
 
 7. **Never delete content silently.** All deletions must be explicit in the patch diff.
 
+8. **Classify managed-doc export drift before commit.** Before commit, inspect all managed-doc/export changes. Do not keep drift just because export produced it. Classify unexpected managed-doc changes as required for this branch, valid managed-store/source synchronization, or unrelated stale drift to revert, and report the classification before commit.
+
 ### Code Comment Standards
 
 Keep comments focused on the why, not the obvious mechanics.
