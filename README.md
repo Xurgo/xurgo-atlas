@@ -1,6 +1,6 @@
 # Xurgo Atlas
 
-Xurgo Atlas is a local project context server for AI-assisted development.
+Xurgo Atlas is a standalone local MCP project-context/docs service for AI-assisted development. It can be used independently, and it is also being dogfooded alongside related Xurgo projects such as Xurgo Studio and Xurgo Agent.
 
 ## Quick Start
 
@@ -21,7 +21,7 @@ xurgo-atlas mcp-config --json
 
 If you want to try Atlas without installing it first, or keep it pinned inside a repo, use `npx xurgo-atlas ...` instead. For project-local automation, install it as a dev dependency with `npm install -D xurgo-atlas`.
 
-If you're contributing to Atlas itself, work from this repository checkout and use the local npm scripts here instead of relying on a previously globally installed copy.
+If you're working on Atlas itself, use this repository checkout and the local npm scripts here instead of relying on a previously globally installed copy.
 
 `init` writes a local `.xurgo-atlas/project.json` marker in the project root. That marker is sticky: rerunning `init` with the same project id is safe, but Atlas will fail clearly instead of silently rebinding the project root to a different id. Project ids are also globally unique in the registry, so `init` will refuse to register an existing id to a different root.
 
@@ -49,9 +49,27 @@ For daemon and MCP client configuration, see [docs/atlas/daemon-mcp.md](docs/atl
 For storage migration guidance, see [docs/atlas/storage-migration.md](docs/atlas/storage-migration.md).
 For pre-release validation, see [docs/atlas/release-checklist.md](docs/atlas/release-checklist.md).
 
+## Feedback
+
+Xurgo Atlas is an early public release. Feedback is welcome, especially bug reports, setup issues, MCP client compatibility notes, and docs corrections.
+
+If something is confusing, broken, or does not work in your environment, please open an issue.
+
+## Contributing
+
+Small docs fixes and targeted test improvements are welcome.
+
+For larger or behavior-changing work, please open an issue first, especially for MCP tool contract changes, storage changes, root/worktree safety changes, managed-doc write/export changes, release-related changes, or security-sensitive filesystem behavior.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the short contribution policy.
+
+## Security
+
+Please do not report security issues in public issues. See [SECURITY.md](SECURITY.md).
+
 ## Development
 
-If you're contributing to Atlas itself, use this repository checkout and the local npm scripts here. The detailed validation, smoke-testing, and private RC workflow lives in [docs/atlas/development-workflow.md](docs/atlas/development-workflow.md) and [docs/atlas/release-checklist.md](docs/atlas/release-checklist.md).
+If you're working on Atlas itself, use this repository checkout and the local npm scripts here. The detailed validation, smoke-testing, and private RC workflow lives in [docs/atlas/development-workflow.md](docs/atlas/development-workflow.md) and [docs/atlas/release-checklist.md](docs/atlas/release-checklist.md).
 
 ### Init Templates
 
