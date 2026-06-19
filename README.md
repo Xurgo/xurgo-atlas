@@ -169,10 +169,8 @@ The `docs.export` tool can export a branch to a target directory, allowing users
 
 ## MCP Tool Reference
 
-The current public tool surface is:
+The current public MCP tool surface is:
 
-- `xurgo-atlas -v`
-- `xurgo-atlas --version`
 - `docs.status`
 - `docs.manifest`
 - `docs.read`
@@ -187,6 +185,8 @@ The current public tool surface is:
 - `docs.history`
 - `docs.restore_file`
 - `docs.export`
+- `docs.search`
+- `docs.capabilities`
 
 For setup examples and workflow details, see [docs/atlas/daemon-mcp.md](docs/atlas/daemon-mcp.md) and [docs/README.md](docs/README.md).
 
