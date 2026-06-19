@@ -80,7 +80,7 @@ For pre-release validation, see [docs/atlas/release-checklist.md](docs/atlas/rel
 
 ## Feedback
 
-Xurgo Atlas is an early public release. Feedback is welcome, especially bug reports, setup issues, MCP client compatibility notes, and docs corrections.
+Xurgo Atlas is an early pre-release project in a public repository. Feedback is welcome, especially bug reports, setup issues, MCP client compatibility notes, and docs corrections.
 
 If something is confusing, broken, or does not work in your environment, please open an issue.
 
