@@ -1,6 +1,6 @@
 # Xurgo Atlas
 
-Xurgo Atlas is a standalone local MCP project-context/docs service for AI-assisted development. It can be used independently, and it is also being dogfooded alongside related Xurgo projects such as Xurgo Studio and Xurgo Agent.
+Xurgo Atlas is a standalone, local-first documentation and project-context service for AI-assisted development. It governs project docs with auditable history, exposes that context through a CLI and MCP discovery boundary, and complements your repository instead of replacing Git as the source of truth.
 
 ## Quick Start
 
@@ -10,12 +10,12 @@ Install Xurgo Atlas globally for the normal CLI workflow:
 npm install -g xurgo-atlas
 ```
 
-After the global install, initialize a project and start the daemon-backed MCP endpoint:
+After the global install, verify the CLI, initialize a project, and print the canonical MCP config:
 
 ```bash
+xurgo-atlas --version
 xurgo-atlas init --template mcp-server --project-id my-project
 xurgo-atlas daemon start
-xurgo-atlas mcp-config
 xurgo-atlas mcp-config --json
 ```
 
@@ -31,7 +31,7 @@ After init, the normal happy path can run from the project root or a nested subd
 
 ## MCP Client Setup
 
-Use `xurgo-atlas mcp-config` for human-readable setup instructions, or prefer `xurgo-atlas mcp-config --json` as the machine-readable integration contract for Xurgo Agent and other MCP clients. If you have not installed Atlas globally, prefix the commands with `npx`.
+Use `xurgo-atlas mcp-config` for human-readable setup instructions, or prefer `xurgo-atlas mcp-config --json` as the machine-readable integration contract for MCP clients. If you have not installed Atlas globally, prefix the commands with `npx`.
 
 The preferred integration path is the daemon HTTP MCP endpoint at `/mcp`:
 
@@ -41,6 +41,30 @@ xurgo-atlas mcp-config --json
 ```
 
 `xurgo-atlas server` remains the legacy stdio-oriented MCP path for local or direct stdio integrations.
+
+After your client connects, use normal MCP tool/resource discovery and `docs.capabilities` to inspect the live Atlas surface available for that project.
+
+## What Atlas Is
+
+Atlas is:
+
+- standalone
+- optional for consumers that want governed project docs through MCP
+- local-first
+- a governed documentation and durable project-context service
+- usable through its CLI and MCP discovery boundary
+- not a replacement for Git or repository truth
+
+Atlas is not:
+
+- an agent runtime
+- a required dependency for another product
+- a workspace manager
+- a session or run store
+- a general memory database
+- a semantic or vector retrieval service today
+- a lock server today
+- a replacement for Git or repository truth
 
 ## License
 
@@ -100,7 +124,7 @@ For a cloned repo that already has project docs, omit `--template`. The template
 
 ## How Xurgo Atlas Works
 
-Xurgo Atlas provides a CLI for direct project management and an MCP server for agents that need safe documentation operations. The daemon mode is the preferred HTTP transport: it resolves the current project from the local marker, an ancestor marker, or an explicit registration, so the normal start command works from inside an initialized project without repeating flags. If the current directory resolves to one project and explicit flags point at another, startup fails clearly instead of silently serving the wrong project.
+Xurgo Atlas provides a CLI for direct project management and an MCP server for tools that need safe documentation operations. The daemon mode is the preferred HTTP transport: it resolves the current project from the local marker, an ancestor marker, or an explicit registration, so the normal start command works from inside an initialized project without repeating flags. If the current directory resolves to one project and explicit flags point at another, startup fails clearly instead of silently serving the wrong project.
 
 `xurgo-atlas server` remains the legacy stdio-oriented path for direct local integrations.
 

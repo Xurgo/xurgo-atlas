@@ -1,46 +1,47 @@
 # Setup
 
-## Prerequisites
+## Consumer Install & First Run
+
+### Prerequisites
 
 - Node.js >= 22
 - npm
 
-## Install
-
-Clone the repository and install dependencies:
+Install Xurgo Atlas globally for the normal CLI workflow:
 
 ```bash
-git clone <repo-url>
-cd xurgo-atlas
-npm install
-npm run build
+npm install -g xurgo-atlas
 ```
 
-The CLI binary is `xurgo-atlas` (via `npm start` or `node dist/index.js`).
+If you want to try Atlas without installing it first, or keep it pinned inside a repo, use `npx xurgo-atlas ...` instead. For project-local automation, install it as a dev dependency with `npm install -D xurgo-atlas`.
 
-## Quick Start
-
-Most users can follow this happy path without needing `--config-dir` or `--data-dir`.
+Verify that the CLI is available:
 
 ```bash
-# Initialize a project
+xurgo-atlas --version
+```
+
+Initialize Atlas in the project you want it to govern:
+
+```bash
 xurgo-atlas init --project-id my-project --project-root .
-
-# Start the daemon in background
-xurgo-atlas daemon start
-
-# Check setup status
-xurgo-atlas status
-
-# Print MCP client connection guidance
-xurgo-atlas mcp-config
 ```
-
-Stop here for normal use. The daemon serves the MCP endpoint at `http://127.0.0.1:3737/mcp`. Configure your MCP client using the snippet printed by `xurgo-atlas mcp-config`.
 
 `init` writes a local `.xurgo-atlas/project.json` marker in the project root. The marker stores the project id only, not an absolute project root. That identity is sticky: Atlas preserves the matching marker for the same project id, fails clearly instead of overwriting it with a different project id, and refuses to register the same project id to a different root.
 
 After init, `daemon start`, `list`, `history`, and `export` can resolve the current project from the project root or a nested subdirectory without repeating `--project-id` or `--project-root`. Explicit flags still work for advanced cases, but conflicting project identity fails clearly instead of silently serving the wrong project.
+
+Start the daemon and obtain the canonical MCP config:
+
+```bash
+xurgo-atlas daemon start
+xurgo-atlas status
+xurgo-atlas mcp-config --json
+```
+
+Use your MCP client's normal tool and resource discovery after connecting. `docs.capabilities` reports the live Atlas read/search/write surface for the resolved project.
+
+Atlas is a local-first documentation and durable project-context service. It is not an agent runtime, workspace manager, session store, general memory database, or a replacement for Git truth.
 
 ### Init Templates
 
@@ -57,7 +58,7 @@ xurgo-atlas init --template saas --project-id my-project
 xurgo-atlas init -t mcp-server --project-id my-project
 ```
 
-Templates are **documentation/memory templates**, not app-code scaffolds. They create missing project docs only:
+Templates are documentation templates, not app-code scaffolds. They create missing project docs only:
 
 | Template | Description |
 |----------|-------------|
@@ -70,6 +71,19 @@ Templates are **documentation/memory templates**, not app-code scaffolds. They c
 **Existing docs are preserved by default.** Templates create missing files only. For a cloned repo that already has project docs, usually omit `--template` — plain `init --project-id <id>` is the standard workflow. Use `--template <name>` for new/empty projects or when intentionally filling missing docs.
 
 For advanced configuration — custom storage roots, daemon options, or legacy migration — see the reference docs linked from [docs/README.md](../README.md).
+
+## Contributor Checkout & Validation
+
+Clone the repository and install dependencies:
+
+```bash
+git clone <repo-url>
+cd xurgo-atlas
+npm install
+npm run build
+```
+
+The CLI binary is `xurgo-atlas` (via `npm start` or `node dist/index.js`).
 
 ## Build & Test
 
