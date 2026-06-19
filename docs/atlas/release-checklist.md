@@ -80,7 +80,7 @@ npx xurgo-atlas mcp-config
 ## Naming
 
 - [ ] No stale active legacy naming in CLI, help text, or current-facing docs
-- [ ] Package binary exposes `xurgo-atlas` (legacy `docu-guard` alias may still exist for compatibility)
+- [ ] Package binary exposes `xurgo-atlas` and `xurgo-atlas -v` / `--version` print one clean version line (legacy `docu-guard` alias may still exist for compatibility)
 - [ ] `docs.*` MCP namespace remains unchanged
 - [ ] Intentional legacy migration references are preserved where needed
 
@@ -113,7 +113,7 @@ npx xurgo-atlas mcp-config
 
 - [ ] `npm install -g xurgo-atlas` succeeds
 - [ ] `xurgo-atlas mcp-config` prints MCP endpoint and config snippet
-- [ ] `xurgo-atlas --help` lists expected commands
+- [ ] `xurgo-atlas --help` lists expected commands, and `xurgo-atlas -v` / `--version` print one clean version line
 - [ ] MCP server starts in stdio mode
 - [ ] Daemon starts and MCP endpoint responds
 - [ ] Guarded docs workflow works end-to-end (list → read → propose → preview → commit)
