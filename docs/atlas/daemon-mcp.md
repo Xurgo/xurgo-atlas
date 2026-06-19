@@ -173,6 +173,48 @@ A fresh live daemon should advertise its supported tools through `tools/list`. T
 
 Some current builds also register a compact read-only `atlas.project_identity` helper in addition to the `docs.*` tools above. Treat it as optional unless the connected daemon advertises it in `tools/list`.
 
+## Contributor Managed-Doc Workflow
+
+### 1. Classify the file before editing
+
+Atlas-managed docs are the files returned by live `docs.manifest` and `docs.list`, including `STATUS.md`, `AGENTS.md`, `.docs-policy.yml`, `docs/manifest.yml`, and the active docs listed in that manifest. Treat Atlas as the only supported write path for those files.
+
+Docs that are not returned by the live managed manifest are ordinary source files. Edit those directly in Git, but keep contributor guidance aligned with the current Atlas tool surface and do not describe roadmap-only behavior as current functionality.
+
+If a document exists both on disk and in the managed branch, read the managed copy first. The working-tree file can be stale until `docs.export` reconciles it.
+
+### 2. Follow the normal guarded lifecycle
+
+1. Inspect the current project state with `docs.status` and `docs.manifest`, then read the target doc with `docs.read` or `docs.read_section`.
+2. Create or select the intended managed branch with `docs.create_branch`. Matching the Git branch name is a useful convention, but Atlas managed branches are separate branch-scoped snapshots.
+3. For an existing managed doc, call `docs.propose_patch` with the latest `baseRevision` from `docs.read`, an explicit `intent`, a concise `summary`, and a standard unified diff `patch` that uses `---` / `+++` headers and `@@` hunks. Atlas rejects `apply_patch` blocks, empty patches, and prose-only patch bodies.
+4. For a new managed Markdown doc under approved Atlas paths, use `docs.propose_document` instead of editing the manifest or file directly.
+5. Review the stored proposal with `docs.preview_diff`.
+6. Apply it with `docs.commit_patch`.
+7. Check `docs.status` or `docs.preview_export` for reconciliation state. If `exportRequired` or `workingTreeOutOfSync` is `true`, or `outOfSyncPaths` is non-empty, run `docs.export` before direct disk reads, Git commits, or merge preparation.
+
+### 3. Stop when root or worktree safety is not clean
+
+`docs.propose_patch`, `docs.propose_document`, `docs.commit_patch`, `docs.restore_file`, and `docs.export` are guarded write boundaries. If `docs.status.rootContext.safety.safeForWrites` or `xurgo-atlas mcp-config --json` reports `safeForWrites: false`, stop and stay read-only.
+
+Use `rootContext` and `mcp-config --json` to inspect the resolved project root, canonical root, Git worktree/common-dir, current branch, current `HEAD`, and mismatch flags. `rootLedger` and `rootContext.recovery` are descriptive coordinator context; they do not override `safeForWrites`.
+
+`docs.discard_proposal` remains the cleanup path for stale uncommitted proposals and can still be used when the current root context is unsafe.
+
+### 4. Use proposal history and direct-edit exceptions carefully
+
+Use `docs.list_proposals` to inspect pending proposals by default, or broaden the query when you need committed or discarded records. Use `docs.discard_proposal` to retire uncommitted drafts by exact proposal id while preserving audit history; committed proposals stay protected from discard.
+
+Do not direct-edit Atlas-managed docs on disk as a fallback. If a current policy explicitly permits an exception, cite that policy basis in review or handoff notes, explain why the guarded path could not be used, and reconcile the managed branch and working tree afterward instead of leaving the exception undocumented.
+
+### 5. Keep managed truth and source truth separate
+
+The Atlas-managed branch snapshot and the checked-out Git working tree are related but separate state surfaces. `docs.commit_patch` updates managed branch content; it does not refresh the source checkout by itself.
+
+Treat `docs.preview_export` as the read-only reconciliation check and `docs.export` as the mutating boundary that writes the managed snapshot to disk. Before you commit or merge source changes, classify any drift as required branch work, valid managed-store/source synchronization, or unrelated stale drift to revert.
+
+After a source branch is merged, later reconciliation between the merged source branch and the corresponding Atlas-managed branch may still be required. Do not assume a Git merge updates managed `main` automatically.
+
 ## Proposal Lifecycle
 
 Atlas proposals are audit records, not disposable scratch files. The normal lifecycle is `pending` -> `committed`, and uncommitted work can also end up in `stale`, `rejected`, or `discarded` states when validation changes or a draft is cleaned up.
