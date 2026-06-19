@@ -3,39 +3,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-import {
-  initCommand,
-  printInitUsage,
-  printServerUsage,
-  printTemplateList,
-  serverCommand,
-  listCommand,
-  historyCommand,
-  exportCommand,
-} from './cli/init.js';
-import {
-  parseProjectArgs,
-  printProjectUsage,
-  projectAddCommand,
-  projectRemoveCommand,
-  projectListCommand,
-  projectShowCommand,
-  projectDefaultCommand,
-} from './cli/project.js';
-import { daemonCommand, getDaemonUsageText } from './cli/daemon.js';
-import {
-  getStorageMigrationNotImplementedMessage,
-  printStorageUsage,
-  storageInspectCommand,
-  storageMigrateCommand,
-} from './cli/storage.js';
-import { statusCommand, printStatusUsage } from './cli/status.js';
-import {
-  mcpConfigCommand,
-  printMcpConfigUsage,
-} from './cli/mcp-config.js';
-import { emitStorageDiagnostics, resolveStorageRoots } from './core/storage.js';
+import { getVersionLine } from './version.js';
 
 export function getUsageText(): string {
   return `
@@ -133,6 +101,10 @@ function printUsage(): void {
   console.log(getUsageText());
 }
 
+function printVersion(): void {
+  console.log(getVersionLine());
+}
+
 function hasHelpFlag(argv: string[]): boolean {
   return argv.includes('--help') || argv.includes('-h');
 }
@@ -202,10 +174,33 @@ export async function main(): Promise<void> {
   const command = process.argv[2];
   const rawArgs = process.argv.slice(3);
 
+  if (command === '--version' || command === '-v') {
+    printVersion();
+    process.exit(0);
+  }
+
   if (!command || command === '--help' || command === '-h') {
     printUsage();
     process.exit(0);
   }
+
+  const [
+    { initCommand, printInitUsage, printServerUsage, printTemplateList, serverCommand, listCommand, historyCommand, exportCommand },
+    { parseProjectArgs, printProjectUsage, projectAddCommand, projectRemoveCommand, projectListCommand, projectShowCommand, projectDefaultCommand },
+    { daemonCommand, getDaemonUsageText },
+    { getStorageMigrationNotImplementedMessage, printStorageUsage, storageInspectCommand, storageMigrateCommand },
+    { statusCommand, printStatusUsage },
+    { mcpConfigCommand, printMcpConfigUsage },
+    { emitStorageDiagnostics, resolveStorageRoots },
+  ] = await Promise.all([
+    import('./cli/init.js'),
+    import('./cli/project.js'),
+    import('./cli/daemon.js'),
+    import('./cli/storage.js'),
+    import('./cli/status.js'),
+    import('./cli/mcp-config.js'),
+    import('./core/storage.js'),
+  ]);
 
   const args = parseArgv(rawArgs);
   const positionals = (args._ as string[]) ?? [];
