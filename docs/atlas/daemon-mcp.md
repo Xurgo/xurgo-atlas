@@ -195,7 +195,7 @@ If a document exists both on disk and in the managed branch, read the managed co
 
 ### 3. Stop when root or worktree safety is not clean
 
-`docs.propose_patch`, `docs.propose_document`, `docs.commit_patch`, `docs.restore_file`, and `docs.export` are guarded write boundaries. If `docs.status.rootContext.safety.safeForWrites` or `xurgo-atlas mcp-config --json` reports `safeForWrites: false`, stop and stay read-only.
+`docs.propose_patch`, `docs.propose_document`, `docs.create_branch`, `docs.commit_patch`, `docs.restore_file`, and `docs.export` are guarded write boundaries. If `docs.status.rootContext.safety.safeForWrites` or `xurgo-atlas mcp-config --json` reports `safeForWrites: false`, stop and stay read-only.
 
 Use `rootContext` and `mcp-config --json` to inspect the resolved project root, canonical root, Git worktree/common-dir, current branch, current `HEAD`, and mismatch flags. `rootLedger` and `rootContext.recovery` are descriptive coordinator context; they do not override `safeForWrites`.
 
