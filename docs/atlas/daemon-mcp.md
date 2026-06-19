@@ -1,6 +1,30 @@
-# Daemon & MCP Configuration
+# Daemon, CLI & MCP Reference
 
-## Daemon Lifecycle
+## Install and Invocation Boundaries
+
+Install Xurgo Atlas globally for the normal CLI path:
+
+```bash
+npm install -g xurgo-atlas
+```
+
+Other supported invocation paths are:
+
+- `npx xurgo-atlas ...` for ad hoc use without a global install
+- `npm install -D xurgo-atlas` for project-local automation
+- this repository checkout plus a current local build when you are working on Atlas itself
+
+The installed CLI entrypoint is `xurgo-atlas`.
+
+- `xurgo-atlas -v` prints one `xurgo-atlas <version>` line and exits `0`.
+- `xurgo-atlas --version` does the same.
+- `xurgo-atlas --help` prints the top-level usage text and exits `0`.
+
+If you are developing Atlas from this repo, prefer the checked-out source and local build here over a previously installed global copy. A running daemon or globally installed CLI may be version-skewed from your checkout.
+
+## Daemon Lifecycle and Project Binding
+
+`xurgo-atlas daemon` manages the preferred Streamable HTTP MCP server:
 
 ```bash
 # Start daemon in background
@@ -18,7 +42,7 @@ xurgo-atlas daemon
 
 The daemon runs on `http://127.0.0.1:3737` by default.
 
-For `0.1.0`, the daemon is single-project-bound. Startup resolves exactly one project from the current directory, `--project-root`, or an explicit registered `--project-id`; the background PID file records that bound project id and root. `daemon start` and `daemon status` output should identify the bound project when that information is available.
+The registry may record multiple projects, but each running daemon instance is currently bound to one resolved project/root at a time. Startup resolves exactly one project from the current directory, `--project-root`, or an explicit registered `--project-id`; the background PID file records that bound project id and root. `daemon start` and `daemon status` should identify the bound project when that information is available.
 
 If a daemon is already running for the same resolved project, `daemon start` reports the existing daemon and exits successfully. If a daemon is already running for a different project, startup fails instead of silently reusing the daemon. Stop the current daemon before starting another project:
 
@@ -42,13 +66,15 @@ POST http://127.0.0.1:3737/mcp
 Raw `POST /mcp` requests should send compatible `Accept` headers that include `application/json` and `text/event-stream`, or the daemon may reply with `406 Not Acceptable`.
 Prefer `xurgo-atlas daemon status` and actual MCP tool calls when verifying the daemon, rather than treating a browser `GET /mcp` check as authoritative.
 
+Atlas is optional for Studio and other consumers. Use it when a client wants governed docs and Atlas project context through MCP; do not treat Atlas as a required dependency for every consumer.
+
 ## MCP Client Configuration
 
 Run `xurgo-atlas mcp-config` for a human-readable setup summary.
 
-Prefer `xurgo-atlas mcp-config --json` for machine-readable setup. The command is non-mutating, does not require the daemon to be running, and returns the authoritative HTTP MCP connection details for clients such as Xurgo Agent.
+Prefer `xurgo-atlas mcp-config --json` for machine-readable setup. It is the canonical client configuration and discovery boundary.
 
-Use `atlas.project_identity` after a client is connected when it needs a compact runtime identity and root-safety snapshot for the currently resolved Atlas project. The tool is read-only and does not replace `xurgo-atlas mcp-config --json`, which remains the discovery and startup boundary.
+`xurgo-atlas mcp-config --json` does not modify project source files, Atlas-managed docs, or Git state. It may refresh local descriptive root-observation runtime metadata that Atlas uses for root/worktree reporting. It does not start or stop the daemon, and it does not require the daemon to be running.
 
 The JSON output includes:
 
@@ -57,7 +83,9 @@ The JSON output includes:
 - MCP endpoint URL (`http://127.0.0.1:3737/mcp` by default)
 - a suggested daemon start command
 - `projectId` and `projectRoot` when the current project can be resolved
-- descriptive root/worktree history (`rootLedger`) and the accompanying root-safety snapshot (`safety`)
+- Git identity fields under `git`
+- the authoritative write-safety snapshot under `safety`
+- descriptive root/worktree history under `rootLedger`
 
 ### opencode
 
@@ -78,7 +106,7 @@ Configure the endpoint `http://127.0.0.1:3737/mcp` with the Streamable HTTP tran
 
 ### Stdio Mode (Local Development)
 
-`xurgo-atlas server` is the legacy stdio-oriented path. Prefer the daemon HTTP MCP endpoint for Xurgo Agent and other HTTP MCP clients. For direct stdio integration:
+`xurgo-atlas server` remains the legacy stdio-oriented path. Prefer the daemon HTTP MCP endpoint for HTTP MCP clients. For direct stdio integration:
 
 ```json
 {
@@ -92,32 +120,58 @@ Configure the endpoint `http://127.0.0.1:3737/mcp` with the Streamable HTTP tran
 }
 ```
 
-## MCP Tool Namespace
+## Root Context and `safeForWrites`
 
-All documentation tools are exposed under the `docs.*` namespace:
+The `safety.safeForWrites` field is the authoritative client signal for mutating Atlas boundaries.
 
-| Tool | Purpose |
-|------|---------|
-| `docs.list` | List tracked files |
-| `docs.read` | Read a file |
-| `docs.read_section` | Read one Markdown section |
-| `docs.status` | Read STATUS.md front matter and body |
-| `docs.manifest` | Read project document manifest |
-| `docs.context_pack` | Assemble curated doc pack within token budget |
-| `docs.create_branch` | Create an isolated branch |
-| `docs.propose_patch` | Propose a file change |
-| `docs.propose_document` | Propose a new document |
-| `docs.preview_diff` | Review a pending proposal diff |
-| `docs.commit_patch` | Commit a proposed patch |
-| `docs.list_proposals` | List proposal records and lifecycle state |
-| `docs.discard_proposal` | Discard an uncommitted proposal safely |
-| `docs.history` | View file change history |
-| `docs.restore_file` | Restore a file to a previous revision |
-| `docs.preview_export` | Preview what export would change without writing to disk |
-| `docs.export` | Export branch to working tree |
-| `docs.search` | Search Atlas-managed docs/context with local SQLite FTS |
-| `docs.capabilities` | Report read-only Atlas capability and retrieval/search support |
-| `atlas.project_identity` | Report the active project/root binding, runtime safety snapshot, and recommended next step |
+- `safeForWrites: true` means Atlas considers the current resolved project/root binding safe for guarded write flows such as proposal commit, restore, and export.
+- `safeForWrites: false` means clients should stay read-only and surface the mismatch or ambiguity to the operator instead of guessing.
+- The other `safety` flags explain why writes are unsafe or ambiguous.
+- `rootLedger` is descriptive context for coordinators and debugging. It does not override `safeForWrites`.
+
+Connected clients can see the same root-safety concepts in managed-doc reads such as `docs.status`, where they are reported under `rootContext`.
+
+## Live Capability Discovery
+
+After a client connects, use normal MCP discovery and treat live `tools/list` from the connected server as the authoritative capability surface.
+
+Trust live `tools/list` over static docs, local source, or checked-out tests when they disagree. A running daemon may be stale or version-skewed from the source tree on disk.
+
+Use `docs.capabilities` only as supplemental summary context. It is useful for broad read/search/write feature posture, but it is not the authoritative tool registry.
+
+## Supported Tools
+
+A fresh live daemon should advertise its supported tools through `tools/list`. The currently supported public `docs.*` surface is:
+
+### Discovery and read-only context
+
+- `docs.list`
+- `docs.read`
+- `docs.read_section`
+- `docs.status`
+- `docs.manifest`
+- `docs.context_pack`
+- `docs.history`
+- `docs.search`
+- `docs.capabilities`
+
+### Guarded branch and proposal workflow
+
+- `docs.create_branch`
+- `docs.propose_patch`
+- `docs.propose_document`
+- `docs.preview_diff`
+- `docs.list_proposals`
+- `docs.discard_proposal`
+- `docs.commit_patch`
+- `docs.restore_file`
+
+### Export workflow
+
+- `docs.preview_export`
+- `docs.export`
+
+Some current builds also register a compact read-only `atlas.project_identity` helper in addition to the `docs.*` tools above. Treat it as optional unless the connected daemon advertises it in `tools/list`.
 
 ## Proposal Lifecycle
 
@@ -136,4 +190,4 @@ Discarded proposals no longer appear in the default pending list, but they remai
 - The daemon binds to `127.0.0.1` (localhost) by default.
 - Do not expose the endpoint to untrusted networks.
 - Do not bind to `0.0.0.0` without verified network-level protections.
-- The daemon does not implement authentication — rely on network-layer controls.
+- The daemon does not implement authentication; rely on network-layer controls.

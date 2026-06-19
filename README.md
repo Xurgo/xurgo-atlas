@@ -14,6 +14,7 @@ After the global install, verify the CLI, initialize a project, and print the ca
 
 ```bash
 xurgo-atlas --version
+xurgo-atlas --help
 xurgo-atlas init --template mcp-server --project-id my-project
 xurgo-atlas daemon start
 xurgo-atlas mcp-config --json
@@ -42,7 +43,9 @@ xurgo-atlas mcp-config --json
 
 `xurgo-atlas server` remains the legacy stdio-oriented MCP path for local or direct stdio integrations.
 
-After your client connects, use normal MCP tool/resource discovery and `docs.capabilities` to inspect the live Atlas surface available for that project.
+`xurgo-atlas mcp-config --json` does not modify project source files, managed docs, or Git state, but it may refresh local descriptive root-observation metadata used for runtime safety reporting.
+
+After your client connects, trust live MCP discovery, especially `tools/list`, over static docs or local source checkout when they disagree. `docs.capabilities` is supplemental summary context only, not the authoritative tool registry. Atlas is optional for Studio and other consumers that want governed docs through MCP.
 
 ## What Atlas Is
 
@@ -146,7 +149,7 @@ Each initialized project also gets a local `.xurgo-atlas/project.json` marker th
 
 ### Global project registry
 
-The daemon mode uses a global project registry at `<configDir>/projects.json` to map project IDs to project roots, allowing the daemon to serve multiple projects without knowing their paths in advance. The location is configurable with `--config-dir`.
+The daemon mode uses a global project registry at `<configDir>/projects.json` to map project IDs to project roots. The registry may record multiple projects, but each running daemon instance is bound to one resolved project/root at a time. The location is configurable with `--config-dir`.
 
 ### Git-backed docs history
 
@@ -193,364 +196,16 @@ The `docs.export` tool can export a branch to a target directory, allowing users
 
 ## MCP Tool Reference
 
-The current public MCP tool surface is:
+Use [docs/atlas/daemon-mcp.md](docs/atlas/daemon-mcp.md) as the canonical public reference for the supported CLI and MCP surface.
 
-- `docs.status`
-- `docs.manifest`
-- `docs.read`
-- `docs.read_section`
-- `docs.context_pack`
-- `docs.list`
-- `docs.create_branch`
-- `docs.propose_patch`
-- `docs.propose_document`
-- `docs.preview_diff`
-- `docs.commit_patch`
-- `docs.history`
-- `docs.restore_file`
-- `docs.export`
-- `docs.search`
-- `docs.capabilities`
+The safe discovery order is:
 
-For setup examples and workflow details, see [docs/atlas/daemon-mcp.md](docs/atlas/daemon-mcp.md) and [docs/README.md](docs/README.md).
+1. Run `xurgo-atlas mcp-config --json` to get the client connection boundary and current root-safety metadata.
+2. Connect to the configured daemon or stdio server.
+3. Trust live MCP `tools/list` for the actual tool surface exposed by that running server.
+4. Treat `docs.capabilities` as supplemental summary context only.
 
-### docs.list
-**Purpose:** List all tracked documentation files in a branch.
-**Typical use:** Discover what files are available in a project.
-**Input:**
-```json
-{
-  "projectId": "string (required)",
-  "branch": "string (optional, defaults to \"main\")"
-}
-```
-**Output:**
-```json
-{
-  "projectId": "string",
-  "branch": "string",
-  "revision": "string (Git commit hash of the branch HEAD)",
-  "files": [
-    {
-      "path": "string (file path relative to project root)",
-      "revision": "string (Git commit hash for the file)",
-      "protected": "boolean (whether the file is protected by policy)"
-    }
-  ]
-```
-**Safety behavior:** Read-only operation; no side effects.
-**Common errors:** 
-- Invalid projectId
-- Invalid branch name
-
-### docs.read
-**Purpose:** Read a documentation file from a specific branch.
-**Typical use:** Obtain the current content and revision of a file before proposing changes.
-**Input:**
-```json
-{
-  "projectId": "string (required)",
-  "path": "string (required, file path relative to project root)",
-  "branch": "string (optional, defaults to \"main\")"
-}
-```
-**Output:**
-```json
-{
-  "projectId": "string",
-  "path": "string",
-  "branch": "string",
-  "revision": "string (Git commit hash for the file)",
-  "content": "string (file content)"
-}
-```
-**Error output:**
-```json
-{
-  "error": "string (description of the error)",
-  "projectId": "string",
-  "path": "string",
-  "branch": "string"
-}
-```
-**Safety behavior:** Read-only operation; no side effects.
-**Common errors:**
-- File not found
-- Path traversal detected
-- Invalid projectId or branch
-
-### docs.create_branch
-**Purpose:** Create a new branch for making documentation changes.
-**Typical use:** Create an isolated workspace for a set of changes.
-**Input:**
-```json
-{
-  "projectId": "string (required)",
-  "branch": "string (required, name of the new branch)",
-  "from": "string (optional, defaults to \"main\", name of the source branch)"
-}
-```
-**Output:**
-```json
-{
-  "projectId": "string",
-  "branch": "string",
-  "from": "string",
-  "created": "boolean (true if branch was created)",
-  "revision": "string (Git commit hash of the new branch HEAD)"
-}
-```
-**Error output:**
-```json
-{
-  "error": "string (description of the error, e.g., branch already exists or source branch does not exist)",
-  "projectId": "string",
-  "branch": "string",
-  "from": "string"
-}
-```
-**Safety behavior:** Creates a new Git branch; no risk of data loss.
-**Common errors:**
-- Branch already exists
-- Source branch does not exist
-
-### docs.propose_patch
-**Purpose:** Propose a patch to a documentation file. Validates the patch against policy and checks for risks. Does not apply the change.
-**Typical use:** Submit a change for review before committing.
-**Input:**
-```json
-{
-  "projectId": "string (required)",
-  "branch": "string (required)",
-  "path": "string (required, file path relative to project root)",
-  "baseRevision": "string (required, revision of the file at the time of reading)",
-  "patch": "string (required, unified diff format)",
-  "intent": "string (required, purpose of the change)",
-  "summary": "string (required, brief summary of the change)"
-}
-```
-Accepted patch formats include full git-style unified diffs from `git diff`, complete unified diffs with `--- path` / `+++ path` headers, and complete unified diffs with `--- a/path` / `+++ b/path` headers. Prose-only text, OpenAI `*** Begin Patch` envelopes, and truncated or corrupt hunks are rejected.
-**Output:**
-```json
-{
-  "proposalId": "string (unique identifier for the proposal)",
-  "valid": "boolean (true if proposal passed validation)",
-  "riskLevel": "string (\"high\" or \"low\")",
-  "requiresApproval": "boolean (true if the patch is high-risk and requires explicit approval)",
-  "summary": "string (the summary from input)",
-  "changedFiles": ["string (array containing the path)"],
-  "projectId": "string",
-  "branch": "string",
-  "message": "string (human-readable status message)"
-}
-```
-**Error output:**
-```json
-{
-  "error": "string (description of the validation error)",
-  "projectId": "string",
-  "path": "string",
-  "branch": "string",
-  "proposalId": "string (if applicable)"
-}
-```
-**Safety behavior:** 
-- Validates the patch against the documentation policy.
-- Checks for forbidden operations (e.g., silent deletion, whole-file replacement without baseRevision).
-- Assesses risk (e.g., large deletions, heading removals).
-- Does not modify the repository.
-**Common errors:**
-- Base revision mismatch (file has been modified since read)
-- Path not in tracked documentation paths
-- Missing required metadata
-- Path traversal detected
-- Branch does not exist
-- Forbidden operation detected (based on policy)
-- High-risk changes requiring approval (if riskOverride not provided)
-- AGENTS.md modifications require explicit reference to safety rules in intent/summary
-
-### docs.preview_diff
-**Purpose:** Preview the diff for a previously proposed patch by proposalId.
-**Typical use:** Review the exact changes and risk level before committing.
-**Input:**
-```json
-{
-  "projectId": "string (required)",
-  "proposalId": "string (required)"
-}
-```
-**Output:**
-```json
-{
-  "proposalId": "string",
-  "diff": "string (the unified diff that was proposed)",
-  "riskLevel": "string (\"high\" or \"low\")",
-  "requiresApproval": "boolean",
-  "projectId": "string",
-  "path": "string (file path)",
-  "branch": "string",
-  "summary": "string (proposal summary)"
-}
-```
-**Error output:**
-```json
-{
-  "error": "string (description of the error, e.g., proposal not found or not pending)",
-  "projectId": "string",
-  "proposalId": "string"
-}
-```
-**Safety behavior:** Read-only operation; no side effects.
-**Common errors:**
-- Proposal not found
-- Proposal not in pending status (may be committed, rejected, or stale)
-
-### docs.commit_patch
-**Purpose:** Commit a previously proposed patch by proposalId. Re-validates the base revision before applying.
-**Typical use:** Apply a proposed patch after review.
-**Input:**
-```json
-{
-  "projectId": "string (required)",
-  "proposalId": "string (required)",
-  "actor": "string (optional, defaults to \"unknown\", identifier of the committer)",
-  "riskOverride": "string (optional, must be \"accept\" to override high-risk rejection)"
-}
-```
-**Output:**
-```json
-{
-  "proposalId": "string",
-  "commit": "string (Git commit hash of the new commit)",
-  "changedFiles": ["string (array containing the path)"],
-  "projectId": "string",
-  "branch": "string",
-  "message": "string (human-readable status message)"
-}
-```
-**Error output:**
-```json
-{
-  "error": "string (description of the error, e.g., proposal not found, not pending, stale base revision, or high-risk without override)",
-  "projectId": "string",
-  "proposalId": "string",
-  "path": "string",
-  "branch": "string"
-}
-```
-**Safety behavior:**
-- Re-validates the base revision to prevent lost updates.
-- Re-applies risk assessment (high-risk patches require `riskOverride: "accept"`).
-- Applies the patch as a Git commit.
-- Logs the commit event to the event log.
-**Common errors:**
-- Proposal not found
-- Proposal not pending (may be already committed, rejected, or stale)
-- Base revision mismatch (stale proposal)
-- High-risk patch requires `riskOverride: "accept"`
-- Validation errors (same as propose_patch)
-
-### docs.history
-**Purpose:** View the Git history for a documentation file.
-**Typical use:** See past changes to a file.
-**Input:**
-```json
-{
-  "projectId": "string (required)",
-  "path": "string (required, file path relative to project root)",
-  "branch": "string (optional)",
-  "limit": "number (optional, defaults to 50, maximum number of history entries to return)"
-}
-```
-**Output:**
-```json
-{
-  "projectId": "string",
-  "path": "string",
-  "history": [
-    {
-      "revision": "string (Git commit hash)",
-      "timestamp": "string (ISO 8601 timestamp)",
-      "actor": "string (author of the change)",
-      "summary": "string (commit message or proposal summary)"
-    }
-  ]
-}
-```
-**Safety behavior:** Read-only operation; no side effects.
-**Common errors:**
-- File not found
-- Invalid projectId or branch
-
-### docs.restore_file
-**Purpose:** Restore a file to a previous revision from history.
-**Typical use:** Undo changes by reverting a file to an earlier state.
-**Input:**
-```json
-{
-  "projectId": "string (required)",
-  "path": "string (required, file path relative to project root)",
-  "revision": "string (required, Git commit hash to restore to)",
-  "branch": "string (optional, defaults to \"main\")",
-  "intent": "string (required, purpose of the restore)"
-}
-```
-**Output:**
-```json
-{
-  "restored": "boolean (true if file was restored)",
-  "path": "string",
-  "branch": "string",
-  "commit": "string (Git commit hash of the new commit)",
-  "projectId": "string",
-  "revision": "string"
-}
-```
-**Error output:**
-```json
-{
-  "error": "string (description of the error, e.g., revision not found or path traversal)",
-  "projectId": "string",
-  "path": "string",
-  "revision": "string",
-  "branch": "string"
-}
-```
-**Safety behavior:** 
-- Validates that the revision exists.
-- Prevents path traversal.
-- Records the restore action in the event log.
-**Common errors:**
-- Revision not found for file
-- Path traversal detected
-- Invalid projectId or branch
-
-### docs.export
-**Purpose:** Export documentation from a branch to a target directory.
-**Typical use:** Synchronize Git-managed documentation back to the working tree.
-**Input:**
-```json
-{
-  "projectId": "string (required)",
-  "branch": "string (optional, defaults to \"main\")",
-  "targetDir": "string (optional, defaults to project root)"
-}
-```
-**Output:**
-```json
-{
-  "exported": "boolean (true if export succeeded)",
-  "branch": "string",
-  "files": ["string (array of exported file paths)"],
-  "projectId": "string",
-  "targetDir": "string",
-  "revision": "string (Git commit hash of the branch HEAD)"
-}
-```
-**Safety behavior:** Read-only operation; modifies only the target directory (not the repository).
-**Common errors:**
-- Invalid projectId or branch
-- Target directory not writable
+This matters because a checked-out source tree, static docs, and an already-running daemon can drift. If they disagree, clients should follow the connected server's `tools/list` result.
 
 ## Managing documentation safely
 
