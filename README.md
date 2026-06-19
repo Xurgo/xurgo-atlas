@@ -23,6 +23,8 @@ If you want to try Atlas without installing it first, or keep it pinned inside a
 
 If you're working on Atlas itself, use this repository checkout and the local npm scripts here instead of relying on a previously globally installed copy.
 
+You can sanity-check the installed CLI with `xurgo-atlas -v` or `xurgo-atlas --version`; both print one version line and exit `0`.
+
 `init` writes a local `.xurgo-atlas/project.json` marker in the project root. That marker is sticky: rerunning `init` with the same project id is safe, but Atlas will fail clearly instead of silently rebinding the project root to a different id. Project ids are also globally unique in the registry, so `init` will refuse to register an existing id to a different root.
 
 After init, the normal happy path can run from the project root or a nested subdirectory without repeating `--project-id` and `--project-root`. Explicit flags still work for advanced cases, but Atlas now fails clearly if an explicit project id conflicts with the current project marker or the provided `--project-root`.
@@ -167,8 +169,10 @@ The `docs.export` tool can export a branch to a target directory, allowing users
 
 ## MCP Tool Reference
 
-The current 0.1.1 public tool surface is:
+The current public tool surface is:
 
+- `xurgo-atlas -v`
+- `xurgo-atlas --version`
 - `docs.status`
 - `docs.manifest`
 - `docs.read`
