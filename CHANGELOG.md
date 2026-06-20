@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.1 (2026-06-20)
+
+**README and release-facing documentation recovery.**
+
+- Restored the packaged README and related release-facing documentation guidance so the published `0.2.1` package reflects the current public instructions accurately.
+
 ## v0.2.0 (2026-06-19)
 
 **Release prep for root-safe workflows, project identity, and validation hardening.**
