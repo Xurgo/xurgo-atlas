@@ -22,6 +22,8 @@ The installed CLI entrypoint is `xurgo-atlas`.
 
 If you are developing Atlas from this repo, prefer the checked-out source and local build here over a previously installed global copy. A running daemon or globally installed CLI may be version-skewed from your checkout.
 
+Human-first setup guidance lives in [Setup](./setup.md). This file is the detailed CLI and MCP reference.
+
 ## Daemon Lifecycle and Project Binding
 
 `xurgo-atlas daemon` manages the preferred Streamable HTTP MCP server:
@@ -57,7 +59,7 @@ The bound daemon should not silently serve another project through MCP. MCP requ
 
 The daemon exposes a Streamable HTTP MCP endpoint:
 
-```
+```text
 POST http://127.0.0.1:3737/mcp
 ```
 
@@ -72,7 +74,7 @@ Atlas is optional for Studio and other consumers. Use it when a client wants gov
 
 Run `xurgo-atlas mcp-config` for a human-readable setup summary.
 
-Prefer `xurgo-atlas mcp-config --json` for machine-readable setup. It is the canonical client configuration and discovery boundary.
+Prefer `xurgo-atlas mcp-config --json` when configuring tools. The JSON output is the client setup payload and discovery boundary.
 
 `xurgo-atlas mcp-config --json` does not modify project source files, Atlas-managed docs, or Git state. It may refresh local descriptive root-observation runtime metadata that Atlas uses for root/worktree reporting. It does not start or stop the daemon, and it does not require the daemon to be running.
 
@@ -84,7 +86,7 @@ The JSON output includes:
 - a suggested daemon start command
 - `projectId` and `projectRoot` when the current project can be resolved
 - Git identity fields under `git`
-- the authoritative write-safety snapshot under `safety`
+- the write-safety snapshot under `safety`
 - descriptive root/worktree history under `rootLedger`
 
 ### opencode
@@ -120,28 +122,30 @@ Configure the endpoint `http://127.0.0.1:3737/mcp` with the Streamable HTTP tran
 }
 ```
 
-## Root Context and `safeForWrites`
+## Project Identity and Write Safety
 
-The `safety.safeForWrites` field is the authoritative client signal for mutating Atlas boundaries.
+The `safety.safeForWrites` field is the client signal for mutating Atlas boundaries.
 
-- `safeForWrites: true` means Atlas considers the current resolved project/root binding safe for guarded write flows such as proposal commit, restore, and export.
+- `safeForWrites: true` means Atlas considers the current project folder binding safe for guarded write flows such as proposal commit, restore, and export.
 - `safeForWrites: false` means clients should stay read-only and surface the mismatch or ambiguity to the operator instead of guessing.
 - The other `safety` flags explain why writes are unsafe or ambiguous.
 - `rootLedger` is descriptive context for coordinators and debugging. It does not override `safeForWrites`.
 
-Connected clients can see the same root-safety concepts in managed-doc reads such as `docs.status`, where they are reported under `rootContext`.
+Connected clients can see the same safety concepts in `docs.status`, where they are reported under `rootContext`.
+
+Current v0.2.0 builds also register `atlas.project_identity`, a compact read-only helper that reports the active project/root binding, marker and Git identity, write-safety status, descriptive root-ledger or recovery warnings, and the recommended next step. It does not replace `xurgo-atlas mcp-config --json`; use it after connecting when an MCP client needs a quick identity snapshot.
 
 ## Live Capability Discovery
 
-After a client connects, use normal MCP discovery and treat live `tools/list` from the connected server as the authoritative capability surface.
+After a client connects, use normal MCP discovery and treat live `tools/list` from the connected server as the source of truth for the tools available from that running server.
 
 Trust live `tools/list` over static docs, local source, or checked-out tests when they disagree. A running daemon may be stale or version-skewed from the source tree on disk.
 
-Use `docs.capabilities` only as supplemental summary context. It is useful for broad read/search/write feature posture, but it is not the authoritative tool registry.
+Use `docs.capabilities` only as supplemental summary context. It is useful for broad read/search/write feature posture, but it is not the tool registry.
 
 ## Supported Tools
 
-A fresh live daemon should advertise its supported tools through `tools/list`. The currently supported public `docs.*` surface is:
+A fresh v0.2.0 daemon should advertise its supported tools through `tools/list`. The current public tool set includes:
 
 ### Discovery and read-only context
 
@@ -154,6 +158,7 @@ A fresh live daemon should advertise its supported tools through `tools/list`. T
 - `docs.history`
 - `docs.search`
 - `docs.capabilities`
+- `atlas.project_identity`
 
 ### Guarded branch and proposal workflow
 
@@ -171,7 +176,20 @@ A fresh live daemon should advertise its supported tools through `tools/list`. T
 - `docs.preview_export`
 - `docs.export`
 
-Some current builds also register a compact read-only `atlas.project_identity` helper in addition to the `docs.*` tools above. Treat it as optional unless the connected daemon advertises it in `tools/list`.
+## Read, Search, and Context Workflow
+
+Use the read-only tools before proposing changes:
+
+1. `docs.status` gives a compact project front page, current revision, export status, and project identity/safety context.
+2. `docs.manifest` gives the project document map without reading every document body.
+3. `docs.list` shows Atlas-owned managed docs and per-file revisions.
+4. `docs.read` and `docs.read_section` load exact document content or one Markdown section.
+5. `docs.context_pack` assembles a bounded orientation bundle from status, agent guidance, manifest, requested files, and requested sections.
+6. `docs.search` searches Atlas-managed docs with local lexical search.
+7. `docs.capabilities` summarizes read/search/write posture for clients.
+8. `atlas.project_identity` provides a compact read-only identity and safety snapshot.
+
+These tools read Atlas-managed documentation and context. They do not turn Atlas into a general semantic memory service.
 
 ## Contributor Managed-Doc Workflow
 
@@ -193,11 +211,11 @@ If a document exists both on disk and in the managed branch, read the managed co
 6. Apply it with `docs.commit_patch`.
 7. Check `docs.status` or `docs.preview_export` for reconciliation state. If `exportRequired` or `workingTreeOutOfSync` is `true`, or `outOfSyncPaths` is non-empty, run `docs.export` before direct disk reads, Git commits, or merge preparation.
 
-### 3. Stop when root or worktree safety is not clean
+### 3. Stop when project identity or worktree safety is not clean
 
 `docs.propose_patch`, `docs.propose_document`, `docs.create_branch`, `docs.commit_patch`, `docs.restore_file`, and `docs.export` are guarded write boundaries. If `docs.status.rootContext.safety.safeForWrites` or `xurgo-atlas mcp-config --json` reports `safeForWrites: false`, stop and stay read-only.
 
-Use `rootContext` and `mcp-config --json` to inspect the resolved project root, canonical root, Git worktree/common-dir, current branch, current `HEAD`, and mismatch flags. `rootLedger` and `rootContext.recovery` are descriptive coordinator context; they do not override `safeForWrites`.
+Use `rootContext` and `mcp-config --json` to inspect the resolved project root, Git worktree/common-dir, current branch, current `HEAD`, and mismatch flags. `rootLedger` and `rootContext.recovery` are descriptive coordinator context; they do not override `safeForWrites`.
 
 `docs.discard_proposal` remains the cleanup path for stale uncommitted proposals and can still be used when the current root context is unsafe.
 
@@ -207,7 +225,7 @@ Use `docs.list_proposals` to inspect pending proposals by default, or broaden th
 
 Do not direct-edit Atlas-managed docs on disk as a fallback. If a current policy explicitly permits an exception, cite that policy basis in review or handoff notes, explain why the guarded path could not be used, and reconcile the managed branch and working tree afterward instead of leaving the exception undocumented.
 
-### 5. Keep managed truth and source truth separate
+### 5. Keep Atlas-stored docs and source files separate
 
 The Atlas-managed branch snapshot and the checked-out Git working tree are related but separate state surfaces. `docs.commit_patch` updates managed branch content; it does not refresh the source checkout by itself.
 
@@ -215,15 +233,19 @@ Treat `docs.preview_export` as the read-only reconciliation check and `docs.expo
 
 After a source branch is merged, later reconciliation between the merged source branch and the corresponding Atlas-managed branch may still be required. Do not assume a Git merge updates managed `main` automatically.
 
-## Proposal Lifecycle
+## Proposal and Export Lifecycle
 
 Atlas proposals are audit records, not disposable scratch files. The normal lifecycle is `pending` -> `committed`, and uncommitted work can also end up in `stale`, `rejected`, or `discarded` states when validation changes or a draft is cleaned up.
 
 Use `docs.list_proposals` to inspect active or historical proposal records. By default it returns pending proposals so stale internal drafts are easy to spot before they linger, and it can also be broadened to show committed or discarded records when you need a fuller audit view.
 
-Use `docs.discard_proposal` when you need to retire a pending or otherwise uncommitted proposal by exact proposal id. The discard operation preserves the stored record, does not touch disk or the manifest for an uncommitted draft, and keeps committed proposals protected from discard by default. That makes it the recovery cleanup path when the root context is unsafe, because it does not depend on managed-doc write safety.
+Use `docs.discard_proposal` when you need to retire a pending or otherwise uncommitted proposal by exact proposal id. The discard operation preserves the stored record, does not touch disk or the manifest for an uncommitted draft, and keeps committed proposals protected from discard by default.
 
-After a proposal is committed, `docs.preview_export` is read-only with respect to disk, managed document content, manifest state, proposal state, and working-tree files. It shows what `docs.export` would add, modify, or overwrite on disk before any export write happens. The preview reports managed and source revisions when available, highlights drift and overwrite risk, and is especially helpful when managed state or the checked-out source branch may be stale. `rootContext.recovery` adds descriptive pending-proposal counts, foreign-root proposal signals, and the latest preview/export recovery breadcrumbs so coordinators can see when cleanup may be needed. Atlas may record those recovery breadcrumbs in internal event storage for later status and preview reporting, but that breadcrumb write is best-effort only and must not make `docs.preview_export` fail when the preview itself succeeds. Those recovery fields do not change enforcement: `safety.safeForWrites` and the existing `docs.export` guard remain authoritative, and `docs.discard_proposal` remains the cleanup path for stale pending proposals. `docs.export` remains the mutating step that reconciles Atlas-managed branch content back to the working tree when the exported files need to be visible on disk. That export step remains separate from proposal cleanup and does not run when a draft is merely discarded.
+After a proposal is committed, `docs.preview_export` shows what `docs.export` would add, modify, or overwrite on disk before any export write happens. The preview reports managed and source revisions when available, highlights drift and overwrite risk, and is especially helpful when the Atlas-stored docs or checked-out source branch may be stale.
+
+`docs.preview_export` is read-only with respect to disk, managed document content, manifest state, proposal state, and working-tree files. Atlas may record best-effort internal recovery breadcrumbs for later status and preview reporting, but that breadcrumb write must not make the preview fail when the preview payload itself succeeds.
+
+`docs.export` remains the mutating step that reconciles Atlas-managed branch content back to the working tree when the exported files need to be visible on disk. Export does not discard proposals or replace proposal cleanup.
 
 Discarded proposals no longer appear in the default pending list, but they remain available in audit history and in broader `docs.list_proposals` queries.
 

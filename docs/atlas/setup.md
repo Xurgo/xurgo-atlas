@@ -13,25 +13,32 @@ Install Xurgo Atlas globally for the normal CLI workflow:
 npm install -g xurgo-atlas
 ```
 
-If you want to try Atlas without installing it first, or keep it pinned inside a repo, use `npx xurgo-atlas ...` instead. For project-local automation, install it as a dev dependency with `npm install -D xurgo-atlas`.
+Other supported invocation paths:
+
+- `npx xurgo-atlas ...` for ad hoc use without a global install
+- `npm install -D xurgo-atlas` for project-local automation
+- this repository checkout plus a current local build when you are working on Atlas itself
 
 Verify that the CLI is available:
 
 ```bash
 xurgo-atlas --version
+xurgo-atlas --help
 ```
 
 Initialize Atlas in the project you want it to govern:
 
 ```bash
-xurgo-atlas init --project-id my-project --project-root .
+xurgo-atlas init --project-id my-project
 ```
 
-`init` writes a local `.xurgo-atlas/project.json` marker in the project root. The marker stores the project id only, not an absolute project root. That identity is sticky: Atlas preserves the matching marker for the same project id, fails clearly instead of overwriting it with a different project id, and refuses to register the same project id to a different root.
+Use `--project-root <path>` when you want to initialize a directory other than the current one.
 
-After init, `daemon start`, `list`, `history`, and `export` can resolve the current project from the project root or a nested subdirectory without repeating `--project-id` or `--project-root`. Explicit flags still work for advanced cases, but conflicting project identity fails clearly instead of silently serving the wrong project.
+`init` writes a local `.xurgo-atlas/project.json` marker in the project root. The marker stores the project id only, not an absolute path. Atlas preserves a matching marker, fails clearly instead of overwriting it with a different project id, and refuses to register the same project id to a different root.
 
-Start the daemon and obtain the canonical MCP config:
+After init, `daemon start`, `status`, `list`, `history`, `export`, and `mcp-config --json` can resolve the current project from the project root or a nested subdirectory without repeating `--project-id` or `--project-root`. Explicit flags still work for advanced cases, but conflicting project identity fails clearly instead of silently serving the wrong project.
+
+Start the daemon and print JSON config for MCP clients:
 
 ```bash
 xurgo-atlas daemon start
@@ -39,7 +46,7 @@ xurgo-atlas status
 xurgo-atlas mcp-config --json
 ```
 
-Use your MCP client's normal tool and resource discovery after connecting. `docs.capabilities` reports the live Atlas read/search/write surface for the resolved project.
+Use your MCP client's normal tool and resource discovery after connecting. `tools/list` on the connected server is the source of truth for the available tools, while `docs.capabilities` gives a compact summary of Atlas read/search/write posture.
 
 Atlas is a local-first documentation and durable project-context service. It is not an agent runtime, workspace manager, session store, general memory database, or a replacement for Git truth.
 
@@ -68,9 +75,14 @@ Templates are documentation templates, not app-code scaffolds. They create missi
 | `mcp-server` | MCP server with tool/resource surface, daemon setup, and safety boundaries |
 | `web-app` | Web application with product brief, route structure, and frontend architecture |
 
-**Existing docs are preserved by default.** Templates create missing files only. For a cloned repo that already has project docs, usually omit `--template` — plain `init --project-id <id>` is the standard workflow. Use `--template <name>` for new/empty projects or when intentionally filling missing docs.
+Existing docs are preserved. For a cloned repo that already has project docs, usually omit `--template` and run plain `init --project-id <id>`. Use `--template <name>` for new or empty projects, or when intentionally filling missing docs.
 
-For advanced configuration — custom storage roots, daemon options, or legacy migration — see the reference docs linked from [docs/README.md](../README.md).
+Next references:
+
+- [Daemon, CLI & MCP Reference](./daemon-mcp.md) for endpoint details, client setup, live tool discovery, and guarded document workflows
+- [Root / Worktree Safety Model](./root-worktree-safety.md) for project identity and write/export safety
+- [Storage Migration](./storage-migration.md) for custom storage roots and legacy storage migration
+- [Documentation Overview](../README.md) for the rest of the docs map
 
 ## Contributor Checkout & Validation
 
@@ -83,7 +95,7 @@ npm install
 npm run build
 ```
 
-The CLI binary is `xurgo-atlas` (via `npm start` or `node dist/index.js`).
+The CLI binary is `xurgo-atlas` in the published package. From this repository checkout, use `npm start` or `node dist/index.js` after building.
 
 ## Build & Test
 
@@ -105,11 +117,11 @@ npm test
 
 This project uses three layers beyond the test suite:
 
-- **`npm run validate:*`** — Repo-level validation gates (tests + build)
-- **`npm run verify:*`** — Installed-package runtime smoke checks
-- **`npm run bundle:*`** — Local private RC artifact bundle generation
+- `npm run validate:*` - repo-level validation gates (tests + build)
+- `npm run verify:*` - installed-package runtime smoke checks
+- `npm run bundle:*` - local private RC artifact bundle generation
 
-See [docs/atlas/development-workflow.md](./development-workflow.md) for the complete reference on validation tiers, smoke testing, artifact generation, and script naming conventions.
+See [Development Workflow](./development-workflow.md) for the complete reference on validation tiers, smoke testing, artifact generation, and script naming conventions.
 
 ## NPM Pack (Dry Run)
 

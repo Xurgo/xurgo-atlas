@@ -1,13 +1,14 @@
 # Release Checklist
 
-> **Status:** Pre-release. A passed documentation checkpoint, private RC review, or managed-doc sync does not authorize a public release.
-> Public release remains unauthorized until a separate release-readiness audit passes for the target commit and explicit approval is given.
+> **Status:** Public package release maintenance is gated. A passed documentation checkpoint, private RC review, managed-doc sync, or previous public release does not authorize a new release.
+> Any public npm publish, tag, GitHub release, or release metadata change requires a separate release-readiness audit for the exact target commit and explicit approval for that action.
 
 ## Release Authorization Gate
 
 - [ ] A separate release-readiness audit has passed for the exact target commit and target environment
-- [ ] Explicit approval has been given for the specific public release action
+- [ ] Explicit approval has been given for the specific release action
 - [ ] Current documentation checkpoints are treated as evidence only; they do not replace the release-readiness audit
+- [ ] The current public package state has been verified before any new version, tag, publish, or GitHub release is prepared
 
 ## Pre-Release Validation
 
@@ -22,22 +23,22 @@
 ## Documentation
 
 - [ ] README is current and accurate
-- [ ] Setup/install instructions are up to date ([docs/setup.md](./setup.md))
-- [ ] Daemon/MCP configuration is documented ([docs/daemon-mcp.md](./daemon-mcp.md))
+- [ ] Setup/install instructions are up to date ([docs/atlas/setup.md](./setup.md))
+- [ ] Daemon/MCP configuration is documented ([docs/atlas/daemon-mcp.md](./daemon-mcp.md))
 - [ ] Daemon/MCP configuration documents the current single-project-bound daemon behavior and does not present deferred topology work as available today
-- [ ] Storage migration flow is documented ([docs/storage-migration.md](./storage-migration.md))
+- [ ] Storage migration flow is documented ([docs/atlas/storage-migration.md](./storage-migration.md))
 - [ ] Development workflow is documented ([docs/atlas/development-workflow.md](./development-workflow.md))
 - [ ] Init templates are documented (available templates, `--template`, `-t`, `--templates`, existing-doc preservation)
-- [ ] Project-resolution hardening tracker is current ([docs/project-resolution-hardening.md](./project-resolution-hardening.md))
+- [ ] Project-resolution hardening tracker is current ([docs/atlas/project-resolution-hardening.md](./project-resolution-hardening.md))
 - [ ] Release checklist is current
 - [ ] Guarded docs are current: `STATUS.md`, `AGENTS.md`, `docs/manifest.yml`, `.docs-policy.yml`
 - [ ] Managed `main`, source `main`, and the release working tree agree for release-facing docs; a clean Git tree alone is not enough for release readiness
 - [ ] Git merges do not update Atlas-managed `main` automatically; if release-facing docs changed on a merged source branch, managed `main` has been reconciled separately before release
-- [ ] After `docs.commit_patch` or `docs.restore_file`, managed state may be ahead of disk; use `docs.read` for the latest content and run `docs.export` before direct disk reads, Git commits, release prep, or publishing. If `docs.status` or `docs.export` reports `exportRequired`, `workingTreeOutOfSync`, or `outOfSyncPaths`, treat `docs.export` as the next step.
+- [ ] After `docs.commit_patch` or `docs.restore_file`, Atlas-stored docs may be ahead of disk; use `docs.read` for the latest content and run `docs.export` before direct disk reads, Git commits, release prep, or publishing. If `docs.status`, `docs.preview_export`, or `docs.export` reports `exportRequired`, `workingTreeOutOfSync`, or `outOfSyncPaths`, treat export/reconciliation as the next step.
 
 ## Private RC Bundle Dummy-Project Reviewer Workflow
 
-This workflow is a private readiness checkpoint for local reviewer confidence. It does not authorize version bumps, tagging, npm publication, or a GitHub release.
+This workflow is a private readiness checkpoint for local reviewer confidence. It does not authorize version bumps, tagging, npm publication, GitHub releases, or release metadata changes.
 
 - **Source repo:** run `npm run bundle:private-rc` here, keep the tree clean, and do not use this checkout as the dummy consumer project.
 - **Private RC bundle directory:** use `artifacts/private-rc/<timestamp>-<short-head>/` as the generated artifact bundle. It contains `xurgo-atlas-<version>.tgz`, `PRIVATE_REVIEWER_CHECKLIST.md`, `REVIEWER_INSTALL_SMOKE.mjs`, `SHA256SUMS.txt`, `MANIFEST.json`, `PRIVATE_RC_SUMMARY.md`, and related bundle files. Run bundle-local `npm run smoke` here. Do not treat this directory as the project being documented.
@@ -109,20 +110,20 @@ Current GitHub Actions CI runs `npm run validate:quick` on pull requests and pus
 6. [ ] Reviewer confirms the bundle checklist separates the source repo, bundle directory, and dummy consumer project
 7. [ ] Reviewer marks approval (or documents issues found)
 
-### Public npm Release (Future Gated Steps)
+### Public npm Release Maintenance
 
 1. [ ] Confirm the separate release-readiness audit has passed for the target commit and environment
 2. [ ] Run `npm run validate:full` on a clean working tree at the target commit
 3. [ ] Run `npm run verify:installed` to confirm installed-package behavior
 4. [ ] Confirm release-facing docs have managed `main`, source `main`, and working-tree parity
-5. [ ] Confirm `XURGO_ATLAS_PUBLISH=1` is set in the environment — `prepublishOnly` blocks `npm publish` without it
+5. [ ] Confirm `XURGO_ATLAS_PUBLISH=1` is set in the environment - `prepublishOnly` blocks `npm publish` without it
 6. [ ] `LICENSE` file exists and `package.json` license field is `MIT`
-7. [ ] Update version in `package.json`
+7. [ ] Update version in `package.json` only as part of an approved release change
 8. [ ] Create release commit
 9. [ ] Tag the release
 10. [ ] Push the release commit and tag
-11. [ ] Run `npm publish` (only with **explicit approval**, requires `XURGO_ATLAS_PUBLISH=1`)
-12. [ ] Create the GitHub release from the pushed tag (manual step; current CI does not publish or create releases)
+11. [ ] Run `npm publish` only with explicit approval and `XURGO_ATLAS_PUBLISH=1`
+12. [ ] Create the GitHub release from the pushed tag as a manual step; current CI does not publish or create releases
 13. [ ] Verify installed package works end-to-end (`npm install -g xurgo-atlas`)
 
 ## Post-Release Verification
@@ -132,8 +133,8 @@ Current GitHub Actions CI runs `npm run validate:quick` on pull requests and pus
 - [ ] `xurgo-atlas --help` lists expected commands, and `xurgo-atlas -v` / `--version` print one clean version line
 - [ ] MCP server starts in stdio mode
 - [ ] Daemon starts and MCP endpoint responds
-- [ ] Guarded docs workflow works end-to-end (list → read → propose → preview → commit)
+- [ ] Guarded docs workflow works end-to-end (list -> read -> propose -> preview -> commit)
 
 ---
 
-> **Important:** This project is not publicly released. Do not bump versions, tag, publish, or create a GitHub release until a separate release-readiness audit passes and explicit approval is given.
+> **Important:** Do not bump versions, tag, publish, create a GitHub release, or alter release metadata until a separate release-readiness audit passes and explicit approval is given for the specific release action.
