@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.2.0 (2026-06-19)
+
+**Release prep for root-safe workflows, project identity, and validation hardening.**
+
+### Features
+
+- Added stable `xurgo-atlas -v` and `xurgo-atlas --version` output for clean consumer CLI version checks.
+- Added optional `atlas.project_identity`, a read-only MCP tool for project/root binding, Git identity, and root-safety visibility.
+- Added `docs.preview_export`, a read-only preview of managed-doc export drift, overwrite risk, and next-step guidance.
+- Added proposal cleanup surfaces with `docs.list_proposals` and `docs.discard_proposal` for stale uncommitted work.
+
+### Workflow
+
+- Expanded `xurgo-atlas mcp-config --json` and `docs.status` with root/worktree context, `safeForWrites`, and recovery guidance for safer managed-doc lifecycle decisions.
+- Hardened guarded write/export behavior so ambiguous or unsafe root contexts fail closed while supported safe-root workflows stay compatible.
+- Clarified install, first-run, daemon/MCP, and contributor workflow guidance, including live discovery and managed-doc drift handling.
+- Hardened Node 22 clean-checkout validation so `validate:full` builds before tests and release-style checks exercise real built CLI artifacts.
+
+### Notes
+
+- Remediated the transitive Hono advisory in the published dependency set without changing intended package behavior.
+- This release remains backward-compatible for normal initialized Atlas workflows; the new root/worktree guardrails mainly affect ambiguous or mismatched checkouts.
+
 ## v0.1.2 (2026-06-16)
 
 **Public release prep for Atlas docs lifecycle and search updates.**
