@@ -23,7 +23,7 @@
     "test:integration": "vitest run tests/project.test.ts tests/daemon.test.ts tests/daemon-lifecycle.test.ts tests/http-server.test.ts",
     "test:watch": "vitest",
     "validate:quick": "npm run test:fast && npm run build",
-    "validate:full": "npm test && npm run build && npm_config_cache=/tmp/xurgo-atlas-npm-cache npm pack --dry-run",
+    "validate:full": "npm run build && npm test && npm_config_cache=/tmp/xurgo-atlas-npm-cache npm pack --dry-run",
     "verify:installed": "node scripts/happy-path-smoke.mjs",
     "bundle:private-rc": "node scripts/private-rc-artifact.mjs",
     "prepublishOnly": "node -e \"if(process.env.npm_command==='publish'&&!process.env.XURGO_ATLAS_PUBLISH){console.error('PUBLISH BLOCKED: set XURGO_ATLAS_PUBLISH=1 to publish');process.exit(1)}\" && npm run build"
