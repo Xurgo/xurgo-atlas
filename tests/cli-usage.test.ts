@@ -20,6 +20,8 @@ import * as storageCli from '../src/cli/storage.js';
 import * as storageCore from '../src/core/storage.js';
 import * as statusCli from '../src/cli/status.js';
 import { getStatusUsageText, statusCommand } from '../src/cli/status.js';
+import * as doctorCli from '../src/cli/doctor.js';
+import { getDoctorUsageText, doctorCommand } from '../src/cli/doctor.js';
 import * as mcpConfigCli from '../src/cli/mcp-config.js';
 import { getMcpConfigUsageText, mcpConfigCommand } from '../src/cli/mcp-config.js';
 import { getServerUsageText } from '../src/cli/init.js';
@@ -161,6 +163,14 @@ describe('CLI usage text', () => {
     expect(output).toContain('xurgo-atlas status');
   });
 
+  it('lists doctor in the main help text', () => {
+    const output = getUsageText();
+
+    expect(output).toContain('doctor     Show a bounded diagnostic snapshot (read-only)');
+    expect(output).toContain('xurgo-atlas doctor');
+    expect(output).toContain('xurgo-atlas doctor --json');
+  });
+
   it('lists mcp-config in the main help text', () => {
     const output = getUsageText();
 
@@ -176,6 +186,15 @@ describe('CLI usage text', () => {
     expect(output).toContain('read-only');
     expect(output).toContain('--config-dir');
     expect(output).toContain('--data-dir');
+  });
+
+  it('shows dedicated doctor help text', () => {
+    const output = getDoctorUsageText();
+
+    expect(output).toContain('Show a bounded Xurgo Atlas diagnostic snapshot');
+    expect(output).toContain('xurgo-atlas doctor [options]');
+    expect(output).toContain('--json');
+    expect(output).toContain('strictly read-only');
   });
 
   it.each([
@@ -247,6 +266,24 @@ describe('CLI usage text', () => {
     expect(result.stderr).toContain('Error: --project-id is required for init');
     expect(initSpy).not.toHaveBeenCalled();
     expect(storageSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches doctor without calling status or mcp-config surfaces', async () => {
+    const doctorSpy = vi.spyOn(doctorCli, 'doctorCommand').mockResolvedValue(undefined);
+    const statusSpy = vi.spyOn(statusCli, 'statusCommand').mockResolvedValue(undefined);
+    const mcpConfigSpy = vi.spyOn(mcpConfigCli, 'mcpConfigCommand').mockResolvedValue(undefined);
+
+    const result = await runMainWithArgs(['node', 'xurgo-atlas', 'doctor', '--json']);
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr).toBe('');
+    expect(doctorSpy).toHaveBeenCalledWith({
+      configDir: undefined,
+      dataDir: undefined,
+      json: true,
+    });
+    expect(statusSpy).not.toHaveBeenCalled();
+    expect(mcpConfigSpy).not.toHaveBeenCalled();
   });
 
   it('presents Xurgo Atlas as the primary project command name', () => {
