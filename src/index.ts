@@ -44,6 +44,11 @@ COMMANDS:
     --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
     --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
 
+  doctor     Show a bounded diagnostic snapshot (read-only)
+    --json                  Print output as machine-readable JSON only
+    --config-dir <path>     Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+    --data-dir <path>       Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
+
   storage    Inspect Atlas-vs-legacy managed storage (read-only)
     inspect                 Show selected roots, candidates, registry state, and runtime artifacts
     migrate --dry-run       Plan a future legacy-to-Atlas migration without making changes
@@ -84,6 +89,8 @@ EXAMPLES:
   xurgo-atlas daemon start
   xurgo-atlas daemon status
   xurgo-atlas status
+  xurgo-atlas doctor
+  xurgo-atlas doctor --json
   xurgo-atlas storage inspect
   xurgo-atlas storage migrate --dry-run
   xurgo-atlas storage migrate --apply
@@ -158,6 +165,9 @@ function parseArgv(argv: string[]): Record<string, string | string[]> {
     } else if (arg === '--templates') {
       args['templates'] = 'true';
       i++;
+    } else if (arg === '--json') {
+      args['json'] = 'true';
+      i++;
     } else if (arg.startsWith('--')) {
       i++;
     } else {
@@ -190,6 +200,7 @@ export async function main(): Promise<void> {
     { daemonCommand, getDaemonUsageText },
     { getStorageMigrationNotImplementedMessage, printStorageUsage, storageInspectCommand, storageMigrateCommand },
     { statusCommand, printStatusUsage },
+    { doctorCommand, printDoctorUsage },
     { mcpConfigCommand, printMcpConfigUsage },
     { emitStorageDiagnostics, resolveStorageRoots },
   ] = await Promise.all([
@@ -198,6 +209,7 @@ export async function main(): Promise<void> {
     import('./cli/daemon.js'),
     import('./cli/storage.js'),
     import('./cli/status.js'),
+    import('./cli/doctor.js'),
     import('./cli/mcp-config.js'),
     import('./core/storage.js'),
   ]);
@@ -404,6 +416,19 @@ export async function main(): Promise<void> {
         process.exit(0);
       }
       await statusCommand({ configDir, dataDir });
+      break;
+    }
+
+    case 'doctor': {
+      if (hasHelpFlag(rawArgs)) {
+        printDoctorUsage();
+        process.exit(0);
+      }
+      await doctorCommand({
+        configDir,
+        dataDir,
+        json: args['json'] === 'true',
+      });
       break;
     }
 
