@@ -19,9 +19,9 @@ This directory contains Atlas-managed project documentation. Start with the user
 
 ## Contributor and Release Work
 
-- [Setup](./atlas/setup.md#contributor-checkout--validation) - repository checkout and basic validation commands
-- [Development Workflow](./atlas/development-workflow.md) - validation tiers, smoke tests, private RC artifacts, and managed-doc export drift boundaries
-- [Release Checklist](./atlas/release-checklist.md) - release authorization gates, validation, public package release maintenance, and post-release checks
+- [Setup](./atlas/setup.md#contributor-checkout--validation) - repository checkout, public consumer Node prerequisites, and basic validation commands
+- [Development Workflow](./atlas/development-workflow.md) - internal `.nvmrc` toolchain, validation tiers, release preflight, private RC artifacts, and managed-doc export drift boundaries
+- [Release Checklist](./atlas/release-checklist.md) - release preflight, authorization gates, user-operated npm publication, and post-release checks
 
 ## Advanced, Historical, and Design Material
 

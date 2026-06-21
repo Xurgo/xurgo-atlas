@@ -1,7 +1,7 @@
 # Release Checklist
 
 > **Status:** Public package release maintenance is gated. A passed documentation checkpoint, private RC review, managed-doc sync, or previous public release does not authorize a new release.
-> Any public npm publish, tag, GitHub release, or release metadata change requires a separate release-readiness audit for the exact target commit and explicit approval for that action.
+> Any public npm publish, tag, GitHub release, or release metadata change requires a separate release-readiness audit for the exact target commit and explicit approval for that action. Public npm publication is user-operated only; agents may prepare, package-verify, run read-only post-publish verification, and perform tag or GitHub release actions only when those actions are separately authorized.
 
 ## Release Authorization Gate
 
@@ -9,6 +9,12 @@
 - [ ] Explicit approval has been given for the specific release action
 - [ ] Current documentation checkpoints are treated as evidence only; they do not replace the release-readiness audit
 - [ ] The current public package state has been verified before any new version, tag, publish, or GitHub release is prepared
+
+## Internal Release Toolchain
+
+- [ ] Maintainer, CI, validation, packing, and release-preparation commands are running on the `.nvmrc` runtime, currently Node `22.17.0`
+- [ ] `nvm use` succeeds from the repository root before npm validation or release-preparation commands
+- [ ] The internal Node `22.17.0` pin is treated as separate from public consumer compatibility; `package.json` `engines` remains the consumer policy
 
 ## Pre-Release Validation
 
@@ -19,6 +25,7 @@
 - [ ] No whitespace errors (`git diff --check HEAD`)
 - [ ] Pack dry-run succeeds (`npm pack --dry-run`)
 - [ ] Full validation passes (`npm run validate:full`)
+- [ ] Release prepare preflight passes before user-operated npm publication (`npm run release:preflight -- --stage=prepare`)
 
 ## Documentation
 
@@ -98,7 +105,9 @@ npx xurgo-atlas mcp-config
 
 ## Release Steps
 
-Current GitHub Actions CI runs `npm run validate:quick` on pull requests and pushes to `main`. It does not tag, publish, or create GitHub releases.
+Current GitHub Actions CI runs `npm run validate:quick` on pull requests and pushes to `main` using the repository `.nvmrc` runtime. It does not tag, publish, or create GitHub releases.
+
+Normal public sequence: agent preflight and package verification -> user-operated npm publication -> agent read-only publication verification -> separately authorized tag and GitHub release completion.
 
 ### Private RC (Local Bundle)
 
@@ -113,18 +122,20 @@ Current GitHub Actions CI runs `npm run validate:quick` on pull requests and pus
 ### Public npm Release Maintenance
 
 1. [ ] Confirm the separate release-readiness audit has passed for the target commit and environment
-2. [ ] Run `npm run validate:full` on a clean working tree at the target commit
-3. [ ] Run `npm run verify:installed` to confirm installed-package behavior
-4. [ ] Confirm release-facing docs have managed `main`, source `main`, and working-tree parity
-5. [ ] Confirm `XURGO_ATLAS_PUBLISH=1` is set in the environment - `prepublishOnly` blocks `npm publish` without it
-6. [ ] `LICENSE` file exists and `package.json` license field is `MIT`
-7. [ ] Update version in `package.json` only as part of an approved release change
-8. [ ] Create release commit
-9. [ ] Tag the release
-10. [ ] Push the release commit and tag
-11. [ ] Run `npm publish` only with explicit approval and `XURGO_ATLAS_PUBLISH=1`
-12. [ ] Create the GitHub release from the pushed tag as a manual step; current CI does not publish or create releases
-13. [ ] Verify installed package works end-to-end (`npm install -g xurgo-atlas`)
+2. [ ] Run `nvm use` from the repository root and verify Node matches `.nvmrc`
+3. [ ] Confirm release-facing docs have managed `main`, source `main`, and working-tree parity
+4. [ ] Update version in `package.json` only as part of an approved release change
+5. [ ] Run `npm run release:preflight -- --stage=prepare`; the intended package version must be unpublished and local tag, remote tag, and GitHub release state must be absent
+6. [ ] Run `npm run validate:full` on a clean working tree at the target commit
+7. [ ] Run `npm run verify:installed` and `npm pack --dry-run` to confirm installed-package and package-content behavior
+8. [ ] `LICENSE` file exists and `package.json` license field is `MIT`
+9. [ ] Create the release commit
+10. [ ] User completes public npm publication; agents must not run `npm publish`, including retries
+11. [ ] Run `npm run release:preflight -- --stage=finalize`; the intended package version must be published while local tag, remote tag, and GitHub release state remain absent
+12. [ ] Tag the release only after separate explicit authorization for the tag action
+13. [ ] Push the release commit and tag only after separate explicit authorization for the push action
+14. [ ] Create the GitHub release only after separate explicit authorization for the GitHub release action; current CI does not publish or create releases
+15. [ ] Verify installed package works end-to-end (`npm install -g xurgo-atlas`)
 
 ## Post-Release Verification
 
@@ -137,4 +148,4 @@ Current GitHub Actions CI runs `npm run validate:quick` on pull requests and pus
 
 ---
 
-> **Important:** Do not bump versions, tag, publish, create a GitHub release, or alter release metadata until a separate release-readiness audit passes and explicit approval is given for the specific release action.
+> **Important:** Do not bump versions, tag, create a GitHub release, or alter release metadata until a separate release-readiness audit passes and explicit approval is given for the specific release action. Do not run `npm publish` as an agent action; public npm publication is user-operated only.
