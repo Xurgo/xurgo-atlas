@@ -4,6 +4,10 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { GitStore } from '../core/git-store.js';
 import { buildRootLedgerIdentityKey } from '../core/root-ledger.js';
+import {
+  readExistingRootLedgerSummary,
+  readRecoveryEvidence,
+} from '../core/read-only-managed-state.js';
 import { StoragePaths, type StorageConfig, resolveStorageRoots } from '../core/storage.js';
 
 const execFileAsync = promisify(execFile);
@@ -970,71 +974,22 @@ async function readRootLedgerSnapshot(
   dbPath: string,
   identity: Parameters<typeof buildRootLedgerIdentityKey>[0],
 ): Promise<RootLedgerSnapshot> {
-  if (!fs.existsSync(dbPath)) {
-    return unavailableRootLedgerSnapshot('root ledger storage is unavailable');
-  }
-
-  try {
-    if (!await sqliteTableExists(dbPath, 'root_worktree_ledger')) {
-      return unavailableRootLedgerSnapshot('root ledger table is unavailable');
-    }
-
-    const identityKey = buildRootLedgerIdentityKey(identity);
-    const aggregateRows = await readSqliteJsonQuery(dbPath, `
-      SELECT
-        COUNT(*) AS knownObservationCount,
-        COUNT(DISTINCT canonical_project_root) AS distinctCanonicalProjectRootCount,
-        COUNT(DISTINCT git_worktree_root) AS distinctGitWorktreeRootCount,
-        COUNT(DISTINCT git_common_dir) AS distinctGitCommonDirCount,
-        MAX(last_seen_at) AS lastObservedAt
-      FROM root_worktree_ledger
-      WHERE project_id = ?
-    `, [identity.projectId]);
-    const aggregate = aggregateRows[0] as {
-      knownObservationCount: number;
-      distinctCanonicalProjectRootCount: number;
-      distinctGitWorktreeRootCount: number;
-      distinctGitCommonDirCount: number;
-      lastObservedAt: string | null;
-    } | undefined;
-    const currentRows = await readSqliteJsonQuery(dbPath, `
-      SELECT observation_count
-      FROM root_worktree_ledger
-      WHERE project_id = ? AND identity_key = ?
-    `, [identity.projectId, identityKey]);
-    const current = currentRows[0] as { observation_count: number } | undefined;
-
-    if (!aggregate) {
-      return unavailableRootLedgerSnapshot('root ledger summary is unavailable');
-    }
-
-    const warnings: string[] = [];
-    if (aggregate.distinctCanonicalProjectRootCount > 1) {
-      warnings.push('multiple canonical project roots observed for this project');
-    }
-    if (aggregate.distinctGitWorktreeRootCount > 1) {
-      warnings.push('multiple git worktree roots observed for this project');
-    }
-    if (aggregate.distinctGitCommonDirCount > 1) {
-      warnings.push('multiple git common directories observed for this project');
-    }
-
-    return {
-      available: true,
-      severity: warnings.length > 0 ? 'warn' : 'ok',
-      knownObservationCount: aggregate.knownObservationCount,
-      currentObservationCount: current?.observation_count ?? null,
-      distinctCanonicalProjectRootCount: aggregate.distinctCanonicalProjectRootCount,
-      distinctGitWorktreeRootCount: aggregate.distinctGitWorktreeRootCount,
-      distinctGitCommonDirCount: aggregate.distinctGitCommonDirCount,
-      lastObservedAt: aggregate.lastObservedAt,
-      warnings,
-    };
-  } catch (error) {
-    return unavailableRootLedgerSnapshot(
-      error instanceof Error ? error.message : String(error),
-    );
-  }
+  const summary = await readExistingRootLedgerSummary(dbPath, identity);
+  return {
+    available: summary.available,
+    severity: summary.available
+      ? summary.warnings.length > 0
+        ? 'warn'
+        : 'ok'
+      : 'unknown',
+    knownObservationCount: summary.knownObservationCount,
+    currentObservationCount: summary.currentObservationCount,
+    distinctCanonicalProjectRootCount: summary.distinctCanonicalProjectRootCount,
+    distinctGitWorktreeRootCount: summary.distinctGitWorktreeRootCount,
+    distinctGitCommonDirCount: summary.distinctGitCommonDirCount,
+    lastObservedAt: summary.lastObservedAt,
+    warnings: summary.warnings,
+  };
 }
 
 function unavailableRootLedgerSnapshot(reason: string): RootLedgerSnapshot {
@@ -1055,76 +1010,38 @@ async function readRecoverySnapshot(
   dbPath: string,
   identity: Parameters<typeof buildRootLedgerIdentityKey>[0],
 ): Promise<DoctorSnapshot['recovery']> {
-  if (!fs.existsSync(dbPath)) {
-    return unavailableRecoverySnapshot('event log is unavailable');
+  const evidence = await readRecoveryEvidence(dbPath, identity);
+  if (!evidence.available) {
+    return unavailableRecoverySnapshot(evidence.unavailableReason ?? 'recovery evidence unavailable');
   }
 
-  try {
-    if (!await sqliteTableExists(dbPath, 'doc_proposals') || !await sqliteTableExists(dbPath, 'doc_events')) {
-      return unavailableRecoverySnapshot('recovery tables are unavailable');
-    }
+  const warnings: string[] = [];
 
-    const pendingRows = await readSqliteJsonQuery(dbPath, `
-      SELECT metadata_json
-      FROM doc_proposals
-      WHERE project_id = ? AND status = 'pending'
-    `, [identity.projectId]) as Array<{ metadata_json: string | null }>;
-
-    const identityKey = buildRootLedgerIdentityKey(identity);
-    let pendingCurrentRootProposalCount = 0;
-    let pendingForeignRootProposalCount = 0;
-    let pendingUnknownRootProposalCount = 0;
-
-    for (const row of pendingRows) {
-      const metadata = parseJsonObject(row.metadata_json);
-      const recovery = isObject(metadata?.recovery) ? metadata.recovery : null;
-      const proposalIdentityKey = typeof recovery?.rootIdentityKey === 'string'
-        ? recovery.rootIdentityKey
-        : null;
-
-      if (!proposalIdentityKey) {
-        pendingUnknownRootProposalCount += 1;
-      } else if (proposalIdentityKey === identityKey) {
-        pendingCurrentRootProposalCount += 1;
-      } else {
-        pendingForeignRootProposalCount += 1;
-      }
-    }
-
-    const lastPreviewExportObservation = await readRecoveryObservation(dbPath, identity.projectId, 'preview_export');
-    const lastExportObservation = await readRecoveryObservation(dbPath, identity.projectId, 'export');
-    const warnings: string[] = [];
-
-    if (pendingForeignRootProposalCount > 0) {
-      warnings.push('pending proposals exist from another observed root context');
-    }
-    if (lastPreviewExportObservation?.rootUnsafe) {
-      warnings.push('latest preview observation was recorded under an unsafe root context');
-    }
-    if (lastExportObservation?.rootUnsafe) {
-      warnings.push('latest export observation was recorded under an unsafe root context');
-    }
-
-    return {
-      severity:
-        pendingRows.length > 0 || warnings.length > 0
-          ? 'warn'
-          : 'ok',
-      available: true,
-      pendingProposalCount: pendingRows.length,
-      pendingCurrentRootProposalCount,
-      pendingForeignRootProposalCount,
-      pendingUnknownRootProposalCount,
-      lastPreviewExportObservation,
-      lastExportObservation,
-      warnings,
-      unavailableReason: null,
-    };
-  } catch (error) {
-    return unavailableRecoverySnapshot(
-      error instanceof Error ? error.message : String(error),
-    );
+  if ((evidence.pendingForeignRootProposalCount ?? 0) > 0) {
+    warnings.push('pending proposals exist from another observed root context');
   }
+  if (evidence.lastPreviewObservation?.metadata?.rootUnsafe) {
+    warnings.push('latest preview observation was recorded under an unsafe root context');
+  }
+  if (evidence.lastExportObservation?.metadata?.rootUnsafe) {
+    warnings.push('latest export observation was recorded under an unsafe root context');
+  }
+
+  return {
+    severity:
+      (evidence.pendingProposalCount ?? 0) > 0 || warnings.length > 0
+        ? 'warn'
+        : 'ok',
+    available: true,
+    pendingProposalCount: evidence.pendingProposalCount,
+    pendingCurrentRootProposalCount: evidence.pendingCurrentRootProposalCount,
+    pendingForeignRootProposalCount: evidence.pendingForeignRootProposalCount,
+    pendingUnknownRootProposalCount: evidence.pendingUnknownRootProposalCount,
+    lastPreviewExportObservation: toDoctorRecoveryObservation(evidence.lastPreviewObservation),
+    lastExportObservation: toDoctorRecoveryObservation(evidence.lastExportObservation),
+    warnings,
+    unavailableReason: null,
+  };
 }
 
 function unavailableRecoverySnapshot(reason: string): DoctorSnapshot['recovery'] {
@@ -1142,104 +1059,22 @@ function unavailableRecoverySnapshot(reason: string): DoctorSnapshot['recovery']
   };
 }
 
-async function readRecoveryObservation(
-  dbPath: string,
-  projectId: string,
-  toolName: 'preview_export' | 'export',
-): Promise<DoctorRecoveryObservation | null> {
-  const rows = await readSqliteJsonQuery(dbPath, `
-    SELECT branch, created_at, metadata_json
-    FROM doc_events
-    WHERE project_id = ? AND tool_name = ?
-    ORDER BY created_at DESC
-    LIMIT 1
-  `, [projectId, toolName]);
-  const row = rows[0] as {
-    branch: string;
-    created_at: string;
-    metadata_json: string | null;
-  } | undefined;
-
-  if (!row) {
+function toDoctorRecoveryObservation(
+  observation: Awaited<ReturnType<typeof readRecoveryEvidence>>['lastPreviewObservation'],
+): DoctorRecoveryObservation | null {
+  if (!observation) {
     return null;
   }
 
-  const metadata = parseJsonObject(row.metadata_json);
   return {
-    branch: row.branch ?? null,
-    createdAt: row.created_at ?? null,
-    safeForWrites: typeof metadata?.safeForWrites === 'boolean' ? metadata.safeForWrites : null,
-    rootUnsafe: typeof metadata?.rootUnsafe === 'boolean' ? metadata.rootUnsafe : null,
-    exportRequired: typeof metadata?.exportRequired === 'boolean' ? metadata.exportRequired : null,
-    exportBlocked: typeof metadata?.exportBlocked === 'boolean' ? metadata.exportBlocked : null,
-    warningCount: Array.isArray(metadata?.warnings) ? metadata.warnings.length : null,
+    branch: observation.branch,
+    createdAt: observation.createdAt,
+    safeForWrites: observation.metadata?.safeForWrites ?? null,
+    rootUnsafe: observation.metadata?.rootUnsafe ?? null,
+    exportRequired: observation.metadata?.exportRequired ?? null,
+    exportBlocked: observation.metadata?.exportBlocked ?? null,
+    warningCount: observation.metadata?.warnings.length ?? null,
   };
-}
-
-async function sqliteTableExists(dbPath: string, tableName: string): Promise<boolean> {
-  const rows = await readSqliteJsonQuery(
-    dbPath,
-    `
-    SELECT name
-    FROM sqlite_master
-    WHERE type = 'table' AND name = ?
-    `,
-    [tableName],
-  );
-  return (rows[0] as { name?: string } | undefined)?.name === tableName;
-}
-
-async function readSqliteJsonQuery(
-  dbPath: string,
-  sql: string,
-  params: Array<string | number>,
-): Promise<Array<Record<string, unknown>>> {
-  const sqliteUri = `file:${dbPath}?mode=ro&immutable=1`;
-  const interpolatedSql = bindSqlParams(sql, params);
-  const args = ['-json', sqliteUri, interpolatedSql];
-  const result = await runCommand('sqlite3', args, process.cwd());
-
-  if (!result.ok) {
-    throw new Error(result.stderr.trim() || 'sqlite3 query failed');
-  }
-
-  const trimmed = result.stdout.trim();
-  if (trimmed.length === 0) {
-    return [];
-  }
-
-  const parsed = JSON.parse(trimmed) as unknown;
-  return Array.isArray(parsed)
-    ? parsed.filter((row): row is Record<string, unknown> => isObject(row))
-    : [];
-}
-
-function bindSqlParams(sql: string, params: Array<string | number>): string {
-  let index = 0;
-  return sql.replace(/\?/g, () => {
-    const value = params[index++];
-    if (typeof value === 'number') {
-      return String(value);
-    }
-    return `'${value.replace(/'/g, "''")}'`;
-  });
-}
-
-function parseJsonObject(raw: string | null): Record<string, unknown> | null {
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return isObject(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object';
 }
 
 function comparePaths(a: string, b: string): boolean {

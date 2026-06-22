@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -17,11 +18,13 @@ import {
 import { exportCommand, historyCommand, initCommand, listCommand } from '../src/cli/init.js';
 import { GitStore } from '../src/core/git-store.js';
 import { EventLog } from '../src/core/events.js';
+import { RootLedgerStore } from '../src/core/root-ledger.js';
 import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/patch.js';
 import { assessPatchRisk } from '../src/core/risk.js';
 import { createUnifiedDiffForReplacement } from '../src/core/unified-diff.js';
 import { createMcpServer } from '../src/mcp/create-server.js';
 import { parseFrontMatter, handleManifest, handleRead, handleReadSection, handleContextPack, handleProposePatch, handleProposeDocument, handlePreviewDiff, handleListProposals, handleDiscardProposal, handleCommitPatch } from '../src/mcp/tools.js';
+import { inspectRootSafetyContext, inspectRootSafetyContextReadOnly } from '../src/core/root-safety.js';
 import YAML from 'yaml';
 import { simpleGit } from 'simple-git';
 
@@ -139,6 +142,16 @@ function getRootLedgerRows(project: Project, projectId = 'test-project'): Array<
   });
 
   try {
+    const table = db.prepare(
+      `
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'table' AND name = 'root_worktree_ledger'
+      `,
+    ).get() as { name?: string } | undefined;
+    if (table?.name !== 'root_worktree_ledger') {
+      return [];
+    }
     return db.prepare(
       `
       SELECT *
@@ -193,6 +206,40 @@ async function setRegisteredProjectRoot(
 ): Promise<void> {
   const registry = await Registry.load(project.storage.configDir, project.storage.dataDir);
   await registry.addProject(project.projectId, projectRoot);
+}
+
+async function snapshotFiles(root: string): Promise<Record<string, string>> {
+  const snapshot: Record<string, string> = {};
+
+  async function walk(current: string): Promise<void> {
+    const entries = await fs.promises.readdir(current, { withFileTypes: true });
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      const relative = path.relative(root, fullPath);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.isFile()) {
+        if (relative.endsWith('-wal') || relative.endsWith('-shm')) {
+          continue;
+        }
+        snapshot[relative] = crypto.createHash('sha256')
+          .update(await fs.promises.readFile(fullPath))
+          .digest('hex');
+      }
+    }
+  }
+
+  try {
+    await walk(root);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
+  return snapshot;
 }
 
 // ── Storage path resolution tests ─────────────────────────────────────
@@ -3066,7 +3113,7 @@ describe('docs.status', () => {
 });
 
 describe('atlas.project_identity', () => {
-  it('returns a compact runtime identity and safety snapshot for the resolved project root', async () => {
+  it('returns a compact runtime identity and read-only managed-state provenance snapshot without mutating state', async () => {
     await initSourceRepo();
 
     const project = await Project.init({
@@ -3075,6 +3122,29 @@ describe('atlas.project_identity', () => {
       configDir: path.join(tmpDir, 'config'),
       dataDir: path.join(tmpDir, 'data'),
     });
+    const daemonPidPath = project.storage.daemonPidFilePath();
+    await fs.promises.mkdir(path.dirname(daemonPidPath), { recursive: true });
+    await fs.promises.writeFile(
+      daemonPidPath,
+      JSON.stringify({
+        pid: 99999,
+        host: '127.0.0.1',
+        port: 3737,
+        configDir: project.storage.configDir,
+        dataDir: project.storage.dataDir,
+        projectId: project.projectId,
+        projectRoot: project.root,
+        startedAt: '2026-06-21T00:00:00.000Z',
+      }, null, 2) + '\n',
+      'utf-8',
+    );
+    const beforeProposalCount = getStoredProposalCount(project);
+    const beforeRootLedgerRows = getRootLedgerRows(project);
+    const before = await Promise.all([
+      snapshotFiles(project.root),
+      snapshotFiles(project.storage.configDir),
+      snapshotFiles(project.storage.dataDir),
+    ]);
 
     const result = await callTool(project, 'atlas.project_identity', {
       projectId: 'test-project',
@@ -3116,16 +3186,48 @@ describe('atlas.project_identity', () => {
     expect(data.git.commonDir).toContain('.git');
     expect(data.git.head).toMatch(/^[0-9a-f]{40}$/);
     expect(data.rootLedger).toMatchObject({
-      available: true,
-      recorded: true,
-      knownObservationCount: 1,
-      currentObservationCount: 1,
-      multipleRootsObserved: false,
-      multipleWorktreesObserved: false,
-      multipleGitCommonDirsObserved: false,
-      warnings: [],
+      available: false,
+      recorded: false,
+      knownObservationCount: null,
+      currentObservationCount: null,
     });
-    expect(data.warnings).toEqual([]);
+    expect(data.managedStateProvenance).toMatchObject({
+      observation: {
+        lifecycle: 'atlas.project_identity.read-only',
+        currentState: true,
+        durableHistory: false,
+      },
+      source: {
+        branch: 'main',
+      },
+      managed: {
+        branch: 'main',
+        availability: 'available',
+      },
+      synchronization: {
+        status: 'in_sync',
+        exportRequired: false,
+        workingTreeOutOfSync: false,
+        outOfSyncPaths: [],
+      },
+      pendingProposals: {
+        available: true,
+        pendingProposalCount: 0,
+        currentRootProposalCount: 0,
+        foreignRootProposalCount: 0,
+        unknownRootProposalCount: 0,
+      },
+    });
+    expect(data.warnings).toContain('Root ledger table is unavailable.');
+    expect(getRootLedgerRows(project)).toEqual(beforeRootLedgerRows);
+    expect(getStoredProposalCount(project)).toBe(beforeProposalCount);
+
+    const after = await Promise.all([
+      snapshotFiles(project.root),
+      snapshotFiles(project.storage.configDir),
+      snapshotFiles(project.storage.dataDir),
+    ]);
+    expect(after).toEqual(before);
   });
 
   it('remains available when the root context is unsafe and preserves safety compatibility fields', async () => {
@@ -3159,11 +3261,227 @@ describe('atlas.project_identity', () => {
       daemonProjectRootMismatch: false,
       gitMismatch: false,
     });
-    expect(data.rootLedger.available).toBe(true);
+    expect(data.rootLedger.available).toBe(false);
     expect(data.warnings).toContain('registered project root mismatch');
+    expect(data.warnings).toContain('Root ledger table is unavailable.');
     expect(data.nextStep).toContain('docs.status');
     expect(data.nextStep).toContain('mcp-config --json');
     expect(data.nextStep).toContain('Restore the expected root/worktree binding');
+    expect(data.managedStateProvenance.safety.safeForWrites).toBe(false);
+    expect(data.managedStateProvenance.pendingProposals.available).toBe(true);
+  });
+
+  it('keeps atlas.project_identity read-only while unrelated callers still record root ledger observations', async () => {
+    await initSourceRepo();
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const readOnlyContext = await inspectRootSafetyContextReadOnly(project, {
+      daemonProjectRoot: path.join(tmpDir, 'other-root'),
+    });
+    expect(readOnlyContext.safety.daemonProjectRootMismatch).toBe(true);
+    expect(getRootLedgerRows(project)).toHaveLength(0);
+
+    const recordingContext = await inspectRootSafetyContext(project, {
+      daemonProjectRoot: path.join(tmpDir, 'other-root'),
+    });
+    expect(recordingContext.safety.daemonProjectRootMismatch).toBe(true);
+    expect(getRootLedgerRows(project)).toHaveLength(1);
+
+    const statusResult = await callTool(project, 'docs.status', {
+      projectId: 'test-project',
+      branch: 'main',
+    });
+    expect(statusResult.isError).toBeFalsy();
+    expect(getRootLedgerRows(project)).toHaveLength(2);
+  });
+
+  it('surfaces worktree ambiguity and missing managed branch facts with explicit unknown synchronization fields', async () => {
+    const sourceGit = await initSourceRepo();
+    await sourceGit.checkoutLocalBranch('feature/secondary-worktree');
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const ledger = new RootLedgerStore(project.storage.projectEventsPath(project.projectId));
+    try {
+      ledger.recordObservation({
+        projectId: 'test-project',
+        requestedCwd: tmpDir,
+        projectRoot: tmpDir,
+        canonicalProjectRoot: await fs.promises.realpath(tmpDir),
+        registeredProjectRoot: tmpDir,
+        daemonProjectRoot: null,
+        markerPath: path.join(tmpDir, '.xurgo-atlas', 'project.json'),
+        markerRootPath: await fs.promises.realpath(tmpDir),
+        markerProjectId: 'test-project',
+        git: {
+          insideWorkTree: true,
+          worktreeRoot: await fs.promises.realpath(tmpDir),
+          commonDir: path.join(tmpDir, '.git'),
+          branch: 'main',
+          head: await sourceGit.revparse(['HEAD']),
+        },
+        safety: {
+          safeForWrites: true,
+          ambiguous: false,
+          rootMismatch: false,
+          markerMismatch: false,
+          markerMissing: false,
+          registeredProjectRootMissing: false,
+          registeredProjectRootMismatch: false,
+          daemonProjectRootMismatch: false,
+          gitMismatch: false,
+          gitUnavailable: false,
+          warnings: [],
+        },
+        observedAt: '2026-06-21T00:00:00.000Z',
+      });
+      ledger.recordObservation({
+        projectId: 'test-project',
+        requestedCwd: tmpDir,
+        projectRoot: tmpDir,
+        canonicalProjectRoot: await fs.promises.realpath(tmpDir),
+        registeredProjectRoot: tmpDir,
+        daemonProjectRoot: null,
+        markerPath: path.join(tmpDir, '.xurgo-atlas', 'project.json'),
+        markerRootPath: await fs.promises.realpath(tmpDir),
+        markerProjectId: 'test-project',
+        git: {
+          insideWorkTree: true,
+          worktreeRoot: path.join(tmpDir, 'alternate-worktree'),
+          commonDir: path.join(tmpDir, '.git', 'worktrees', 'alternate-worktree'),
+          branch: 'feature/secondary-worktree',
+          head: await sourceGit.revparse(['HEAD']),
+        },
+        safety: {
+          safeForWrites: false,
+          ambiguous: true,
+          rootMismatch: true,
+          markerMismatch: false,
+          markerMissing: false,
+          registeredProjectRootMissing: false,
+          registeredProjectRootMismatch: false,
+          daemonProjectRootMismatch: false,
+          gitMismatch: true,
+          gitUnavailable: false,
+          warnings: ['git worktree mismatch'],
+        },
+        observedAt: '2026-06-21T00:05:00.000Z',
+      });
+    } finally {
+      ledger.close();
+    }
+    const beforeRows = getRootLedgerRows(project);
+
+    const result = await callTool(project, 'atlas.project_identity', {
+      projectId: 'test-project',
+    });
+    const data = JSON.parse(result.content[0].text);
+
+    expect(data.rootLedger.multipleWorktreesObserved).toBe(true);
+    expect(data.rootLedger.multipleGitCommonDirsObserved).toBe(true);
+    expect(data.managedStateProvenance.managed).toMatchObject({
+      branch: 'feature/secondary-worktree',
+      revision: null,
+      availability: 'missing',
+    });
+    expect(data.managedStateProvenance.synchronization).toMatchObject({
+      status: 'unknown',
+      exportRequired: null,
+      workingTreeOutOfSync: null,
+      outOfSyncPaths: null,
+    });
+    expect(getRootLedgerRows(project)).toEqual(beforeRows);
+  });
+
+  it('fails soft when descriptive storage is malformed or unavailable', async () => {
+    await initSourceRepo();
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const eventsPath = project.storage.projectEventsPath(project.projectId);
+    await fs.promises.rename(eventsPath, `${eventsPath}.bak`);
+    await fs.promises.mkdir(eventsPath, { recursive: true });
+
+    const result = await callTool(project, 'atlas.project_identity', {
+      projectId: 'test-project',
+    });
+    const data = JSON.parse(result.content[0].text);
+
+    expect(data.rootLedger.available).toBe(false);
+    expect(data.recovery.available).toBe(false);
+    expect(data.managedStateProvenance.rootLedger.available).toBe(false);
+    expect(data.managedStateProvenance.recovery.available).toBe(false);
+    expect(data.managedStateProvenance.pendingProposals.pendingProposalCount).toBeNull();
+  });
+
+  it('surfaces managed-versus-disk drift and recovery ambiguity without mutating proposals or exports', async () => {
+    await initSourceRepo();
+
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const { content, revision } = await project.readFile('main', 'STATUS.md');
+    expect(content).not.toBeNull();
+    const updated = content!.replace(
+      '<!-- What is the team working on right now? -->',
+      'Track pending proposal recovery visibility',
+    );
+    const patch = createUnifiedDiffForReplacement('STATUS.md', content!, updated);
+    const proposalResult = await callTool(project, 'docs.propose_patch', {
+      projectId: 'test-project',
+      branch: 'main',
+      path: 'STATUS.md',
+      baseRevision: revision,
+      patch,
+      intent: 'Create a pending proposal before switching root identity',
+      summary: 'Pending proposal recovery visibility',
+    });
+    expect(proposalResult.isError).toBeFalsy();
+
+    await fs.promises.writeFile(path.join(tmpDir, 'STATUS.md'), 'local drift\n', 'utf-8');
+    await setRegisteredProjectRoot(project, path.join(tmpDir, 'different-root'));
+    const beforeProposalCount = getStoredProposalCount(project);
+    const beforeRecoveryEvent = getLatestRecoveryObservationEvent(project, 'preview_export');
+
+    const result = await callTool(project, 'atlas.project_identity', {
+      projectId: 'test-project',
+    });
+    const data = JSON.parse(result.content[0].text);
+
+    expect(data.managedStateProvenance.synchronization).toMatchObject({
+      status: 'out_of_sync',
+      exportRequired: true,
+      workingTreeOutOfSync: true,
+    });
+    expect(data.managedStateProvenance.synchronization.outOfSyncPaths).toContain('STATUS.md');
+    expect(data.managedStateProvenance.pendingProposals).toMatchObject({
+      available: true,
+      pendingProposalCount: 1,
+      foreignRootProposalCount: 1,
+    });
+    expect(data.managedStateProvenance.recovery.recoveryRequired).toBe(true);
+    expect(getStoredProposalCount(project)).toBe(beforeProposalCount);
+    expect(getLatestRecoveryObservationEvent(project, 'preview_export')).toEqual(beforeRecoveryEvent);
   });
 });
 

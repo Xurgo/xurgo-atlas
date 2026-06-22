@@ -9,6 +9,7 @@ import {
   unavailableRootLedgerSummary,
   type RootLedgerSummary,
 } from './root-ledger.js';
+import { readExistingRootLedgerSummary } from './read-only-managed-state.js';
 
 export interface RootSafetyContext {
   requestedCwd: string;
@@ -69,18 +70,52 @@ export async function inspectRootSafetyContext(
   project: Project,
   options: Pick<RootSafetyGuardOptions, 'requestedCwd' | 'daemonProjectRoot'> = {},
 ): Promise<RootSafetyContext> {
-  return inspectResolvedRootSafetyContext({
+  return inspectResolvedRootSafetyContextInternal({
     projectId: project.projectId,
     projectRoot: project.root,
     configDir: project.storage.configDir,
     dataDir: project.storage.dataDir,
     requestedCwd: options.requestedCwd,
     daemonProjectRoot: options.daemonProjectRoot,
+    readOnlyLedger: false,
   });
 }
 
 export async function inspectResolvedRootSafetyContext(
   options: InspectResolvedRootSafetyContextOptions,
+): Promise<RootSafetyContext> {
+  return inspectResolvedRootSafetyContextInternal({
+    ...options,
+    readOnlyLedger: false,
+  });
+}
+
+export async function inspectRootSafetyContextReadOnly(
+  project: Project,
+  options: Pick<RootSafetyGuardOptions, 'requestedCwd' | 'daemonProjectRoot'> = {},
+): Promise<RootSafetyContext> {
+  return inspectResolvedRootSafetyContextInternal({
+    projectId: project.projectId,
+    projectRoot: project.root,
+    configDir: project.storage.configDir,
+    dataDir: project.storage.dataDir,
+    requestedCwd: options.requestedCwd,
+    daemonProjectRoot: options.daemonProjectRoot,
+    readOnlyLedger: true,
+  });
+}
+
+export async function inspectResolvedRootSafetyContextReadOnly(
+  options: InspectResolvedRootSafetyContextOptions,
+): Promise<RootSafetyContext> {
+  return inspectResolvedRootSafetyContextInternal({
+    ...options,
+    readOnlyLedger: true,
+  });
+}
+
+async function inspectResolvedRootSafetyContextInternal(
+  options: InspectResolvedRootSafetyContextOptions & { readOnlyLedger: boolean },
 ): Promise<RootSafetyContext> {
   const requestedCwd = path.resolve(options.requestedCwd ?? process.cwd());
   const canonicalProjectRoot = normalizeExistingPath(options.projectRoot) ?? path.resolve(options.projectRoot);
@@ -166,10 +201,15 @@ export async function inspectResolvedRootSafetyContext(
 
   return {
     ...contextWithoutLedger,
-    rootLedger: await observeRootLedger(contextWithoutLedger, {
-      configDir: options.configDir,
-      dataDir: options.dataDir,
-    }),
+    rootLedger: options.readOnlyLedger
+      ? await readRootLedger(contextWithoutLedger, {
+          configDir: options.configDir,
+          dataDir: options.dataDir,
+        })
+      : await observeRootLedger(contextWithoutLedger, {
+          configDir: options.configDir,
+          dataDir: options.dataDir,
+        }),
   };
 }
 
@@ -358,6 +398,39 @@ async function observeRootLedger(
   } catch (error) {
     return unavailableRootLedgerSummary(
       `Root ledger recording failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+async function readRootLedger(
+  context: Omit<RootSafetyContext, 'rootLedger'>,
+  storage: { configDir?: string; dataDir?: string },
+): Promise<RootLedgerSummary> {
+  try {
+    const registry = await Registry.load(storage.configDir, storage.dataDir);
+    if (!registry.getProject(context.projectId)) {
+      return unavailableRootLedgerSummary(
+        `Root ledger storage is unavailable because project "${context.projectId}" is not registered.`,
+      );
+    }
+
+    const dbPath = new StoragePaths({
+      configDir: registry.configDir,
+      dataDir: registry.dataDir,
+    }).projectEventsPath(context.projectId);
+    return readExistingRootLedgerSummary(dbPath, {
+      projectId: context.projectId,
+      canonicalProjectRoot: context.canonicalProjectRoot,
+      registeredProjectRoot: context.registeredProjectRoot,
+      daemonProjectRoot: context.daemonProjectRoot,
+      markerProjectId: context.markerProjectId,
+      markerRootPath: context.safety.markerMissing ? null : path.dirname(path.dirname(context.markerPath)),
+      gitWorktreeRoot: context.git.worktreeRoot,
+      gitCommonDir: context.git.commonDir,
+    });
+  } catch (error) {
+    return unavailableRootLedgerSummary(
+      `Root ledger summary unavailable: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
