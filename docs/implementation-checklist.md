@@ -15,7 +15,7 @@
 | Area | Current state | Notes |
 |------|---------------|-------|
 | Product identity | ✅ Current | User-facing product name is **Xurgo Atlas**; package metadata is `xurgo-atlas` |
-| Package baseline | ✅ Current | `package.json` reports version `0.2.1`; `main` currently points at `79f41f5` |
+| Package baseline | ✅ Current | `package.json` reports version `0.2.1`; verify the exact live checkout identity from Git instead of freezing a SHA in this checklist |
 | Release posture | ✅ Current | Focus is preserving a credible baseline first, not reopening the June private RC checkpoint as the standing current focus |
 | Recent baseline-preserving additions | ✅ Current | Read-only `doctor`, managed-state/provenance reporting, internal client conformance checks, and `docs.search` are already landed on `main` |
 | Historical checkpoints | ℹ️ Historical | Private RC readiness, storage migration readiness, and naming-migration planning remain useful record but are not the primary current work queue |
@@ -54,7 +54,10 @@
 | `docs.propose_patch` | ✅ Complete | Stores proposal, returns `proposalId` |
 | `docs.propose_document` | ✅ Complete | Create-only mode (`"create"`) for new Markdown docs under `docs/atlas/**`; proposal also updates `docs/manifest.yml` |
 | `docs.preview_diff` | ✅ Complete | Looks up by `proposalId`, returns diff + risk |
+| `docs.list_proposals` | ✅ Complete | Lists pending proposals by default and can broaden to historical proposal states for audit and cleanup workflows |
+| `docs.discard_proposal` | ✅ Complete | Retires uncommitted proposals by exact proposal id while preserving audit history |
 | `docs.commit_patch` | ✅ Complete | Commits by `proposalId`, accepts `actor`, `riskOverride` |
+| `docs.preview_export` | ✅ Complete | Read-only reconciliation preview for managed-to-source export drift before running `docs.export` |
 | `docs.history` | ✅ Complete | Unified history array (git + events) |
 | `docs.restore_file` | ✅ Complete | Requires `intent`, returns `restored: true` |
 | `docs.export` | ✅ Complete | Returns `exported: true` + `files` |
@@ -166,7 +169,7 @@
 | Bounded `docs.read` via handler | ✅ Complete | 9 tests: backward-compatible, truncation, maxChars>content, offset, offset+maxChars, revision preserved, missing file, offset beyond end, path traversal |
 | `docs.read_section` via handler | ✅ Complete | 10 tests: section reads, child subsections, includeHeading=false, maxChars, offset, duplicate occurrence, level filter, fenced code blocks, missing heading, docs.read compatibility |
 | `docs.context_pack` via handler | ✅ Complete | 6 tests: default orientation pack, total maxChars budget, explicit paths, explicit sections, missing paths, unsafe/untracked rejection |
-| **Total** | | **151 tests** |
+| **Current suite** | ✅ Current | Coverage includes client conformance, doctor, metadata, project, CLI, daemon, HTTP, and managed-doc workflow tests; use current local runner output when an exact count matters |
 
 ---
 
