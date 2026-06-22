@@ -24,9 +24,13 @@ import {
 import {
   guardManagedWriteSafety,
   inspectRootSafetyContext,
+  inspectRootSafetyContextReadOnly,
   type RootSafetyContext,
 } from '../core/root-safety.js';
 import { inspectGitIdentity, normalizeExistingPath } from '../core/git-identity.js';
+import {
+  readRecoveryEvidence,
+} from '../core/read-only-managed-state.js';
 import { Registry } from '../core/registry.js';
 import { buildRootLedgerIdentityKey } from '../core/root-ledger.js';
 import YAML from 'yaml';
@@ -2666,11 +2670,16 @@ async function buildDocsStatusRootContext(
       exportBlocked: boolean;
     };
     observation?: RecoveryObservationMetadata['operation'];
+    readOnly?: boolean;
   } = {},
 ): Promise<DocsStatusRootContext> {
-  const context = await inspectRootSafetyContext(project, {
-    requestedCwd: process.cwd(),
-  });
+  const context = options.readOnly
+    ? await inspectRootSafetyContextReadOnly(project, {
+        requestedCwd: process.cwd(),
+      })
+    : await inspectRootSafetyContext(project, {
+        requestedCwd: process.cwd(),
+      });
   const recoveryWarnings: string[] = [];
   let previewObservationFallback: RecoveryObservationFallback | null = null;
 
@@ -2701,7 +2710,7 @@ async function buildDocsStatusRootContext(
   return {
     ...context,
     cwd: context.requestedCwd,
-    recovery: buildRootRecoverySummary(project, context, {
+    recovery: await buildRootRecoverySummary(project, context, {
       exportRequired: options.exportState?.exportRequired ?? null,
       previewObservationFallback,
       warnings: recoveryWarnings,
@@ -2839,7 +2848,7 @@ function logRecoveryObservationEvent(
   });
 }
 
-function buildRootRecoverySummary(
+async function buildRootRecoverySummary(
   project: Project,
   context: RootSafetyContext,
   options: {
@@ -2847,48 +2856,50 @@ function buildRootRecoverySummary(
     previewObservationFallback?: RecoveryObservationFallback | null;
     warnings?: string[];
   },
-): RootRecoverySummary {
+): Promise<RootRecoverySummary> {
   try {
     const currentRootIdentityKey = buildCurrentRootIdentityKey(context);
-    const pendingProposals = project.eventLog.listProposals({
-      projectId: project.projectId,
-      status: 'pending',
-    });
-
-    let currentRootProposalCount = 0;
-    let foreignRootProposalCount = 0;
-    let unknownRootProposalCount = 0;
-
-    for (const proposal of pendingProposals) {
-      const proposalIdentityKey = proposal.metadata?.recovery?.rootIdentityKey;
-      if (!proposalIdentityKey) {
-        unknownRootProposalCount += 1;
-      } else if (proposalIdentityKey === currentRootIdentityKey) {
-        currentRootProposalCount += 1;
-      } else {
-        foreignRootProposalCount += 1;
-      }
+    const recoveryEvidence = await readRecoveryEvidence(
+      project.storage.projectEventsPath(project.projectId),
+      {
+        projectId: project.projectId,
+        canonicalProjectRoot: context.canonicalProjectRoot,
+        registeredProjectRoot: context.registeredProjectRoot,
+        daemonProjectRoot: context.daemonProjectRoot,
+        markerProjectId: context.markerProjectId,
+        markerRootPath: context.safety.markerMissing ? null : path.dirname(path.dirname(context.markerPath)),
+        gitWorktreeRoot: context.git.worktreeRoot,
+        gitCommonDir: context.git.commonDir,
+      },
+    );
+    if (!recoveryEvidence.available) {
+      return unavailableRootRecoverySummary(
+        ...(options.warnings ?? []),
+        `Recovery summary unavailable: ${recoveryEvidence.unavailableReason ?? 'recovery evidence unavailable'}`,
+      );
     }
 
-    const lastPreviewStored = project.eventLog.getLatestRecoveryObservation(project.projectId, 'preview_export');
     const lastPreviewObservation = toRecoveryObservationSummary(
-      lastPreviewStored?.metadata ?? options.previewObservationFallback?.metadata ?? null,
-      lastPreviewStored?.createdAt ?? options.previewObservationFallback?.createdAt ?? null,
-      lastPreviewStored?.branch ?? options.previewObservationFallback?.branch ?? null,
-      lastPreviewStored?.path ?? options.previewObservationFallback?.path ?? null,
+      recoveryEvidence.lastPreviewObservation?.metadata ?? options.previewObservationFallback?.metadata ?? null,
+      recoveryEvidence.lastPreviewObservation?.createdAt ?? options.previewObservationFallback?.createdAt ?? null,
+      recoveryEvidence.lastPreviewObservation?.branch ?? options.previewObservationFallback?.branch ?? null,
+      recoveryEvidence.lastPreviewObservation?.path ?? options.previewObservationFallback?.path ?? null,
       currentRootIdentityKey,
     );
-    const lastExportStored = project.eventLog.getLatestRecoveryObservation(project.projectId, 'export');
     const lastExportObservation = toRecoveryObservationSummary(
-      lastExportStored?.metadata ?? null,
-      lastExportStored?.createdAt ?? null,
-      lastExportStored?.branch ?? null,
-      lastExportStored?.path ?? null,
+      recoveryEvidence.lastExportObservation?.metadata ?? null,
+      recoveryEvidence.lastExportObservation?.createdAt ?? null,
+      recoveryEvidence.lastExportObservation?.branch ?? null,
+      recoveryEvidence.lastExportObservation?.path ?? null,
       currentRootIdentityKey,
     );
+    const pendingProposalCount = recoveryEvidence.pendingProposalCount ?? 0;
+    const currentRootProposalCount = recoveryEvidence.pendingCurrentRootProposalCount ?? 0;
+    const foreignRootProposalCount = recoveryEvidence.pendingForeignRootProposalCount ?? 0;
+    const unknownRootProposalCount = recoveryEvidence.pendingUnknownRootProposalCount ?? 0;
 
     const proposalRecoveryRequired =
-      pendingProposals.length > 0 &&
+      pendingProposalCount > 0 &&
       (foreignRootProposalCount > 0 || !context.safety.safeForWrites);
     const exportRecoveryRequired =
       !context.safety.safeForWrites &&
@@ -2902,7 +2913,7 @@ function buildRootRecoverySummary(
       ...(options.warnings ?? []),
       ...buildRecoveryWarnings({
         safeForWrites: context.safety.safeForWrites,
-        pendingProposalCount: pendingProposals.length,
+        pendingProposalCount,
         foreignRootProposalCount,
         unknownRootProposalCount,
         exportRecoveryRequired,
@@ -2917,7 +2928,7 @@ function buildRootRecoverySummary(
       recoveryRequired,
       proposalRecoveryRequired,
       exportRecoveryRequired,
-      pendingProposalCount: pendingProposals.length,
+      pendingProposalCount,
       currentRootProposalCount,
       foreignRootProposalCount,
       unknownRootProposalCount,
@@ -3072,6 +3083,76 @@ function buildProjectIdentityNextStep(context: DocsStatusRootContext): string {
   }
 
   return 'Root identity is currently safe for managed writes and exports.';
+}
+
+async function buildManagedStateProvenance(
+  project: Project,
+  rootContext: DocsStatusRootContext,
+): Promise<Record<string, unknown>> {
+  const observedAt = new Date().toISOString();
+  const sourceBranch = rootContext.git.branch;
+  const sourceHead = rootContext.git.head;
+  const managedBranch = sourceBranch;
+  const managedRevision = managedBranch
+    ? await project.gitStore.getBranchHead(managedBranch)
+    : null;
+  const syncState = managedBranch && managedRevision !== null
+    ? await getManagedWorkingTreeSyncState(project, managedBranch)
+    : null;
+
+  return {
+    observation: {
+      observedAt,
+      lifecycle: 'atlas.project_identity.read-only',
+      currentState: true,
+      durableHistory: false,
+    },
+    project: {
+      projectId: rootContext.projectId,
+      projectRoot: rootContext.projectRoot,
+      canonicalProjectRoot: rootContext.canonicalProjectRoot,
+    },
+    checkout: {
+      canonicalProjectRoot: rootContext.canonicalProjectRoot,
+      gitWorktreeRoot: rootContext.git.worktreeRoot,
+      gitCommonDir: rootContext.git.commonDir,
+    },
+    source: {
+      branch: sourceBranch,
+      head: sourceHead,
+    },
+    managed: {
+      branch: managedBranch,
+      revision: managedRevision,
+      availability:
+        managedBranch === null
+          ? 'unknown'
+          : managedRevision === null
+            ? 'missing'
+            : 'available',
+    },
+    synchronization: {
+      status:
+        syncState === null
+          ? 'unknown'
+          : syncState.exportRequired
+            ? 'out_of_sync'
+            : 'in_sync',
+      exportRequired: syncState?.exportRequired ?? null,
+      workingTreeOutOfSync: syncState?.workingTreeOutOfSync ?? null,
+      outOfSyncPaths: syncState?.outOfSyncPaths ?? null,
+    },
+    safety: rootContext.safety,
+    rootLedger: rootContext.rootLedger,
+    recovery: rootContext.recovery,
+    pendingProposals: {
+      available: rootContext.recovery.available,
+      pendingProposalCount: rootContext.recovery.pendingProposalCount,
+      currentRootProposalCount: rootContext.recovery.currentRootProposalCount,
+      foreignRootProposalCount: rootContext.recovery.foreignRootProposalCount,
+      unknownRootProposalCount: rootContext.recovery.unknownRootProposalCount,
+    },
+  };
 }
 
 // ── docs.manifest handler ──────────────────────────────────────────────
@@ -3491,7 +3572,8 @@ async function handleAtlasProjectIdentity(
 ) {
   AtlasProjectIdentitySchema.parse(rawArgs);
 
-  const rootContext = await buildDocsStatusRootContext(project);
+  const rootContext = await buildDocsStatusRootContext(project, { readOnly: true });
+  const managedStateProvenance = await buildManagedStateProvenance(project, rootContext);
   const warnings = dedupeStrings([
     ...rootContext.safety.warnings,
     ...rootContext.rootLedger.warnings,
@@ -3528,6 +3610,7 @@ async function handleAtlasProjectIdentity(
             safety: rootContext.safety,
             rootLedger: rootContext.rootLedger,
             recovery: rootContext.recovery,
+            managedStateProvenance,
             warnings,
             nextStep: buildProjectIdentityNextStep(rootContext),
           },

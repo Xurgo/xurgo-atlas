@@ -313,10 +313,12 @@ describe('MCP server metadata', () => {
       params: {},
     });
     const projectIdentityTool = result.tools.find((tool) => tool.name === 'atlas.project_identity');
+    const managedStateProvenanceTool = result.tools.find((tool) => tool.name === 'atlas.managed_state_provenance');
     const projectRootsTool = result.tools.find((tool) => tool.name === 'atlas.project_roots');
     const lockStatusTool = result.tools.find((tool) => tool.name === 'atlas.lock_status');
 
     expect(projectIdentityTool).toBeDefined();
+    expect(managedStateProvenanceTool).toBeUndefined();
     expect(projectRootsTool).toBeUndefined();
     expect(lockStatusTool).toBeUndefined();
     expect(projectIdentityTool?.description).toContain('read-only runtime identity');
