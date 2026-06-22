@@ -1,9 +1,24 @@
-# docu-guard-mcp — Implementation Checklist
+# Xurgo Atlas — Implementation Checklist
 
-> Last updated: 2026-06-03 (create-only `docs.propose_document` complete)
-> Status: **v0.4 context surfaces are stabilized, and guarded Atlas document creation now supports create-only proposals**
+> Last updated: 2026-06-22 (current-state alignment for Atlas release-baseline work)
+> Status: **The live repository is an Atlas-branded `xurgo-atlas` v0.2.1 baseline; current priority is to preserve that baseline, while older private-RC and naming-migration checkpoints remain below as historical implementation record**
+>
+> Current state:
+> - Product name and package metadata now point to **Xurgo Atlas** / `xurgo-atlas`.
+> - Current delivery priority is to keep a credible Atlas release baseline intact with accurate governed docs, stable CLI/MCP behavior, and recent read-only diagnostic/provenance surfaces.
+> - Historical references to `docu-guard` or older milestone plans are preserved below when they describe the implementation history at the time rather than the current headline.
 
 ---
+
+## Current Release Baseline
+
+| Area | Current state | Notes |
+|------|---------------|-------|
+| Product identity | ✅ Current | User-facing product name is **Xurgo Atlas**; package metadata is `xurgo-atlas` |
+| Package baseline | ✅ Current | `package.json` reports version `0.2.1`; `main` currently points at `79f41f5` |
+| Release posture | ✅ Current | Focus is preserving a credible baseline first, not reopening the June private RC checkpoint as the standing current focus |
+| Recent baseline-preserving additions | ✅ Current | Read-only `doctor`, managed-state/provenance reporting, internal client conformance checks, and `docs.search` are already landed on `main` |
+| Historical checkpoints | ℹ️ Historical | Private RC readiness, storage migration readiness, and naming-migration planning remain useful record but are not the primary current work queue |
 
 ## PRD Acceptance Criteria
 
@@ -338,10 +353,11 @@
 
 ---
 
-## Xurgo Atlas Naming Migration Planning (Post-v0.4)
+## Historical Naming Migration Planning (Post-v0.4)
 
-> **Status:** Planning complete; implementation not started.
+> **Status:** Historical planning record; implementation not started in this checklist.
 > **Plan:** [Xurgo Atlas Naming Migration Plan](./spec/docu-guard-mcp-v0.4-status-manifest-context.md#14-xurgo-atlas-naming-migration-plan-post-v04)
+> These rows stay as historical planning context. They do not override the current Atlas-branded repository state summarized at the top of this document.
 
 | Item | Status | Notes |
 |------|--------|-------|
@@ -356,10 +372,11 @@
 
 ---
 
-## Xurgo Atlas Naming Migration Readiness Audit
+## Historical Naming Migration Readiness Audit
 
-> **Status:** Implementation inventory complete; migration not started.
+> **Status:** Historical implementation inventory; migration not started.
 > **Inventory:** [Migration Implementation Readiness Inventory](./spec/docu-guard-mcp-v0.4-status-manifest-context.md#15-migration-implementation-readiness-inventory-phase-b-audit)
+> Keep this section as historical scoping context rather than the current delivery headline.
 
 | Area | Status | Implementation candidates | First-slice guidance |
 |------|--------|---------------------------|----------------------|

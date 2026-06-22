@@ -34,7 +34,7 @@ npm scripts follow a consistent category/scope naming scheme:
 
 **Toolchain note:** Maintainer, CI, validation, packing, and release-preparation commands use the internal `.nvmrc` toolchain, currently Node `22.17.0`. Run `nvm use` from the repo root before npm-based validation or packaging commands. If that exact runtime is unavailable, install or activate it through your normal Node manager before proceeding.
 
-This internal maintainer toolchain is separate from public consumer compatibility. The package `engines` policy is unchanged here.
+This internal maintainer toolchain is separate from public consumer compatibility. The package `engines` policy is unchanged here. Node 24 remains deferred reliability work only and is not the current pinned maintainer toolchain direction.
 
 ---
 

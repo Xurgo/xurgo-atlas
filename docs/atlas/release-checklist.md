@@ -14,7 +14,7 @@
 
 - [ ] Maintainer, CI, validation, packing, and release-preparation commands are running on the `.nvmrc` runtime, currently Node `22.17.0`
 - [ ] `nvm use` succeeds from the repository root before npm validation or release-preparation commands
-- [ ] The internal Node `22.17.0` pin is treated as separate from public consumer compatibility; `package.json` `engines` remains the consumer policy
+- [ ] The internal Node `22.17.0` pin is treated as separate from public consumer compatibility; `package.json` `engines` remains the consumer policy, and Node 24 remains deferred reliability work only rather than an active toolchain commitment
 
 ## Pre-Release Validation
 
