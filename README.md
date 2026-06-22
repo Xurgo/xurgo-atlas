@@ -26,6 +26,8 @@ If you want to try Atlas without installing it first, use `npx xurgo-atlas ...`.
 
 `init` creates or preserves a local `.xurgo-atlas/project.json` marker for the project folder. After that, normal commands can run from the project root or a nested subdirectory without repeating `--project-id` or `--project-root`.
 
+`xurgo-atlas doctor` provides a bounded, read-only diagnostic snapshot of the current Atlas setup.
+
 Optional init templates can create missing starter docs for common project types:
 
 ```bash
@@ -88,7 +90,7 @@ read -> propose -> preview -> commit -> export
 
 That means a client reads the current document revision, proposes a standard diff, previews the stored proposal, commits it through Atlas, and exports the managed snapshot back to disk when the working tree needs to be updated. `docs.preview_export` lets clients inspect what export would change before writing files.
 
-Atlas also reports project identity and write-safety information through `xurgo-atlas mcp-config --json`, `docs.status`, and the current `atlas.project_identity` MCP helper. In plain terms, these surfaces help clients confirm they are operating on the intended project folder before running guarded write or export operations.
+Atlas also reports project identity and write-safety information through `xurgo-atlas mcp-config --json`, `docs.status`, and the current `atlas.project_identity` MCP helper. `atlas.project_identity` also adds descriptive managed-state provenance context. In plain terms, these surfaces help clients confirm they are operating on the intended project folder before running guarded write or export operations.
 
 ## Documentation
 
