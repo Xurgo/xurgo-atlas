@@ -10,10 +10,10 @@ import {
 
 const baseFacts = {
   expectedRoot: '/repo/xurgo-atlas',
-  expectedOrigin: 'https://github.com/JasonCoate/xurgo-atlas.git',
+  expectedOrigin: 'https://github.com/xurgo/xurgo-atlas.git',
   expectedPackageName: 'xurgo-atlas',
   repoRoot: '/repo/xurgo-atlas',
-  originRemote: 'https://github.com/JasonCoate/xurgo-atlas.git',
+  originRemote: 'https://github.com/xurgo/xurgo-atlas.git',
   packageName: 'xurgo-atlas',
   packageVersion: '0.2.1',
   nvmrcVersion: '22.17.0',
@@ -179,7 +179,7 @@ describe('release preflight command safety', () => {
     const commands: string[] = [];
     const responses = new Map([
       ['git rev-parse --show-toplevel', '/repo/xurgo-atlas\n'],
-      ['git remote get-url origin', 'https://github.com/JasonCoate/xurgo-atlas.git\n'],
+      ['git remote get-url origin', 'https://github.com/xurgo/xurgo-atlas.git\n'],
       ['git status --porcelain=v1', ''],
       ['git branch --show-current', 'chore/release-toolchain-contract\n'],
       ['git rev-parse refs/heads/main', '500a77695416520d3a907016ef864b2c106d097a\n'],
