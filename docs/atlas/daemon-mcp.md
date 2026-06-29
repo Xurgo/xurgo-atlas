@@ -135,6 +135,8 @@ Connected clients can see the same safety concepts in `docs.status`, where they 
 
 Current v0.2.0 builds also register `atlas.project_identity`, a compact read-only helper that reports the active project/root binding, marker and Git identity, write-safety status, descriptive root-ledger or recovery warnings, and the recommended next step. It does not replace `xurgo-atlas mcp-config --json`; use it after connecting when an MCP client needs a quick identity snapshot.
 
+`atlas.project_identity.managedStateProvenance` is optional descriptive context for consumers that want extra managed-state provenance detail. Consumers should feature-detect it and tolerate its absence. It is not required for MCP discovery or ordinary Atlas operation, and it does not override `safeForWrites` for Atlas-managed write or export decisions.
+
 ## Live Capability Discovery
 
 After a client connects, use normal MCP discovery and treat live `tools/list` from the connected server as the source of truth for the tools available from that running server.
