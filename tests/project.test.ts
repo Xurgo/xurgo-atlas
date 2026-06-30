@@ -19,6 +19,7 @@ import { exportCommand, historyCommand, initCommand, listCommand } from '../src/
 import { GitStore } from '../src/core/git-store.js';
 import { EventLog } from '../src/core/events.js';
 import { RootLedgerStore } from '../src/core/root-ledger.js';
+import * as readOnlyManagedState from '../src/core/read-only-managed-state.js';
 import { validatePatch, isPathTraversal, applyUnifiedDiff } from '../src/core/patch.js';
 import { assessPatchRisk } from '../src/core/risk.js';
 import { createUnifiedDiffForReplacement } from '../src/core/unified-diff.js';
@@ -1716,6 +1717,43 @@ documents:
     const recoveryEvent = getLatestRecoveryObservationEvent(project, 'preview_export');
     expect(recoveryEvent?.metadata.rootUnsafe).toBe(true);
     expect(recoveryEvent?.metadata.exportRequired).toBe(false);
+  });
+
+  it('fails soft without recording preview recovery observations when aggregation fails', async () => {
+    const project = await Project.init({
+      projectRoot: tmpDir,
+      projectId: 'test-project',
+      configDir: path.join(tmpDir, 'config'),
+      dataDir: path.join(tmpDir, 'data'),
+    });
+
+    const beforeRecoveryEvent = getLatestRecoveryObservationEvent(project, 'preview_export');
+    const readRecoveryEvidenceSpy = vi
+      .spyOn(readOnlyManagedState, 'readRecoveryEvidence')
+      .mockImplementation(async () => {
+        throw new Error('synthetic recovery failure');
+      });
+
+    try {
+      const previewResult = await callTool(project, 'docs.preview_export', {
+        projectId: 'test-project',
+        branch: 'main',
+      });
+
+      expect(previewResult.isError).toBeFalsy();
+      const preview = JSON.parse(previewResult.content[0].text);
+      expect(preview.previewed).toBe(true);
+      expect(preview.rootContext.recovery.available).toBe(false);
+      expect(preview.rootContext.recovery.recoveryRequired).toBeNull();
+      expect(preview.rootContext.recovery.nextStep).toBeNull();
+      expect(preview.rootContext.recovery.warnings).toContain(
+        'Recovery summary is currently unavailable.',
+      );
+      expect(preview.rootContext.recovery.warnings.join(' ')).not.toContain('synthetic recovery failure');
+      expect(getLatestRecoveryObservationEvent(project, 'preview_export')).toEqual(beforeRecoveryEvent);
+    } finally {
+      readRecoveryEvidenceSpy.mockRestore();
+    }
   });
 
   it('should report no export changes when managed state and disk are aligned', async () => {
@@ -5212,27 +5250,35 @@ describe('proposal storage', () => {
       dataDir: path.join(tmpDir, 'data'),
     });
 
-    const listProposalsSpy = vi
-      .spyOn(project.eventLog, 'listProposals')
-      .mockImplementation(() => {
+    const beforeProposalCount = getStoredProposalCount(project);
+    const beforeRecoveryEvent = getLatestRecoveryObservationEvent(project, 'preview_export');
+    const readRecoveryEvidenceSpy = vi
+      .spyOn(readOnlyManagedState, 'readRecoveryEvidence')
+      .mockImplementation(async () => {
         throw new Error('synthetic recovery failure');
       });
 
-    const statusResult = await callTool(project, 'docs.status', {
-      projectId: 'test-project',
-      branch: 'main',
-    });
+    try {
+      const statusResult = await callTool(project, 'docs.status', {
+        projectId: 'test-project',
+        branch: 'main',
+      });
 
-    expect(statusResult.isError).toBeFalsy();
-    const status = JSON.parse(statusResult.content[0].text);
-    expect(status.rootContext.safety.safeForWrites).toBe(true);
-    expect(status.rootContext.recovery.available).toBe(false);
-    expect(status.rootContext.recovery.recoveryRequired).toBeNull();
-    expect(status.rootContext.recovery.warnings[0]).toContain(
-      'Recovery summary unavailable: synthetic recovery failure',
-    );
-
-    listProposalsSpy.mockRestore();
+      expect(statusResult.isError).toBeFalsy();
+      const status = JSON.parse(statusResult.content[0].text);
+      expect(status.rootContext.safety.safeForWrites).toBe(true);
+      expect(status.rootContext.recovery.available).toBe(false);
+      expect(status.rootContext.recovery.recoveryRequired).toBeNull();
+      expect(status.rootContext.recovery.nextStep).toBeNull();
+      expect(status.rootContext.recovery.warnings).toContain(
+        'Recovery summary is currently unavailable.',
+      );
+      expect(status.rootContext.recovery.warnings.join(' ')).not.toContain('synthetic recovery failure');
+      expect(getStoredProposalCount(project)).toBe(beforeProposalCount);
+      expect(getLatestRecoveryObservationEvent(project, 'preview_export')).toEqual(beforeRecoveryEvent);
+    } finally {
+      readRecoveryEvidenceSpy.mockRestore();
+    }
   });
 
   it('should return null for non-existent proposal', async () => {
