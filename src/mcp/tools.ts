@@ -2680,41 +2680,57 @@ async function buildDocsStatusRootContext(
     : await inspectRootSafetyContext(project, {
         requestedCwd: process.cwd(),
       });
-  const recoveryWarnings: string[] = [];
+  let recoveryWarnings: string[] = [];
   let previewObservationFallback: RecoveryObservationFallback | null = null;
+  let observationMetadata: RecoveryObservationMetadata | null = null;
 
   if (options.branch && options.exportState && options.observation) {
-    const observation = buildRecoveryObservationMetadataFromRootContext(
+    observationMetadata = buildRecoveryObservationMetadataFromRootContext(
       context,
       options.exportState,
       options.observation,
     );
 
+    if (options.observation === 'preview_export') {
+      previewObservationFallback = {
+        branch: options.branch,
+        path: '.preview-export',
+        createdAt: new Date().toISOString(),
+        metadata: observationMetadata,
+      };
+    }
+  }
+
+  let recovery = await buildRootRecoverySummary(project, context, {
+    exportRequired: options.exportState?.exportRequired ?? null,
+    previewObservationFallback,
+    warnings: recoveryWarnings,
+  });
+
+  if (
+    observationMetadata &&
+    options.branch &&
+    options.observation &&
+    recovery.available
+  ) {
     try {
-      logRecoveryObservationEvent(project, options.branch, options.observation, observation);
-    } catch (error) {
-      recoveryWarnings.push(
-        `Recovery observation recording failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      if (options.observation === 'preview_export') {
-        previewObservationFallback = {
-          branch: options.branch,
-          path: '.preview-export',
-          createdAt: new Date().toISOString(),
-          metadata: observation,
-        };
-      }
+      logRecoveryObservationEvent(project, options.branch, options.observation, observationMetadata);
+    } catch {
+      recoveryWarnings = dedupeStrings([
+        ...recovery.warnings,
+        'Recovery observation recording failed.',
+      ]);
+      recovery = {
+        ...recovery,
+        warnings: recoveryWarnings,
+      };
     }
   }
 
   return {
     ...context,
     cwd: context.requestedCwd,
-    recovery: await buildRootRecoverySummary(project, context, {
-      exportRequired: options.exportState?.exportRequired ?? null,
-      previewObservationFallback,
-      warnings: recoveryWarnings,
-    }),
+    recovery,
   };
 }
 
@@ -2875,7 +2891,7 @@ async function buildRootRecoverySummary(
     if (!recoveryEvidence.available) {
       return unavailableRootRecoverySummary(
         ...(options.warnings ?? []),
-        `Recovery summary unavailable: ${recoveryEvidence.unavailableReason ?? 'recovery evidence unavailable'}`,
+        'Recovery summary is currently unavailable.',
       );
     }
 
@@ -2945,7 +2961,7 @@ async function buildRootRecoverySummary(
   } catch (error) {
     return unavailableRootRecoverySummary(
       ...(options.warnings ?? []),
-      `Recovery summary unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      'Recovery summary is currently unavailable.',
     );
   }
 }
