@@ -196,7 +196,7 @@ export async function main(): Promise<void> {
 
   const [
     { initCommand, printInitUsage, printServerUsage, printTemplateList, serverCommand, listCommand, historyCommand, exportCommand },
-    { parseProjectArgs, printProjectUsage, projectAddCommand, projectRemoveCommand, projectListCommand, projectShowCommand, projectDefaultCommand },
+    { parseProjectArgs, printProjectUsage, projectAddCommand, projectAdoptCommand, projectRemoveCommand, projectListCommand, projectShowCommand, projectDefaultCommand },
     { daemonCommand, getDaemonUsageText },
     { getStorageMigrationNotImplementedMessage, printStorageUsage, storageInspectCommand, storageMigrateCommand },
     { statusCommand, printStatusUsage },
@@ -279,6 +279,8 @@ export async function main(): Promise<void> {
 
     case 'project': {
       const { subcommand, kwargs } = parseProjectArgs(process.argv);
+      const projectConfigDir = kwargs['config-dir'] || configDir;
+      const projectDataDir = kwargs['data-dir'] || dataDir;
 
       if (!subcommand || subcommand === '--help' || subcommand === '-h') {
         printProjectUsage();
@@ -287,8 +289,8 @@ export async function main(): Promise<void> {
 
       emitStorageDiagnostics(
         resolveStorageRoots({
-          configDir: kwargs['config-dir'] || configDir,
-          dataDir,
+          configDir: projectConfigDir,
+          dataDir: projectDataDir,
         }),
       );
 
@@ -303,8 +305,17 @@ export async function main(): Promise<void> {
           await projectAddCommand(
             pid,
             proot,
-            kwargs['config-dir'] || configDir,
-            kwargs['data-dir'] || dataDir,
+            projectConfigDir,
+            projectDataDir,
+          );
+          break;
+        }
+        case 'adopt': {
+          await projectAdoptCommand(
+            kwargs['project-root'],
+            kwargs['project-id'],
+            projectConfigDir,
+            projectDataDir,
           );
           break;
         }
@@ -316,15 +327,15 @@ export async function main(): Promise<void> {
           }
           await projectRemoveCommand(
             pid,
-            kwargs['config-dir'] || configDir,
-            kwargs['data-dir'] || dataDir,
+            projectConfigDir,
+            projectDataDir,
           );
           break;
         }
         case 'list': {
           await projectListCommand(
-            kwargs['config-dir'] || configDir,
-            kwargs['data-dir'] || dataDir,
+            projectConfigDir,
+            projectDataDir,
           );
           break;
         }
@@ -336,8 +347,8 @@ export async function main(): Promise<void> {
           }
           await projectShowCommand(
             pid,
-            kwargs['config-dir'] || configDir,
-            kwargs['data-dir'] || dataDir,
+            projectConfigDir,
+            projectDataDir,
           );
           break;
         }
@@ -349,8 +360,8 @@ export async function main(): Promise<void> {
           }
           await projectDefaultCommand(
             pid,
-            kwargs['config-dir'] || configDir,
-            kwargs['data-dir'] || dataDir,
+            projectConfigDir,
+            projectDataDir,
           );
           break;
         }

@@ -47,6 +47,13 @@ export interface MarkerWriteResult {
   created: boolean;
 }
 
+export interface ProjectMarkerResolution {
+  projectId: string;
+  projectRoot: string;
+  source: 'cwd-marker' | 'ancestor-marker';
+  markerPath: string;
+}
+
 export function getProjectMarkerPath(projectRoot: string): string {
   return path.join(path.resolve(projectRoot), PROJECT_MARKER_DIR, PROJECT_MARKER_FILE);
 }
@@ -80,6 +87,34 @@ export async function ensureProjectMarker(
   return { path: markerPath, created: true };
 }
 
+export async function resolveProjectMarkerContext(
+  startPath: string,
+): Promise<ProjectMarkerResolution | null> {
+  let current = path.resolve(startPath);
+  while (true) {
+    const markerPath = getProjectMarkerPath(current);
+    const marker = await readProjectMarker(markerPath);
+    if (marker) {
+      return {
+        projectId: marker.projectId,
+        projectRoot: path.resolve(current),
+        source: path.resolve(current) === path.resolve(startPath)
+          ? 'cwd-marker'
+          : 'ancestor-marker',
+        markerPath,
+      };
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+  }
+
+  return null;
+}
+
 export async function resolveProjectContext(
   options: ResolveProjectOptions = {},
 ): Promise<ProjectResolution> {
@@ -90,7 +125,7 @@ export async function resolveProjectContext(
     );
   }
   const registry = await Registry.load(options.configDir, options.dataDir);
-  const markerResolution = await resolveFromMarkers(resolvedBase);
+  const markerResolution = await resolveProjectMarkerContext(resolvedBase);
   const registryResolution = await resolveFromRegistryRoots(registry, resolvedBase);
 
   if (options.projectId && options.projectId.trim().length > 0) {
@@ -183,34 +218,6 @@ export function formatProjectResolutionSource(source: ProjectResolutionSource): 
   }
 }
 
-async function resolveFromMarkers(
-  startPath: string,
-): Promise<ProjectResolution | null> {
-  let current = startPath;
-  while (true) {
-    const markerPath = getProjectMarkerPath(current);
-    const marker = await readProjectMarker(markerPath);
-    if (marker) {
-      return {
-        projectId: marker.projectId,
-        projectRoot: path.resolve(current),
-        source: path.resolve(current) === path.resolve(startPath)
-          ? 'cwd-marker'
-          : 'ancestor-marker',
-        markerPath,
-      };
-    }
-
-    const parent = path.dirname(current);
-    if (parent === current) {
-      break;
-    }
-    current = parent;
-  }
-
-  return null;
-}
-
 async function resolveFromRegistryRoots(
   registry: Registry,
   candidatePath: string,
@@ -300,7 +307,7 @@ async function validateResolvedProject(
   }
 }
 
-async function readProjectMarker(markerPath: string): Promise<ProjectMarker | null> {
+export async function readProjectMarker(markerPath: string): Promise<ProjectMarker | null> {
   try {
     const raw = await fs.promises.readFile(markerPath, 'utf-8');
     const parsed = JSON.parse(raw) as Partial<ProjectMarker> | null;

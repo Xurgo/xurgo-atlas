@@ -46,6 +46,17 @@ export interface DoctorSnapshot {
     projectRoot: string | null;
     canonicalProjectRoot: string | null;
     projectId: string | null;
+    identity: {
+      identityKnown: boolean;
+      identityRegistered: boolean;
+      managedStoreAvailable: boolean;
+      governanceActivated: boolean;
+      readOnlyDiscoveryEligible: boolean;
+      managedWriteEligible: boolean;
+      daemonBound: boolean;
+      daemonProjectId: string | null;
+      daemonProjectRoot: string | null;
+    };
     marker: {
       present: boolean;
       path: string | null;
@@ -246,6 +257,10 @@ export async function buildDoctorSnapshot(options: DoctorOptions = {}): Promise<
       };
 
   const resolvedProjectId = marker.projectId ?? registry.matchedProjectId ?? null;
+  const managedStoreAvailable = Boolean(
+    resolvedProjectId &&
+      fs.existsSync(storage.projectDataDir(resolvedProjectId)),
+  );
   const rootMismatchSignals = canonicalProjectRoot
     ? inspectRootSafety({
         projectId: resolvedProjectId,
@@ -303,6 +318,27 @@ export async function buildDoctorSnapshot(options: DoctorOptions = {}): Promise<
       })
     : unavailableRecoverySnapshot('project identity unavailable');
 
+  const identityKnown = Boolean(marker.projectId || registry.matchedProjectId);
+  const identityRegistered = Boolean(
+    resolvedProjectId &&
+      registry.matchedProjectRoot &&
+      canonicalProjectRoot &&
+      comparePaths(registry.matchedProjectRoot, canonicalProjectRoot),
+  );
+  const governanceActivated = managedDocs.available;
+  const readOnlyDiscoveryEligible = identityKnown && identityRegistered;
+  const managedWriteEligible = Boolean(
+    governanceActivated && rootMismatchSignals.safeForWrites,
+  );
+  const daemonBound = Boolean(
+    daemon.running &&
+      resolvedProjectId &&
+      daemon.projectId === resolvedProjectId &&
+      daemon.projectRoot &&
+      canonicalProjectRoot &&
+      comparePaths(daemon.projectRoot, canonicalProjectRoot),
+  );
+
   const projectSeverity = deriveProjectSeverity(rootMismatchSignals);
   const runtimeSeverity = deriveRuntimeSeverity(engineRange, npmVersion);
   const daemonSeverity = deriveDaemonSeverity(daemon.running, daemon.stalePidFile, daemon.readError);
@@ -350,6 +386,17 @@ export async function buildDoctorSnapshot(options: DoctorOptions = {}): Promise<
       projectRoot,
       canonicalProjectRoot,
       projectId: resolvedProjectId,
+      identity: {
+        identityKnown,
+        identityRegistered,
+        managedStoreAvailable,
+        governanceActivated,
+        readOnlyDiscoveryEligible,
+        managedWriteEligible,
+        daemonBound,
+        daemonProjectId: daemon.projectId,
+        daemonProjectRoot: daemon.projectRoot,
+      },
       marker,
       registry,
       git: {
@@ -399,6 +446,13 @@ export function renderDoctorSnapshot(snapshot: DoctorSnapshot): string {
   lines.push(`  project id: ${snapshot.project.projectId ?? 'unknown'}`);
   lines.push(`  marker: ${snapshot.project.marker.present ? 'present' : 'missing'}`);
   lines.push(`  safe for writes: ${formatBoolean(snapshot.project.safety.safeForWrites, 'yes', 'no')}`);
+  lines.push(`  identity known: ${formatBoolean(snapshot.project.identity.identityKnown, 'yes', 'no')}`);
+  lines.push(`  identity registered: ${formatBoolean(snapshot.project.identity.identityRegistered, 'yes', 'no')}`);
+  lines.push(`  managed store: ${formatBoolean(snapshot.project.identity.managedStoreAvailable, 'yes', 'no')}`);
+  lines.push(`  governance activated: ${formatBoolean(snapshot.project.identity.governanceActivated, 'yes', 'no')}`);
+  lines.push(`  read-only discovery: ${formatBoolean(snapshot.project.identity.readOnlyDiscoveryEligible, 'yes', 'no')}`);
+  lines.push(`  managed write: ${formatBoolean(snapshot.project.identity.managedWriteEligible, 'yes', 'no')}`);
+  lines.push(`  daemon bound: ${formatBoolean(snapshot.project.identity.daemonBound, 'yes', 'no')}`);
   if (snapshot.project.safety.warnings.length > 0) {
     lines.push(`  warnings: ${snapshot.project.safety.warnings.join('; ')}`);
   }
