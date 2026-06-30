@@ -10,6 +10,7 @@ import * as initCli from '../src/cli/init.js';
 import { Project } from '../src/core/project.js';
 import { Registry } from '../src/core/registry.js';
 import { getProjectUsageText, parseProjectArgs, printProjectUsage } from '../src/cli/project.js';
+import * as projectCli from '../src/cli/project.js';
 import {
   getStorageMigrationNotImplementedMessage,
   getStorageUsageText,
@@ -286,6 +287,36 @@ describe('CLI usage text', () => {
     expect(mcpConfigSpy).not.toHaveBeenCalled();
   });
 
+  it('dispatches project adopt through the main CLI entrypoint', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'xurgo-atlas-adopt-dispatch-'));
+    const configDir = path.join(root, 'config');
+    const dataDir = path.join(root, 'data');
+    const adoptSpy = vi.spyOn(projectCli, 'projectAdoptCommand').mockResolvedValue(undefined);
+
+    try {
+      const result = await runMainWithArgs([
+        'node',
+        'xurgo-atlas',
+        'project',
+        'adopt',
+        '--project-root',
+        '/tmp/example',
+        '--project-id',
+        'example',
+        '--config-dir',
+        configDir,
+        '--data-dir',
+        dataDir,
+      ]);
+
+      expect(result.exitCode).toBe(-1);
+      expect(result.stderr).toBe('');
+      expect(adoptSpy).toHaveBeenCalledWith('/tmp/example', 'example', configDir, dataDir);
+    } finally {
+      await fs.promises.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('presents Xurgo Atlas as the primary project command name', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
@@ -306,6 +337,7 @@ describe('CLI usage text', () => {
 
     expect(output).toContain('Manage registered Xurgo Atlas projects.');
     expect(output).toContain('legacy roots auto-discovered');
+    expect(output).toContain('xurgo-atlas project adopt --project-root /path/to/my-app --project-id my-app');
   });
 
   it('parses config-dir and data-dir for project subcommands', () => {

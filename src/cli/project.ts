@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import { Registry } from '../core/registry.js';
+import { adoptProject, ProjectAdoptionError } from '../core/project-adoption.js';
 
 /**
  * Parse command-line args for `xurgo-atlas project <subcommand> [options]`.
@@ -47,6 +48,13 @@ SUBCOMMANDS:
     --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
     --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
 
+  adopt     Register an existing checkout locally without initializing managed docs
+    --project-root <path> Checkout root to adopt (default: .)
+    --project-id <id>     Required when no marker exists; must match a marker if present
+    --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
+    --data-dir <path>     Data directory (default: ~/.local/share/xurgo-atlas; overrides XURGO_ATLAS_DATA_DIR; legacy roots auto-discovered)
+    Adoption is registry-only. It does not initialize managed docs, create a managed store, or touch tracked files.
+
   remove    Remove a project from the registry
     --project-id <id>     Project identifier
     --config-dir <path>   Config directory (default: ~/.config/xurgo-atlas; overrides XURGO_ATLAS_CONFIG_DIR; legacy roots auto-discovered)
@@ -68,6 +76,7 @@ SUBCOMMANDS:
 
 EXAMPLES:
   xurgo-atlas project add --project-id my-app --project-root /path/to/my-app
+  xurgo-atlas project adopt --project-root /path/to/my-app --project-id my-app
   xurgo-atlas project remove --project-id my-app
   xurgo-atlas project list
   xurgo-atlas project show --project-id my-app
@@ -93,6 +102,36 @@ export async function projectAddCommand(
   const entry = await registry.addProject(projectId, resolvedRoot);
   console.log(`✅ Project "${projectId}" registered at ${resolvedRoot}`);
   console.log(`   Created: ${entry.createdAt}`);
+}
+
+export async function projectAdoptCommand(
+  projectRoot?: string,
+  projectId?: string,
+  configDir?: string,
+  dataDir?: string,
+): Promise<void> {
+  try {
+    const result = await adoptProject({
+      projectRoot,
+      projectId,
+      configDir,
+      dataDir,
+    });
+
+    if (result.alreadyAdopted) {
+      console.log(`✅ Project "${result.projectId}" is already adopted at ${result.projectRoot}.`);
+      console.log('   No registry changes were required.');
+    } else {
+      console.log(`✅ Project "${result.projectId}" adopted at ${result.projectRoot}.`);
+      console.log('   No managed store, marker, or tracked-document changes were made.');
+    }
+  } catch (error: unknown) {
+    if (error instanceof ProjectAdoptionError || error instanceof Error) {
+      console.error(`❌ ${error.message}`);
+      process.exit(1);
+    }
+    throw error;
+  }
 }
 
 export async function projectRemoveCommand(projectId: string, configDir?: string, dataDir?: string): Promise<void> {
