@@ -420,12 +420,14 @@ describe('storage path resolution', () => {
     expect(storage.projectEventsPath('my-proj')).toBe('/dat/projects/my-proj/events.sqlite');
   });
 
-  it('should expand default paths from XDG environment variables', () => {
-    // XDG_CONFIG_HOME and XDG_DATA_HOME are not set in tests, so defaults
-    // should fall back to ~/.config and ~/.local/share
-    const storage = new StoragePaths();
-    expect(storage.configDir).toContain('.config');
-    expect(storage.dataDir).toContain('.local/share');
+  it('should honor explicit XDG environment variables for default paths', async () => {
+    await withXdgRoots(async ({ configHome, dataHome }) => {
+      const storage = new StoragePaths();
+      expect(storage.configDir).toBe(path.join(configHome, 'xurgo-atlas'));
+      expect(storage.dataDir).toBe(path.join(dataHome, 'xurgo-atlas'));
+      expect(storage.configDir).not.toContain(path.join('.config', 'xurgo-atlas'));
+      expect(storage.dataDir).not.toContain(path.join('.local', 'share', 'xurgo-atlas'));
+    });
   });
 
   it('should expand ~ to home directory in configDir and dataDir', () => {
