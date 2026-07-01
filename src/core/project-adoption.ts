@@ -55,6 +55,15 @@ export async function resolveProjectAdoptionContext(
   const requestedRoot = path.resolve(options.projectRoot ?? options.cwd ?? process.cwd());
   await ensureDirectory(requestedRoot);
 
+  const requestedRootStat = await fs.promises.lstat(requestedRoot);
+  const requestedCanonicalRoot = normalizeExistingPath(requestedRoot) ?? path.resolve(requestedRoot);
+  if (requestedRootStat.isSymbolicLink()) {
+    throw new ProjectAdoptionError(
+      `The requested path "${requestedRoot}" resolves to "${requestedCanonicalRoot}". ` +
+        'Project adoption must use the literal checkout root path, not a symlinked or aliased root.',
+    );
+  }
+
   const git = await inspectGitIdentity(requestedRoot);
   if (!git.insideWorkTree || !git.worktreeRoot) {
     throw new ProjectAdoptionError(
@@ -62,12 +71,19 @@ export async function resolveProjectAdoptionContext(
     );
   }
 
-  const requestedCanonicalRoot = normalizeExistingPath(requestedRoot) ?? path.resolve(requestedRoot);
   const canonicalProjectRoot = git.worktreeRoot;
   if (!samePath(requestedCanonicalRoot, canonicalProjectRoot)) {
     throw new ProjectAdoptionError(
       `The requested path "${requestedRoot}" resolves to "${requestedCanonicalRoot}", but the Git checkout root is "${canonicalProjectRoot}". ` +
         'Project adoption must target the checkout root, not a nested path or alternate location.',
+    );
+  }
+
+  const checkoutGitDir = path.join(canonicalProjectRoot, '.git');
+  if (!samePath(git.commonDir, checkoutGitDir)) {
+    throw new ProjectAdoptionError(
+      `The checkout at "${canonicalProjectRoot}" is a linked Git worktree. ` +
+        'Project adoption is limited to the primary checkout root and does not register linked worktrees or additional clones.',
     );
   }
 
@@ -92,6 +108,7 @@ export async function resolveProjectAdoptionContext(
         'Pass --project-id for markerless adoption.',
     );
   }
+  validateProjectId(projectId, markerProjectId ? `marker at ${markerPath}` : '--project-id');
 
   const registry = await Registry.load(options.configDir, options.dataDir);
   const registryEntryById = registry.getProject(projectId);
@@ -197,4 +214,13 @@ function samePath(a: string | null | undefined, b: string | null | undefined): b
   }
 
   return normalizeExistingPath(a) === normalizeExistingPath(b);
+}
+
+function validateProjectId(projectId: string, source: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(projectId)) {
+    throw new ProjectAdoptionError(
+      `Project identity "${projectId}" from ${source} is invalid. ` +
+        'Use only letters, numbers, ".", "_", or "-".',
+    );
+  }
 }

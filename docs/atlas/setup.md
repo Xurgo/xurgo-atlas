@@ -36,6 +36,21 @@ Use `--project-root <path>` when you want to initialize a directory other than t
 
 `init` writes a local `.xurgo-atlas/project.json` marker in the project root. The marker stores the project id only, not an absolute path. Atlas preserves a matching marker, fails clearly instead of overwriting it with a different project id, and refuses to register the same project id to a different root.
 
+If the checkout already exists and you only need a machine-local registration, use `project adopt` instead of `init`:
+
+```bash
+xurgo-atlas project adopt --project-root /path/to/existing-checkout --project-id my-project
+```
+
+`project adopt` is not initialization. It records the checkout in the local registry only.
+
+- It does not create or hydrate the managed store.
+- It does not activate Atlas-managed document governance.
+- It does not create, rewrite, or delete a local marker.
+- It does not change tracked project files.
+
+Use `init` only when you intend to create the managed store and activate Atlas governance for that checkout.
+
 After init, `daemon start`, `status`, `list`, `history`, `export`, and `mcp-config --json` can resolve the current project from the project root or a nested subdirectory without repeating `--project-id` or `--project-root`. Explicit flags still work for advanced cases, but conflicting project identity fails clearly instead of silently serving the wrong project.
 
 Start the daemon and print JSON config for MCP clients:

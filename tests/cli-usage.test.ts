@@ -179,6 +179,13 @@ describe('CLI usage text', () => {
     expect(output).toContain('xurgo-atlas mcp-config');
   });
 
+  it('lists project adopt in the main help text', () => {
+    const output = getUsageText();
+
+    expect(output).toContain('adopt --project-root <path> [--project-id <id>]');
+    expect(output).toContain('xurgo-atlas project adopt --project-root /path/to/my-app --project-id my-app');
+  });
+
   it('shows dedicated status help text', () => {
     const output = getStatusUsageText();
 

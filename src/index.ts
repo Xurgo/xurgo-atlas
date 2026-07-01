@@ -58,6 +58,7 @@ COMMANDS:
 
   project    Manage registered projects
     add --project-id <id> --project-root <path>
+    adopt --project-root <path> [--project-id <id>]
     remove --project-id <id>
     list
     show --project-id <id>
@@ -95,6 +96,7 @@ EXAMPLES:
   xurgo-atlas storage migrate --dry-run
   xurgo-atlas storage migrate --apply
   xurgo-atlas project add --project-id my-app --project-root /path/to/my-app
+  xurgo-atlas project adopt --project-root /path/to/my-app --project-id my-app
   xurgo-atlas project list
   xurgo-atlas mcp-config
   xurgo-atlas mcp-config --json
