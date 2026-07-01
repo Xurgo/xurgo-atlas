@@ -15,7 +15,7 @@ const baseFacts = {
   repoRoot: '/repo/xurgo-atlas',
   originRemote: 'https://github.com/xurgo/xurgo-atlas.git',
   packageName: 'xurgo-atlas',
-  packageVersion: '0.2.1',
+  packageVersion: '0.3.0',
   nvmrcVersion: '22.17.0',
   expectedNodeVersion: 'v22.17.0',
   nodeVersion: 'v22.17.0',
@@ -28,7 +28,7 @@ const baseFacts = {
   localMain: '500a77695416520d3a907016ef864b2c106d097a',
   originMain: '500a77695416520d3a907016ef864b2c106d097a',
   remoteMain: '500a77695416520d3a907016ef864b2c106d097a',
-  intendedTag: 'v0.2.1',
+  intendedTag: 'v0.3.0',
   localTagPresent: false,
   localTagActual: 'absent',
   remoteTagPresent: false,
@@ -98,7 +98,7 @@ describe('release preflight stage policy', () => {
 
     expect(evaluate('prepare', {
       npmPackageVersionPublished: true,
-      npmPackageVersionActual: '0.2.1',
+      npmPackageVersionActual: '0.3.0',
     }).passed).toBe(false);
 
     expect(evaluate('prepare', {
@@ -108,7 +108,7 @@ describe('release preflight stage policy', () => {
 
     expect(evaluate('prepare', {
       remoteTagPresent: true,
-      remoteTagActual: 'abc123\trefs/tags/v0.2.1',
+      remoteTagActual: 'abc123\trefs/tags/v0.3.0',
     }).passed).toBe(false);
 
     expect(evaluate('prepare', {
@@ -120,30 +120,30 @@ describe('release preflight stage policy', () => {
   it('finalize accepts only published package version with absent tag and release state', () => {
     expect(evaluate('finalize', {
       npmPackageVersionPublished: true,
-      npmPackageVersionActual: '0.2.1',
-      npmLatestActual: '0.2.1',
+      npmPackageVersionActual: '0.3.0',
+      npmLatestActual: '0.3.0',
     }).passed).toBe(true);
 
     expect(evaluate('finalize').passed).toBe(false);
 
     expect(evaluate('finalize', {
       npmPackageVersionPublished: true,
-      npmPackageVersionActual: '0.2.1',
+      npmPackageVersionActual: '0.3.0',
       npmLatestActual: '0.2.0',
     }).passed).toBe(false);
 
     expect(evaluate('finalize', {
       npmPackageVersionPublished: true,
-      npmPackageVersionActual: '0.2.1',
-      npmLatestActual: '0.2.1',
+      npmPackageVersionActual: '0.3.0',
+      npmLatestActual: '0.3.0',
       remoteTagPresent: true,
-      remoteTagActual: 'abc123\trefs/tags/v0.2.1',
+      remoteTagActual: 'abc123\trefs/tags/v0.3.0',
     }).passed).toBe(false);
 
     expect(evaluate('finalize', {
       npmPackageVersionPublished: true,
-      npmPackageVersionActual: '0.2.1',
-      npmLatestActual: '0.2.1',
+      npmPackageVersionActual: '0.3.0',
+      npmLatestActual: '0.3.0',
       githubReleasePresent: true,
       githubReleaseActual: 'present',
     }).passed).toBe(false);
@@ -185,9 +185,9 @@ describe('release preflight command safety', () => {
       ['git rev-parse refs/heads/main', '500a77695416520d3a907016ef864b2c106d097a\n'],
       ['git rev-parse refs/remotes/origin/main', '500a77695416520d3a907016ef864b2c106d097a\n'],
       ['git ls-remote origin refs/heads/main', '500a77695416520d3a907016ef864b2c106d097a\trefs/heads/main\n'],
-      ['git ls-remote --tags origin refs/tags/v0.2.1', ''],
+      ['git ls-remote --tags origin refs/tags/v0.3.0', ''],
       ['npm --version', '10.9.2\n'],
-      ['npm view xurgo-atlas@0.2.1 version --json', ''],
+      ['npm view xurgo-atlas@0.3.0 version --json', ''],
       ['npm view xurgo-atlas dist-tags.latest --json', '"0.2.0"\n'],
     ]);
 
@@ -195,10 +195,10 @@ describe('release preflight command safety', () => {
       run(command: string, args: string[], options = {}) {
         const key = [command, ...args].join(' ');
         commands.push(key);
-        if (key === 'git rev-parse --verify --quiet refs/tags/v0.2.1') {
+        if (key === 'git rev-parse --verify --quiet refs/tags/v0.3.0') {
           return { status: 1, stdout: '', stderr: '' };
         }
-        if (key === 'npm view xurgo-atlas@0.2.1 version --json') {
+        if (key === 'npm view xurgo-atlas@0.3.0 version --json') {
           return { status: 1, stdout: '', stderr: 'npm ERR! code E404\n' };
         }
         const stdout = responses.get(key);
@@ -218,7 +218,7 @@ describe('release preflight command safety', () => {
     });
 
     expect(commands).toContain('git ls-remote origin refs/heads/main');
-    expect(commands).toContain('git ls-remote --tags origin refs/tags/v0.2.1');
+    expect(commands).toContain('git ls-remote --tags origin refs/tags/v0.3.0');
     expect(commands.some((command) => command.startsWith('git fetch'))).toBe(false);
   });
 
