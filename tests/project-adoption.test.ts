@@ -150,6 +150,22 @@ describe('project adoption', () => {
     expect(fs.existsSync(path.join(dataDir, 'projects'))).toBe(false);
   });
 
+  it('rejects an invalid explicit project identity', async () => {
+    const { root, configDir, dataDir } = await createRepoFixture();
+
+    await expect(
+      adoptProject({
+        projectRoot: root,
+        projectId: 'not valid',
+        configDir,
+        dataDir,
+      }),
+    ).rejects.toThrow(/is invalid/);
+
+    expect(fs.existsSync(path.join(configDir, 'projects.json'))).toBe(false);
+    expect(fs.existsSync(path.join(dataDir, 'projects'))).toBe(false);
+  });
+
   it('is idempotent for the same canonical root', async () => {
     const { root, configDir, dataDir } = await createRepoFixture();
 
@@ -204,31 +220,109 @@ describe('project adoption', () => {
     ).rejects.toThrow(/Adoption will not rebind|will not overwrite/);
   });
 
-  it('accepts symlinked and worktree checkouts through canonical root validation', async () => {
+  it('rejects a canonical root that is already registered to another project id', async () => {
+    const { root, configDir, dataDir } = await createRepoFixture();
+    await adoptProject({
+      projectRoot: root,
+      projectId: 'alpha',
+      configDir,
+      dataDir,
+    });
+
+    await expect(
+      adoptProject({
+        projectRoot: root,
+        projectId: 'beta',
+        configDir,
+        dataDir,
+      }),
+    ).rejects.toThrow(/already registered as project "alpha"/);
+  });
+
+  it('rejects moved-checkout registry collisions instead of rebinding automatically', async () => {
+    const { root, configDir, dataDir } = await createRepoFixture();
+    const missingRoot = path.join(tmpDir, 'missing-checkout');
+    await fs.promises.mkdir(path.dirname(missingRoot), { recursive: true });
+
+    await fs.promises.mkdir(configDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(configDir, 'projects.json'),
+      JSON.stringify({
+        version: 2,
+        configDir,
+        dataDir,
+        defaultProjectId: null,
+        projects: {
+          alpha: {
+            projectId: 'alpha',
+            projectRoot: missingRoot,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        },
+      }, null, 2) + '\n',
+      'utf-8',
+    );
+
+    await expect(
+      adoptProject({
+        projectRoot: root,
+        projectId: 'alpha',
+        configDir,
+        dataDir,
+      }),
+    ).rejects.toThrow(/looks like a moved checkout or stale registry entry/);
+  });
+
+  it('rejects nested paths and requires the checkout root', async () => {
+    const { root, configDir, dataDir } = await createRepoFixture();
+    const nestedRoot = path.join(root, 'packages', 'app');
+    await fs.promises.mkdir(nestedRoot, { recursive: true });
+
+    await expect(
+      adoptProject({
+        projectRoot: nestedRoot,
+        projectId: 'nested-project',
+        configDir,
+        dataDir,
+      }),
+    ).rejects.toThrow(/must target the checkout root/);
+  });
+
+  it('rejects symlinked checkout roots', async () => {
     const { root, configDir, dataDir } = await createRepoFixture();
     const symlinkRoot = path.join(tmpDir, 'repo-link');
     await fs.promises.symlink(root, symlinkRoot, 'dir');
 
+    await expect(
+      adoptProject({
+        projectRoot: symlinkRoot,
+        projectId: 'symlink-project',
+        configDir,
+        dataDir,
+      }),
+    ).rejects.toThrow(/symlinked or aliased root/);
+
+    expect(fs.existsSync(path.join(configDir, 'projects.json'))).toBe(false);
+    expect(fs.existsSync(path.join(dataDir, 'projects'))).toBe(false);
+  });
+
+  it('rejects linked worktree checkouts', async () => {
+    const { root, configDir, dataDir } = await createRepoFixture();
     const worktreeRoot = path.join(tmpDir, 'repo-worktree');
     await simpleGit({ baseDir: root }).raw(['worktree', 'add', worktreeRoot, '-b', 'worktree-adoption']);
 
-    const symlinkResult = await adoptProject({
-      projectRoot: symlinkRoot,
-      projectId: 'symlink-project',
-      configDir,
-      dataDir,
-    });
-    const worktreeResult = await adoptProject({
-      projectRoot: worktreeRoot,
-      projectId: 'worktree-project',
-      configDir,
-      dataDir,
-    });
+    await expect(
+      adoptProject({
+        projectRoot: worktreeRoot,
+        projectId: 'worktree-project',
+        configDir,
+        dataDir,
+      }),
+    ).rejects.toThrow(/linked Git worktree/);
 
-    expect(symlinkResult.projectRoot).toBe(realPath(root));
-    expect(worktreeResult.projectRoot).toBe(realPath(worktreeRoot));
-    expect(fs.existsSync(path.join(dataDir, 'projects', 'symlink-project'))).toBe(false);
-    expect(fs.existsSync(path.join(dataDir, 'projects', 'worktree-project'))).toBe(false);
+    expect(fs.existsSync(path.join(configDir, 'projects.json'))).toBe(false);
+    expect(fs.existsSync(path.join(dataDir, 'projects'))).toBe(false);
   });
 
   it('preserves proposals on an already initialized project', async () => {
