@@ -4,107 +4,98 @@ entrypoints:
   - path: STATUS.md
     role: front-page
     priority: highest
-
 documents:
   - path: STATUS.md
     role: front-page
     priority: highest
     summary: Project front page with current focus, next actions, and blockers
-
   - path: AGENTS.md
     role: agent-contract
     priority: highest
     summary: Agent safety rules and operating guidelines
     related:
       - .docs-policy.yml
-
   - path: .docs-policy.yml
     role: safety-policy
     priority: highest
     summary: Configurable risk detection and protected path rules
     related:
       - AGENTS.md
-
   - path: docs/manifest.yml
     role: project-map
     priority: highest
     summary: Machine-readable project document index
-
   - path: docs/README.md
     role: reference
     priority: high
     summary: Project documentation overview with links to reference docs
-
   - path: docs/atlas/setup.md
     role: reference
     priority: high
     summary: Install, build, test, and validation commands
-
   - path: docs/atlas/daemon-mcp.md
     role: reference
     priority: high
     summary: Daemon lifecycle and MCP client configuration
-
   - path: docs/atlas/storage-migration.md
     role: reference
     priority: high
     summary: Storage inspection and legacy migration workflow
-
   - path: docs/atlas/release-checklist.md
     role: reference
     priority: high
     summary: Pre-release validation checklist and release steps
-
   - path: docs/atlas/project-resolution-hardening.md
     role: roadmap
     priority: high
     summary: Tracks project-resolution hardening follow-ups from the 0.1.0 RC process
-
   - path: docs/atlas/root-worktree-safety.md
     role: reference
     priority: high
-    summary: Root/worktree safety model for Atlas project identity, daemon binding, and export boundaries
-
+    summary: Root/worktree safety model for Atlas project identity, daemon binding,
+      and export boundaries
   - path: docs/atlas/development-workflow.md
     role: reference
     priority: high
-    summary: Validation tiers, smoke testing, private RC artifact workflow, and script naming conventions
-
+    summary: Validation tiers, smoke testing, private RC artifact workflow, and
+      script naming conventions
   - path: docs/implementation-checklist.md
     role: roadmap
     priority: high
     summary: Implementation status for all features and milestones
-
   - path: docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md
     role: spec
     priority: high
     summary: Spec for STATUS.md, manifest, and token-efficient MCP tools
-
   - path: docs/vision/project-context-mcp.md
     role: vision
     priority: high
     summary: Product vision for documentation-first project context
     related:
       - docs/spec/docu-guard-mcp-v0.4-status-manifest-context.md
-
   - path: docs/vision/xurgo-integration.md
     role: vision
     priority: high
     summary: Boundary and integration plan between Xurgo and Xurgo Atlas
     related:
       - docs/vision/project-context-mcp.md
-
   - path: docs/atlas/lifecycle-state-surfaces.md
     role: roadmap
     priority: high
-    summary: Atlas lifecycle/state-surface hardening plan for managed state, working tree, export/reconcile, and search freshness
-
+    summary: Atlas lifecycle/state-surface hardening plan for managed state, working
+      tree, export/reconcile, and search freshness
   - path: docs/atlas/sqlite-root-safety-ledger.md
     role: reference
     priority: high
-    summary: SQLite-backed root/worktree safety ledger design, schema, guards, and rollout plan.
-
+    summary: SQLite-backed root/worktree safety ledger design, schema, guards, and
+      rollout plan.
   - path: docs/atlas/readonly-identity-tools.md
     role: roadmap
     priority: high
-    summary: Design and checkpoint plan for optional read-only Atlas identity, roots, and future lock-status MCP tools.
+    summary: Design and checkpoint plan for optional read-only Atlas identity,
+      roots, and future lock-status MCP tools.
+  - path: docs/atlas/codex-delivery-train.md
+    role: reference
+    priority: high
+    summary: Optional bounded Codex-only delivery-train protocol, local authority,
+      operational ledger, and hard-gate rules

@@ -21,6 +21,7 @@ This directory contains Atlas-managed project documentation. Start with the user
 
 - [Setup](./atlas/setup.md#contributor-checkout--validation) - repository checkout, public consumer Node prerequisites, and basic validation commands
 - [Development Workflow](./atlas/development-workflow.md) - internal `.nvmrc` toolchain, validation tiers, release preflight, private RC artifacts, and managed-doc export drift boundaries
+- [Codex-Only Delivery Train](./atlas/codex-delivery-train.md) - optional bounded local-development protocol, Shadow Ledger operation, and hard-gate rules
 - [Release Checklist](./atlas/release-checklist.md) - release preflight, authorization gates, user-operated npm publication, and post-release checks
 
 ## Advanced, Historical, and Design Material
