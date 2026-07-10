@@ -390,6 +390,29 @@ export class GitStore {
   }
 
   /**
+   * Remove one managed-branch file only after its caller has performed
+   * ownership and revision checks. This is deliberately not a general
+   * filesystem delete primitive.
+   */
+  async deleteFileAndCommit(
+    branch: string,
+    filePath: string,
+    message: string,
+    baseRevision: string,
+  ): Promise<CommitResult> {
+    return this.withWorkDir(branch, async (git: SimpleGit) => {
+      const currentRevision = await this.getFileRevision(branch, filePath);
+      if (!currentRevision || currentRevision !== baseRevision) {
+        throw new Error(`Base revision mismatch for "${filePath}" on branch "${branch}"`);
+      }
+      await git.raw(['rm', '--', filePath]);
+      const result = await git.commit(message);
+      await git.push('origin', branch);
+      return { hash: result.commit, branch, message };
+    });
+  }
+
+  /**
    * Validate whether a unified diff can be applied cleanly on a branch without committing.
    */
   async validatePatchApplyability(

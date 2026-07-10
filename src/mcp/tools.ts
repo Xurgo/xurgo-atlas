@@ -160,6 +160,16 @@ const RestoreFileSchema = z.object({
   intent: z.string().min(1, 'intent is required'),
 });
 
+const DeleteOrphanedDocumentSchema = z.object({
+  projectId: z.string().min(1, 'projectId is required'),
+  branch: z.string().min(1, 'branch is required'),
+  path: z.string().min(1, 'path is required'),
+  baseRevision: z.string().min(1, 'baseRevision is required'),
+  intent: z.string().min(1, 'intent is required'),
+  actor: z.string().min(1, 'actor is required'),
+  approval: z.literal('delete_orphaned_managed_document'),
+});
+
 const ExportSchema = z.object({
   projectId: z.string().min(1, 'projectId is required'),
   branch: z.string().optional().default('main'),
@@ -385,6 +395,11 @@ export function registerTools(
           inputSchema: zodToJsonSchema(RestoreFileSchema),
         },
         {
+          name: 'docs.delete_orphaned_document',
+          description: 'Delete one orphaned, manifest-unregistered managed document from exactly one branch after revision, path, and explicit approval checks.',
+          inputSchema: zodToJsonSchema(DeleteOrphanedDocumentSchema),
+        },
+        {
           name: 'docs.export',
           description:
             'Export documentation from a branch to a target directory',
@@ -536,6 +551,8 @@ export function registerTools(
           return await handleHistory(project, rawArgs);
         case 'docs.restore_file':
           return await handleRestoreFile(project, rawArgs);
+        case 'docs.delete_orphaned_document':
+          return await handleDeleteOrphanedDocument(project, rawArgs);
         case 'docs.export':
           return await handleExport(project, rawArgs);
         case 'docs.preview_export':
@@ -2975,6 +2992,38 @@ async function handleRestoreFile(
       },
     ],
   };
+}
+
+async function handleDeleteOrphanedDocument(
+  project: Project,
+  rawArgs: Record<string, unknown>,
+) {
+  const args = DeleteOrphanedDocumentSchema.parse(rawArgs);
+  const rootSafety = await guardManagedWriteSafety(project, {
+    operation: 'docs.delete_orphaned_document',
+  });
+  if (rootSafety) return rootSafety;
+  const filePath = normalizeManagedPath(args.path);
+  if (isPathTraversal(filePath) || filePath === MANIFEST_PATH || filePath === 'AGENTS.md' || filePath === 'STATUS.md' || filePath === '.docs-policy.yml') {
+    return { content: [{ type: 'text', text: JSON.stringify({ valid: false, error: 'Path is reserved or unsafe for orphan deletion', projectId: project.projectId, path: filePath, branch: args.branch }) }], isError: true };
+  }
+  const manifest = await readManifestState(project, args.branch);
+  if (!manifest.valid) {
+    return { content: [{ type: 'text', text: JSON.stringify({ valid: false, error: manifest.error, projectId: project.projectId, path: filePath, branch: args.branch }) }], isError: true };
+  }
+  if (manifest.documents.some((document) => document.path === filePath)) {
+    return { content: [{ type: 'text', text: JSON.stringify({ valid: false, error: 'Registered managed documents cannot be deleted by docs.delete_orphaned_document', projectId: project.projectId, path: filePath, branch: args.branch }) }], isError: true };
+  }
+  const currentRevision = await project.gitStore.getFileRevision(args.branch, filePath);
+  if (!currentRevision) {
+    return { content: [{ type: 'text', text: JSON.stringify({ valid: false, error: 'Orphaned managed document not found', projectId: project.projectId, path: filePath, branch: args.branch, idempotent: true }) }], isError: true };
+  }
+  if (currentRevision !== args.baseRevision) {
+    return { content: [{ type: 'text', text: JSON.stringify({ valid: false, error: `Base revision mismatch for "${filePath}" on branch "${args.branch}"`, projectId: project.projectId, path: filePath, branch: args.branch, currentRevision }) }], isError: true };
+  }
+  const result = await project.gitStore.deleteFileAndCommit(args.branch, filePath, `docs: delete orphaned managed document ${filePath}`, args.baseRevision);
+  project.eventLog.logEvent({ project_id: project.projectId, branch: args.branch, path: filePath, actor: args.actor, tool_name: 'delete_orphaned_document', intent: args.intent, summary: 'Deleted orphaned managed document after explicit approval', base_revision: args.baseRevision, result_revision: result.hash, risk_level: 'high' });
+  return { content: [{ type: 'text', text: JSON.stringify({ deleted: true, projectId: project.projectId, branch: args.branch, path: filePath, commit: result.hash, message: 'Orphaned managed document deleted from this branch only.' }) }] };
 }
 
 async function handleExport(
