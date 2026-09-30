@@ -2,9 +2,9 @@
 
 ## Session start
 
-Boot per the corpus-owned sequence in `~/.xurgo/governance/xurgo-ecosystem/AGENTS.md` ("Session start (coordination)"): boot bundle (`python3 corpus-context-bundle.py "<situation>"`; no match → inject nothing, ask) → corpus `STATUS.md` → `templates/base-handoff-v01.md` → `operations/gates-register-v01.md` → `policies/cross-product-coordination-process-v01.md` → (if the task needs the Authority–Studio link) `operations/opencode-coordinator-compatibility-runbook-v01.md` for A4 lease mechanics. Then read THIS file (DYOR, mandatory first read for repo work) and `STATUS.md` for current focus.
+Boot per the corpus-owned sequence in `~/.xurgo/governance/xurgo-ecosystem/AGENTS.md` ("Session start (coordination)"), which names the exact documents and their order. Then read THIS file (DYOR, mandatory first read for repo work) and `STATUS.md` for current focus.
 
-The prior pointer here named `standards/fresh-boot-sequence-hub.md`, which was RETIRED 2026-08-14 and moved to `archive/standards/`. The live contract is `templates/base-handoff-v01.md`, which salvages the golden rule and hard gates. Decision `CORPUS_WRITE_PATH_PLAIN_GIT_2026-09-15` authorized fixing this pointer; Studio was corrected and Atlas was not.
+The prior pointer in this file named `standards/fresh-boot-sequence-hub.md`, which was RETIRED 2026-08-14 and moved to `archive/standards/`. Decision `CORPUS_WRITE_PATH_PLAIN_GIT_2026-09-15` authorized fixing that pointer; Studio was corrected and Atlas was not. **This paragraph previously enumerated the corpus's internal filenames.** That enumeration has been removed on purpose: this repository is public, the corpus is private, and listing the private corpus's internal document names here published a map of it. Point at the corpus, let the corpus name its own documents.
 
 ## Corpus queries
 
@@ -103,7 +103,7 @@ comment, and therefore confidently wrong.
    material claim per the corpus standard (evidence classes: directly verified /
    source-grounded / strong inference / unverified possibility / unsupported).
    For load-bearing claims, use the corpus provenance format
-   (`research/studio-adaptive-intelligence-research-agenda.md`): claim, evidence
+   (the corpus research agenda's provenance-ledger format): claim, evidence
    class, exact supporting source, remaining gap. Naming a third party as
    research evidence is not an integration and does not require a gate; see
    corpus decision `THIRD_PARTY_RESEARCH_VS_DEPENDENCY_2026-09-30`. Adopting a
@@ -122,7 +122,7 @@ comment, and therefore confidently wrong.
 
 Applies before proposing a fix for a failure you cannot yet explain. Full
 rationale, sources, and measured anti-patterns:
-`~/.xurgo/governance/xurgo-ecosystem/operations/diagnostic-discipline-and-repair-assignment-v01.md`.
+the corpus's diagnostic-discipline and repair-assignment operations doc.
 The short form — establish the observable facts, trace backward to the earliest
 unrecovered failure, assign the fault side, pass the evidence test, classify
 before retrying, and check the fix belongs to the assigned component. Recency
@@ -131,4 +131,4 @@ modes to watch for.
 
 ## Completion-return contract
 
-Any session that may hand back to a Coordinator (or be resumed) returns via the corpus-owned five-section completion-return contract: DISPOSITION → REPORT → DECISIVE EVIDENCE → SCOPE-SAFETY → NEXT DECISION. Start from `~/.xurgo/governance/xurgo-ecosystem/templates/default-handoff-preamble-v01.md` (the stable ecosystem context preamble — always prepend), then fill the session-specific content from `~/.xurgo/governance/xurgo-ecosystem/templates/handoff-and-rehydration-bootstrap-v01.md` and `~/.xurgo/governance/xurgo-ecosystem/standards/coordinator-continuity-guide.md`, not a hand-written approximation.
+Any session that may hand back to a Coordinator (or be resumed) returns via the corpus-owned five-section completion-return contract: DISPOSITION → REPORT → DECISIVE EVIDENCE → SCOPE-SAFETY → NEXT DECISION. Start from the corpus templates `default-handoff-preamble-v01.md` (the stable ecosystem context preamble — always prepend), then fill the session-specific content from `handoff-and-rehydration-bootstrap-v01.md` and the corpus's `coordinator-continuity-guide.md`, not a hand-written approximation.
