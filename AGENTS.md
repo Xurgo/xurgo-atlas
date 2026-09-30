@@ -61,7 +61,17 @@ The following active project documents are managed through Xurgo Atlas and must 
 - `.docs-policy.yml`
 - documents listed in `docs/manifest.yml` and served through the Atlas `docs.list` / `docs.manifest` view
 
-Historical documentation under `docs/spec/**` may not all appear in the active Atlas manifest. Treat those files as auditable project documentation: prefer Atlas guarded tools when available, avoid stale active instructions, and do not leave personal or local machine path leaks in committed content.
+Historical documentation under `docs/spec/**` may not all appear in the active Atlas manifest. Treat those files as auditable project documentation: prefer Atlas guarded tools when available and avoid stale active instructions.
+
+### Privacy in this public repository
+
+This repository is **public**; the governance corpus is not. That asymmetry drives two rules.
+
+**Commit identity.** Public remotes author with the GitHub `noreply` address (`1726204+jasoncoate@users.noreply.github.com`), set repo-locally so private repositories can keep a personal address. GitHub attributes these commits to the account normally — no loss of credit or contributions-graph history. Do not set the personal address here, and do not "fix" a commit by re-authoring it to a personal address.
+
+**Content.** Do not leave personal or local machine path leaks in committed content, and do not enumerate the private corpus's internal document names — a file map of a private repo is disclosure. Reference the corpus root and let the corpus name its own documents.
+
+**Before any push, confirm the remote's visibility.** A clean fast-forward proves nothing about who can read the result. Content review is not audience review. See corpus decision `PUBLIC_REPO_IDENTITY_EXPOSURE_2026-09-30`.
 
 ### Quick Reference
 
