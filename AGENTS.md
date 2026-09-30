@@ -2,7 +2,9 @@
 
 ## Session start
 
-Boot per the corpus-owned sequence in `~/.xurgo/governance/xurgo-ecosystem/AGENTS.md` ("Session start (coordination)"): corpus `STATUS.md` → `standards/fresh-boot-sequence-hub.md` → `policies/cross-product-coordination-process-v01.md` → (if the task needs the Authority–Studio link) `operations/opencode-coordinator-compatibility-runbook-v01.md` for A4 lease mechanics. Then read THIS file and `STATUS.md` for current focus.
+Boot per the corpus-owned sequence in `~/.xurgo/governance/xurgo-ecosystem/AGENTS.md` ("Session start (coordination)"): boot bundle (`python3 corpus-context-bundle.py "<situation>"`; no match → inject nothing, ask) → corpus `STATUS.md` → `templates/base-handoff-v01.md` → `operations/gates-register-v01.md` → `policies/cross-product-coordination-process-v01.md` → (if the task needs the Authority–Studio link) `operations/opencode-coordinator-compatibility-runbook-v01.md` for A4 lease mechanics. Then read THIS file (DYOR, mandatory first read for repo work) and `STATUS.md` for current focus.
+
+The prior pointer here named `standards/fresh-boot-sequence-hub.md`, which was RETIRED 2026-08-14 and moved to `archive/standards/`. The live contract is `templates/base-handoff-v01.md`, which salvages the golden rule and hard gates. Decision `CORPUS_WRITE_PATH_PLAIN_GIT_2026-09-15` authorized fixing this pointer; Studio was corrected and Atlas was not.
 
 ## Corpus queries
 
@@ -77,6 +79,40 @@ Historical documentation under `docs/spec/**` may not all appear in the active A
 | View history | `docs.history` |
 | Restore a file | `docs.restore_file` |
 | Export documentation | `docs.export` |
+
+## Research before answering
+
+Required before presenting a recommendation, an answer, or an assertion. This
+project is a documentation server, so the failure mode is specific: a plausible
+description of how a store or a tool behaves, written from memory or from a
+comment, and therefore confidently wrong.
+
+1. **Review the corpus first** via `corpus-query.py` / `corpus-context-bundle.py`
+   (never raw grep), including the gates register. A prior decision may already
+   have settled the question.
+2. **Research online from primary sources** — the project's own docs, the MCP
+   spec, the schema in the source, the vendor's own issue tracker. Prefer a
+   maintainer's tracker over a blog summarising it.
+3. **Read the code before describing it.** Check the claim against the file, at
+   the line. Store semantics, revision handling, and export behaviour are easy
+   to describe approximately and wrong exactly.
+4. **State what you verified and what you did not**, separately. Do not report a
+   test, command, or check that did not run in this session.
+5. **Prefer the test that cannot cause harm.** A manual prompt that depends on
+   the safeguard being correct is the wrong kind of test when the failure mode
+   is a destroyed store or a leaked secret. Assert on parsed arguments; spawn
+   nothing.
+
+## Diagnosing an unexplained failure
+
+Applies before proposing a fix for a failure you cannot yet explain. Full
+rationale, sources, and measured anti-patterns:
+`~/.xurgo/governance/xurgo-ecosystem/operations/diagnostic-discipline-and-repair-assignment-v01.md`.
+The short form — establish the observable facts, trace backward to the earliest
+unrecovered failure, assign the fault side, pass the evidence test, classify
+before retrying, and check the fix belongs to the assigned component. Recency
+anchoring and observability that exists but goes unread are the two failure
+modes to watch for.
 
 ## Completion-return contract
 
