@@ -90,9 +90,21 @@ comment, and therefore confidently wrong.
 1. **Review the corpus first** via `corpus-query.py` / `corpus-context-bundle.py`
    (never raw grep), including the gates register. A prior decision may already
    have settled the question.
-2. **Research online from primary sources** — the project's own docs, the MCP
-   spec, the schema in the source, the vendor's own issue tracker. Prefer a
-   maintainer's tracker over a blog summarising it.
+2. **Research online from primary sources, and classify what you get.**
+   *Primary source* means the authority that owns the fact: the project's own
+   spec or reference docs, its source code, its release notes, or an issue or
+   advisory on the project's own tracker. For this project that means the MCP
+   spec, the store schema in the source, and the vendor's own tracker. A blog,
+   tutorial, summary post, or another model's answer is **not** a primary
+   source, however authoritative it sounds. The test is provenance, not
+   reputation: *can I name the artifact and where it says this?* If not, it is not
+   a primary source. A documented control is not evidence that it works — if the
+   finding matters, confirm it in the code or a test. Then classify each
+   material claim per the corpus standard (evidence classes: directly verified /
+   source-grounded / strong inference / unverified possibility / unsupported).
+   For load-bearing claims, use the corpus provenance format
+   (`research/studio-adaptive-intelligence-research-agenda.md`): claim, evidence
+   class, exact supporting source, remaining gap.
 3. **Read the code before describing it.** Check the claim against the file, at
    the line. Store semantics, revision handling, and export behaviour are easy
    to describe approximately and wrong exactly.
