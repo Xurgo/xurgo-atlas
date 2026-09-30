@@ -104,7 +104,10 @@ comment, and therefore confidently wrong.
    source-grounded / strong inference / unverified possibility / unsupported).
    For load-bearing claims, use the corpus provenance format
    (`research/studio-adaptive-intelligence-research-agenda.md`): claim, evidence
-   class, exact supporting source, remaining gap.
+   class, exact supporting source, remaining gap. Naming a third party as
+   research evidence is not an integration and does not require a gate; see
+   corpus decision `THIRD_PARTY_RESEARCH_VS_DEPENDENCY_2026-09-30`. Adopting a
+   dependency or an adapter still does.
 3. **Read the code before describing it.** Check the claim against the file, at
    the line. Store semantics, revision handling, and export behaviour are easy
    to describe approximately and wrong exactly.
