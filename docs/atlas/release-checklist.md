@@ -1,5 +1,7 @@
 # Release Checklist
 
+> **Distribution change (2026-10-21):** The `xurgo-atlas` npm package was unpublished. Atlas is now distributed from GitHub — run via `npx --yes github:Xurgo/xurgo-atlas`, or clone and `npm install`. The npm-publish steps below are retained as historical process and no longer apply; release now means a git tag plus a GitHub release, with the CLI built on install via the package's `prepare` script.
+
 > **Status:** Public package release maintenance is gated. A passed documentation checkpoint, private RC review, managed-doc sync, or previous public release does not authorize a new release.
 > Any public npm publish, tag, GitHub release, or release metadata change requires a separate release-readiness audit for the exact target commit and explicit approval for that action. Public npm publication is user-operated only; agents may prepare, package-verify, run read-only post-publish verification, and perform tag or GitHub release actions only when those actions are separately authorized.
 

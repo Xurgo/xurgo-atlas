@@ -1,6 +1,6 @@
 # Xurgo Atlas
 
-[![npm version](https://img.shields.io/npm/v/xurgo-atlas)](https://www.npmjs.com/package/xurgo-atlas)
+[![Xurgo/xurgo-atlas](https://img.shields.io/badge/github-Xurgo%2Fxurgo--atlas-blue)](https://github.com/Xurgo/xurgo-atlas)
 
 Xurgo Atlas is a standalone, local-first documentation and project-context service for AI-assisted development. It gives developers and MCP-capable AI clients a governed way to read project docs, find context, and propose documentation changes with an audit trail.
 
@@ -8,13 +8,34 @@ Atlas complements your repository. It does not replace Git, your source tree, yo
 
 ## Quick Start
 
-Install Xurgo Atlas globally for the normal CLI workflow:
+Atlas is distributed from GitHub, not a package registry. The CLI is built from source on install (via the package's `prepare` script), so there is no prebuilt binary to fetch.
+
+Run it directly from GitHub with `npx` — this is the recommended path and needs no global install:
 
 ```bash
-npm install -g xurgo-atlas
+npx --yes github:Xurgo/xurgo-atlas <command>
 ```
 
-Verify the CLI, initialize a project, start the local daemon, and print JSON config for MCP clients:
+For example, `npx --yes github:Xurgo/xurgo-atlas mcp-config --json`. The binary name is implicit for this package's single-`bin` layout, so you do not repeat `xurgo-atlas` after the repository.
+
+Pin to a released tag for a stable version (tags created from the commit that added the `prepare` build step onward):
+
+```bash
+npx --yes github:Xurgo/xurgo-atlas#<tag> <command>
+```
+
+For a persistent local install, clone the repository and build it — this is the supported alternative to a global `npm install -g`, which does not work for a source-built git package (the global install context has no `devDependencies`, so the TypeScript build fails):
+
+```bash
+git clone https://github.com/Xurgo/xurgo-atlas.git
+cd xurgo-atlas
+npm install          # runs the prepare build
+node dist/index.js --help
+```
+
+To put the built CLI on your PATH, link it from the clone: `npm link` (or add an alias to `node /path/to/xurgo-atlas/dist/index.js`).
+
+Then run any command directly:
 
 ```bash
 xurgo-atlas --version
@@ -24,7 +45,7 @@ xurgo-atlas daemon start
 xurgo-atlas mcp-config --json
 ```
 
-If you want to try Atlas without installing it first, use `npx xurgo-atlas ...`. For project-local automation, install it as a dev dependency with `npm install -D xurgo-atlas`.
+For project-local automation, add it as a dependency via the GitHub URL in `package.json` (a project install has `devDependencies`, so the build runs): `npm install github:Xurgo/xurgo-atlas`.
 
 `init` creates or preserves a local `.xurgo-atlas/project.json` marker for the project folder. After that, normal commands can run from the project root or a nested subdirectory without repeating `--project-id` or `--project-root`.
 

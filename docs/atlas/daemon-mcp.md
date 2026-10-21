@@ -2,17 +2,19 @@
 
 ## Install and Invocation Boundaries
 
-Install Xurgo Atlas globally for the normal CLI path:
+Atlas is distributed from GitHub, not a package registry. Run it directly with `npx`:
 
 ```bash
-npm install -g xurgo-atlas
+npx --yes github:Xurgo/xurgo-atlas <command>
 ```
 
 Other supported invocation paths are:
 
-- `npx xurgo-atlas ...` for ad hoc use without a global install
-- `npm install -D xurgo-atlas` for project-local automation
+- clone the repository and run `npm install` (which builds `dist/`), then `node dist/index.js ...` or `npm link`
+- `npm install github:Xurgo/xurgo-atlas` as a project dependency
 - this repository checkout plus a current local build when you are working on Atlas itself
+
+The CLI is built from source on install via the package's `prepare` script; a global `npm install -g` is not supported for this source-built package (no `devDependencies` in the global install context).
 
 The installed CLI entrypoint is `xurgo-atlas`.
 

@@ -7,17 +7,21 @@
 - Node.js >= 22
 - npm
 
-Install Xurgo Atlas globally for the normal CLI workflow:
+Atlas is distributed from GitHub, not a package registry. The CLI is built from source on install via the package's `prepare` script.
+
+Run it directly from GitHub with `npx` (recommended, no install):
 
 ```bash
-npm install -g xurgo-atlas
+npx --yes github:Xurgo/xurgo-atlas <command>
 ```
 
 Other supported invocation paths:
 
-- `npx xurgo-atlas ...` for ad hoc use without a global install
-- `npm install -D xurgo-atlas` for project-local automation
+- clone the repository and run `npm install` (which builds `dist/`), then `node dist/index.js ...` or `npm link` to put it on PATH
+- `npm install github:Xurgo/xurgo-atlas` as a project dependency (a project install has `devDependencies`, so the build runs)
 - this repository checkout plus a current local build when you are working on Atlas itself
+
+A global `npm install -g github:Xurgo/xurgo-atlas` does **not** work for this source-built package: the global install context has no `devDependencies`, so the TypeScript build fails. Use one of the paths above instead.
 
 Verify that the CLI is available:
 
