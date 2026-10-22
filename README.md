@@ -18,10 +18,12 @@ npx --yes github:Xurgo/xurgo-atlas <command>
 
 For example, `npx --yes github:Xurgo/xurgo-atlas mcp-config --json`. The binary name is implicit for this package's single-`bin` layout, so you do not repeat `xurgo-atlas` after the repository.
 
-Pin to a released tag for a stable version (tags created from the commit that added the `prepare` build step onward):
+> **npm 12+ note:** npm 12 blocks dependency install scripts by default, and `npx` has no project `package.json` in which to record approval. On npm 12 (and npm ≥11.16 with strict script policy) add the flag: `npx --yes --allow-scripts=xurgo-atlas github:Xurgo/xurgo-atlas <command>`. On npm 11 this is a warning only and the flag is unnecessary.
+
+Pin to a specific revision for a stable version — a released tag, or a commit sha (a git ref is resolved the same way, e.g. `#d7247da`):
 
 ```bash
-npx --yes github:Xurgo/xurgo-atlas#<tag> <command>
+npx --yes github:Xurgo/xurgo-atlas#<tag-or-sha> <command>
 ```
 
 For a persistent local install, clone the repository and build it — this is the supported alternative to a global `npm install -g`, which does not work for a source-built git package (the global install context has no `devDependencies`, so the TypeScript build fails):
