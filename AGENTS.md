@@ -10,6 +10,8 @@ A prior pointer named a retired corpus document. That pointer is obsolete: the c
 
 **Status rule.** `STATUS.md` is the reader-facing handoff; `AGENTS.md` carries stable instructions only and must not accumulate volatile status.
 
+When a change makes a fact in STATUS.md stale (HEAD, gate state, evidence, current focus), update STATUS.md in the same slice/commit; the corpus trigger is 'Every material state change'.
+
 ## Corpus queries
 
 When searching the governance corpus (the corpus root), **always use the Python utility scripts**, never raw grep/rg:
