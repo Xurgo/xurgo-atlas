@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Project } from '../core/project.js';
@@ -56,6 +57,17 @@ interface ResolvedDaemonOptions {
   pidFile?: string;
 }
 
+export interface StartLockHandle {
+  path: string;
+  token: string;
+}
+
+interface StartLockMetadata {
+  pid: number;
+  token: string;
+  createdAt: string;
+}
+
 export interface DaemonCommandDeps {
   spawnProcess?: (
     command: string,
@@ -65,6 +77,8 @@ export interface DaemonCommandDeps {
   isProcessRunning?: (pid: number) => boolean;
   signalProcess?: (pid: number, signal: NodeJS.Signals | 0) => void;
   sleep?: (ms: number) => Promise<void>;
+  acquireStartLock?: (lockPath: string) => Promise<StartLockHandle | null>;
+  releaseStartLock?: (handle: StartLockHandle) => Promise<void>;
 }
 
 export function getDaemonUsageText(): string {
@@ -106,7 +120,98 @@ const defaultDeps: Required<DaemonCommandDeps> = {
     process.kill(pid, signal);
   },
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  acquireStartLock: (lockPath) => acquireExclusiveStartLock(lockPath, processExists),
+  releaseStartLock: (handle) => releaseExclusiveStartLock(handle),
 };
+
+async function readStartLockMetadata(lockPath: string): Promise<StartLockMetadata | null> {
+  try {
+    const raw = await fs.promises.readFile(lockPath, 'utf-8');
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'pid' in parsed &&
+      typeof parsed.pid === 'number' &&
+      'token' in parsed &&
+      typeof parsed.token === 'string' &&
+      'createdAt' in parsed &&
+      typeof parsed.createdAt === 'string'
+    ) {
+      return parsed as StartLockMetadata;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function createStartLock(
+  lockPath: string,
+  metadata: StartLockMetadata,
+): Promise<StartLockHandle | null> {
+  try {
+    const handle = await fs.promises.open(lockPath, 'wx');
+    try {
+      await handle.writeFile(JSON.stringify(metadata), 'utf-8');
+    } finally {
+      await handle.close();
+    }
+    return { path: lockPath, token: metadata.token };
+  } catch (error) {
+    if (!isErrno(error, 'EEXIST')) {
+      throw error;
+    }
+    return null;
+  }
+}
+
+export async function acquireExclusiveStartLock(
+  lockPath: string,
+  isProcessRunning: (pid: number) => boolean = processExists,
+): Promise<StartLockHandle | null> {
+  await fs.promises.mkdir(path.dirname(lockPath), { recursive: true });
+  const metadata: StartLockMetadata = {
+    pid: process.pid,
+    token: randomUUID(),
+    createdAt: new Date().toISOString(),
+  };
+
+  const acquired = await createStartLock(lockPath, metadata);
+  if (acquired) {
+    return acquired;
+  }
+
+  // The lock exists. Recover it once only when the recorded owner is confirmed dead.
+  const owner = await readStartLockMetadata(lockPath);
+  if (owner && !isProcessRunning(owner.pid)) {
+    try {
+      await fs.promises.unlink(lockPath);
+    } catch (error) {
+      if (!isErrno(error, 'ENOENT')) {
+        throw error;
+      }
+    }
+    return createStartLock(lockPath, metadata);
+  }
+
+  // Owner is still running, or the lock state is indeterminate: fail safe, do not spawn.
+  return null;
+}
+
+export async function releaseExclusiveStartLock(handle: StartLockHandle): Promise<void> {
+  const current = await readStartLockMetadata(handle.path);
+  if (!current || current.token !== handle.token) {
+    return;
+  }
+  try {
+    await fs.promises.unlink(handle.path);
+  } catch (error) {
+    if (!isErrno(error, 'ENOENT')) {
+      throw error;
+    }
+  }
+}
 
 export function resolveDaemonAction(action?: string): DaemonAction {
   if (!action) return 'foreground';
@@ -285,73 +390,97 @@ async function startBackgroundDaemon(
   deps: Required<DaemonCommandDeps>,
   project: ProjectResolution,
 ): Promise<void> {
-  const staleState = await inspectDaemonState(pidFile, deps.isProcessRunning);
-  if (staleState.running && staleState.info) {
-    const runningProject = {
-      projectId: staleState.info.projectId,
-      projectRoot: staleState.info.projectRoot,
-    };
-    const requestedProject = {
-      projectId: project.projectId,
-      projectRoot: project.projectRoot,
-    };
-
-    if (isKnownDaemonProjectMismatch(runningProject, requestedProject)) {
-      console.error(formatDaemonProjectMismatch(runningProject, requestedProject, 'daemon start'));
-      process.exit(1);
-    }
-
+  const lockPath = `${pidFile}.lock`;
+  const lock = await deps.acquireStartLock(lockPath);
+  if (!lock) {
     console.log(
-      `xurgo-atlas daemon is already running for project "${staleState.info.projectId ?? project.projectId}" ` +
-        `at ${staleState.info.projectRoot ?? project.projectRoot} ` +
-        `(pid ${staleState.info.pid}) at ${formatDaemonUrl(staleState.info)}.`,
+      `xurgo-atlas daemon start is already in progress (lock ${lockPath}); no new daemon was started.`,
     );
     return;
   }
-  if (staleState.stale) {
-    await removePidFile(pidFile);
-  }
 
-  await fs.promises.mkdir(path.dirname(pidFile), { recursive: true });
-  const logPath = getDaemonLogPath(pidFile);
-  const outputFd = fs.openSync(logPath, 'a');
-  const commandArgs = buildBackgroundDaemonArgs(options, pidFile, project);
-  const cliEntry = fileURLToPath(new URL('../index.js', import.meta.url));
-  const child = deps.spawnProcess(
-    process.execPath,
-    [cliEntry, ...commandArgs],
-    {
-      detached: true,
-      stdio: ['ignore', outputFd, outputFd],
-      windowsHide: true,
-    },
-  );
-
-  fs.closeSync(outputFd);
-
-  if (!child.pid) {
-    throw new Error('Failed to launch the background daemon process.');
-  }
-
-  child.unref();
+  let lockReleased = false;
+  const releaseLock = async (): Promise<void> => {
+    if (lockReleased) {
+      return;
+    }
+    lockReleased = true;
+    await deps.releaseStartLock(lock);
+  };
 
   try {
-    const info = await waitForDaemonStart(pidFile, child.pid, deps);
-    console.log(
-      `Started xurgo-atlas daemon for project "${project.projectId}" at ${project.projectRoot} ` +
-        `(${formatProjectResolutionSource(project.source)}) at ${formatDaemonUrl(info)}.`,
-    );
-  } catch (error) {
-    if (deps.isProcessRunning(child.pid)) {
-      try {
-        deps.signalProcess(child.pid, 'SIGTERM');
-      } catch {
-        // Ignore cleanup errors here; stale PID handling covers the next run.
+    const staleState = await inspectDaemonState(pidFile, deps.isProcessRunning);
+    if (staleState.running && staleState.info) {
+      const runningProject = {
+        projectId: staleState.info.projectId,
+        projectRoot: staleState.info.projectRoot,
+      };
+      const requestedProject = {
+        projectId: project.projectId,
+        projectRoot: project.projectRoot,
+      };
+
+      if (isKnownDaemonProjectMismatch(runningProject, requestedProject)) {
+        console.error(formatDaemonProjectMismatch(runningProject, requestedProject, 'daemon start'));
+        // process.exit() bypasses finally, so release explicitly before exiting.
+        await releaseLock();
+        process.exit(1);
       }
+
+      console.log(
+        `xurgo-atlas daemon is already running for project "${staleState.info.projectId ?? project.projectId}" ` +
+          `at ${staleState.info.projectRoot ?? project.projectRoot} ` +
+          `(pid ${staleState.info.pid}) at ${formatDaemonUrl(staleState.info)}.`,
+      );
+      return;
     }
-    await removeStalePidFile(pidFile, deps.isProcessRunning);
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`${message} See ${logPath} for daemon output.`);
+    if (staleState.stale) {
+      await removePidFile(pidFile);
+    }
+
+    await fs.promises.mkdir(path.dirname(pidFile), { recursive: true });
+    const logPath = getDaemonLogPath(pidFile);
+    const outputFd = fs.openSync(logPath, 'a');
+    const commandArgs = buildBackgroundDaemonArgs(options, pidFile, project);
+    const cliEntry = fileURLToPath(new URL('../index.js', import.meta.url));
+    const child = deps.spawnProcess(
+      process.execPath,
+      [cliEntry, ...commandArgs],
+      {
+        detached: true,
+        stdio: ['ignore', outputFd, outputFd],
+        windowsHide: true,
+      },
+    );
+
+    fs.closeSync(outputFd);
+
+    if (!child.pid) {
+      throw new Error('Failed to launch the background daemon process.');
+    }
+
+    child.unref();
+
+    try {
+      const info = await waitForDaemonStart(pidFile, child.pid, deps);
+      console.log(
+        `Started xurgo-atlas daemon for project "${project.projectId}" at ${project.projectRoot} ` +
+          `(${formatProjectResolutionSource(project.source)}) at ${formatDaemonUrl(info)}.`,
+      );
+    } catch (error) {
+      if (deps.isProcessRunning(child.pid)) {
+        try {
+          deps.signalProcess(child.pid, 'SIGTERM');
+        } catch {
+          // Ignore cleanup errors here; stale PID handling covers the next run.
+        }
+      }
+      await removeStalePidFile(pidFile, deps.isProcessRunning);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`${message} See ${logPath} for daemon output.`);
+    }
+  } finally {
+    await releaseLock();
   }
 }
 
