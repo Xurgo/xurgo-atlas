@@ -2,62 +2,68 @@
 docuGuard.type: status
 statusVersion: 1
 priority: high
-currentFocus: "Atlas is preparing a local `0.5.0` release candidate for a backward-compatible read-only MCP addition; published `v0.4.0` remains the baseline until separate remote and publication gates are completed"
+currentFocus: "Maintain the xurgo-atlas 0.5.1 local baseline: accurate public docs, green focused validation, and non-breaking CLI/MCP behavior; no tag, publish, or release without explicit approval."
 nextActions:
-  - "Keep the Atlas release baseline routine and credible on `main`: preserve accurate current-facing docs, green focused validation, and non-breaking CLI/MCP behavior while recent read-only identity and diagnostic surfaces settle"
-  - "Treat the June private RC readiness pass and storage-migration readiness as completed checkpoints; reopen them only for concrete regressions instead of carrying them as the standing current focus"
-  - "Leave broader publication polish, roadmap expansion, and deeper migration work for separate slices after the baseline remains stable through normal Atlas workflows"
+  - "Keep the public release baseline accurate and stable through ordinary Atlas workflows."
+  - "Leave broader publication polish, migration expansion, and roadmap work to separate authorized slices."
 blockers:
+  - "None for routine release-baseline maintenance. Tag, publish, or release requires explicit approval."
 doNotDo:
-  - "Do not edit STATUS.md, manifest.yml, or .docs-policy.yml directly"
-  - "Do not tag, publish, or release without explicit approval"
-  - "Do not implement docs.merge_branch or proposal/diff/approval UI unless explicitly requested"
+  - "Do not edit STATUS.md, AGENTS.md, docs/manifest.yml, or .docs-policy.yml directly; use the Atlas managed-doc flow."
+  - "Do not tag, publish, or release without explicit approval."
+  - "Do not enumerate private corpus documents or leave local machine paths in this public repository."
+  - "Do not implement docs.merge_branch or proposal/diff/approval UI unless explicitly requested."
 relatedDocs:
-  - docs/manifest.yml
-  - docs/atlas/setup.md
-  - docs/atlas/daemon-mcp.md
-  - docs/atlas/storage-migration.md
-  - docs/atlas/release-checklist.md
-lastUpdated: "2026-07-10"
+  - "README.md"
+  - "CHANGELOG.md"
+  - "docs/atlas/release-checklist.md"
+  - "docs/implementation-checklist.md"
+  - "docs/atlas/status-history/archive-atlas-status-2026-07-10-pre-handoff.md"
+lastUpdated: "2026-11-18"
 ---
 
 # Project Status
 
-## Project
-Xurgo Atlas is the project-context and documentation-safety MCP. Package metadata now uses `xurgo-atlas`, published npm contents are explicitly allowlisted, daemon lifecycle commands and curated Atlas document ownership are implemented, and guarded document proposals remain the required path for managed docs. Managed storage now defaults to Atlas XDG roots while preserving legacy `docu-guard` fallback discovery for compatibility, and the CLI now supports both read-only storage inspection and a conservative copy-only legacy-to-Atlas apply path.
+## Handoff
+- State: xurgo-atlas 0.5.1 local baseline (release status to be confirmed from README/CHANGELOG); no implementation is active.
+- Owner: Atlas maintenance session.
+- Next action: Keep the public release baseline accurate and stable; no tag, publish, or release without explicit approval.
+- Expected return: A docs-only status/AGENTS update, or a named blocker; no code or release change.
+- Gate: Public release/publication approval. No active implementation slice.
+- Evidence: package.json 0.5.1; HEAD `3a7fb14`; README.md; CHANGELOG.md.
+- Last reconciled: 2026-11-18.
 
 ## Current Focus
-Atlas is preparing a local `0.5.0` release candidate. The published `v0.4.0` line remains the baseline until separately authorized remote reconciliation, tagging, and publication gates are complete. The candidate adds the backward-compatible read-only `atlas.artifact_registration_status` MCP tool and keeps its proposal and commit workflows explicitly separate.
+Atlas maintains a local `xurgo-atlas` 0.5.1 baseline. The CLI is built from source on install and distributed from GitHub rather than a package registry; the local daemon HTTP endpoint is the normal MCP path. Current-facing public docs are authoritative for setup and lifecycle behavior, and live tool discovery outranks static docs when a daemon is already running.
 
-That current release baseline includes the human-first public docs recovery, release-toolchain contract hardening, the read-only `xurgo-atlas doctor` snapshot, the `atlas.managed_state_provenance` / project-identity provenance work, internal client conformance checks, and the Atlas-managed lexical `docs.search` tool. Those are current repository facts; the June private RC readiness pass remains useful historical evidence, but it is no longer the present delivery headline.
+The active priority is to keep that baseline routine and credible: accurate public docs, green focused validation, and non-breaking CLI/MCP behavior. The read-only `atlas.artifact_registration_status` addition is recorded in CHANGELOG under an unreleased line, while package metadata is 0.5.1. Routine maintenance preserves the baseline without reopening release, publication, migration, or roadmap work. No tag, publish, release, or production deployment is authorized here.
 
-The active priority now is to preserve that baseline through ordinary Atlas workflows: keep current-facing documentation accurate, keep governed-doc export and safety rules trustworthy, and keep newer read-only identity/diagnostic surfaces aligned with the repository without reopening broader release, migration, or roadmap work. Storage migration remains intentionally conservative and copy-only, and protected-doc validation remains intact.
-
-## Recently Completed
-- Historical checkpoint: `79f41f5 docs: document diagnostic and provenance context` aligned README guidance with the current diagnostic and provenance surfaces.
-- `b52d2c4 test: add internal client conformance contract checks`, `6466794 feat: add read-only managed-state provenance snapshot`, and `481f1a3 feat: add read-only doctor snapshot` extended the baseline with read-only verification and project-identity/provenance support instead of new write-path behavior.
-- `9b4c392 feat: add managed docs search tool` landed Atlas-managed lexical search, and the checklist already records that capability as complete.
-- `690b185 chore: harden release toolchain contract`, `500a776 chore(release): prepare v0.2.1`, and `50ee275 docs: recover human-first public documentation` established the current Atlas release baseline around the live `xurgo-atlas` package.
-- The June private RC readiness pass, managed-doc resync, storage migration apply copy, Git metadata repair, and Atlas-first naming cleanup remain completed historical checkpoints rather than current-next-work items.
-
-## Next Actions
-- Keep `STATUS.md` and other current-facing Atlas docs aligned with the live `xurgo-atlas` repository state rather than reusing the older private RC framing as if it were still current
-- Preserve the release baseline with routine focused validation and small hardening slices, especially around governed-doc safety, export correctness, and read-only diagnostic/provenance surfaces
-- Leave broader publication polish, migration expansion, and larger roadmap work for separately authorized slices after the baseline continues to hold through normal use
-
-## Blockers
-- None for routine release-baseline maintenance; public tag, publish, or release actions still require explicit approval
+## Blockers / Gates
+- None for routine release-baseline maintenance.
+- Tag, publish, or release requires explicit approval.
+- No active implementation slice is open in this handoff.
 
 ## Do Not Do
-- Do not edit STATUS.md, manifest.yml, or .docs-policy.yml directly — always use docs.propose_patch
-- Do not tag, publish, or release without explicit approval
-- Do not implement `docs.merge_branch` unless explicitly asked
-- Do not implement proposal/diff/approval UI unless explicitly asked
+- Do not edit STATUS.md, AGENTS.md, docs/manifest.yml, or .docs-policy.yml directly; use the Atlas managed-doc flow.
+- Do not tag, publish, or release without explicit approval.
+- Do not enumerate private corpus documents or leave local machine paths in this public repository.
+- Do not implement docs.merge_branch or proposal/diff/approval UI unless explicitly requested.
+
+## Evidence Index
+- `package.json` — package version `0.5.1` (authoritative local package metadata).
+- HEAD `3a7fb14` — `chore(release): prepare xurgo-atlas v0.5.1` (local git history).
+- `README.md` — GitHub-source install, daemon HTTP MCP path, guarded docs lifecycle.
+- `CHANGELOG.md` — `0.5.0 - Unreleased` addition; latest dated release `0.4.0`.
+- `docs/atlas/release-checklist.md` — release validation steps; no release performed in this slice.
+- `docs/implementation-checklist.md` — known discrepancy: still says `0.5.0` while `package.json` says `0.5.1`; recorded here, not silently rewritten.
+- `docs/atlas/status-history/archive-atlas-status-2026-07-10-pre-handoff.md` — archived prior status body.
 
 ## Related Documents
+- [README](README.md)
+- [Changelog](CHANGELOG.md)
 - [Documentation Overview](docs/README.md)
 - [Setup](docs/atlas/setup.md)
 - [Daemon & MCP Configuration](docs/atlas/daemon-mcp.md)
-- [Storage Migration](docs/atlas/storage-migration.md)
 - [Release Checklist](docs/atlas/release-checklist.md)
 - [Implementation Checklist](docs/implementation-checklist.md)
+- [Archived prior status](docs/atlas/status-history/archive-atlas-status-2026-07-10-pre-handoff.md)

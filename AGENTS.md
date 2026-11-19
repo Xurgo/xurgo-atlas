@@ -2,13 +2,17 @@
 
 ## Session start
 
-Boot per the corpus-owned sequence in `~/.xurgo/governance/xurgo-ecosystem/AGENTS.md` ("Session start (coordination)"), which names the exact documents and their order. Then read THIS file (DYOR, mandatory first read for repo work) and `STATUS.md` for current focus.
+Boot per the corpus-owned sequence in the corpus root's agent contract ("Session start (coordination)"), which names the exact documents and their order. Then read THIS file (DYOR, mandatory first read for repo work) and `STATUS.md` frontmatter plus `## Handoff` for current state.
 
-The prior pointer in this file named `standards/fresh-boot-sequence-hub.md`, which was RETIRED 2026-08-14 and moved to `archive/standards/`. Decision `CORPUS_WRITE_PATH_PLAIN_GIT_2026-09-15` authorized fixing that pointer; Studio was corrected and Atlas was not. **This paragraph previously enumerated the corpus's internal filenames.** That enumeration has been removed on purpose: this repository is public, the corpus is private, and listing the private corpus's internal document names here published a map of it. Point at the corpus, let the corpus name its own documents.
+A prior pointer named a retired corpus document. That pointer is obsolete: the corpus owns its own document names and boot order, and this public repository must not mirror them. Point at the corpus root and let the corpus name its own documents.
+
+**Continue intent.** When the user says "continue working on Atlas" (or equivalent), do not re-plan from memory. Read `STATUS.md` frontmatter and `## Handoff` first. Execute the named Next action if the stated gate permits; if the gate is `AWAITING USER GATE`, present the decision surface and stop. The handoff is current only when `lastUpdated` and the named gate/evidence agree with the authoritative gate.
+
+**Status rule.** `STATUS.md` is the reader-facing handoff; `AGENTS.md` carries stable instructions only and must not accumulate volatile status.
 
 ## Corpus queries
 
-When searching the governance corpus (`~/.xurgo/governance/xurgo-ecosystem/`), **always use the Python utility scripts**, never raw grep/rg:
+When searching the governance corpus (the corpus root), **always use the Python utility scripts**, never raw grep/rg:
 
 - `python3 corpus-query.py "<search terms>"` — full-text search over all corpus markdown
 - `python3 corpus-context-bundle.py "<situation>"` — pre-bundled context for a given situation (bounded by `CORPUS_BOOT_CEILING_CHARS = 8000`)
@@ -71,7 +75,7 @@ This repository is **public**; the governance corpus is not. That asymmetry driv
 
 **Content.** Do not leave personal or local machine path leaks in committed content, and do not enumerate the private corpus's internal document names — a file map of a private repo is disclosure. Reference the corpus root and let the corpus name its own documents.
 
-**Before any push, confirm the remote's visibility.** A clean fast-forward proves nothing about who can read the result. Content review is not audience review. See corpus decision `PUBLIC_REPO_IDENTITY_EXPOSURE_2026-09-30`.
+**Before any push, confirm the remote's visibility.** A clean fast-forward proves nothing about who can read the result. Content review is not audience review. This follows a settled corpus decision on public-repo identity exposure.
 
 ### Quick Reference
 
@@ -115,9 +119,8 @@ comment, and therefore confidently wrong.
    For load-bearing claims, use the corpus provenance format
    (the corpus research agenda's provenance-ledger format): claim, evidence
    class, exact supporting source, remaining gap. Naming a third party as
-   research evidence is not an integration and does not require a gate; see
-   corpus decision `THIRD_PARTY_RESEARCH_VS_DEPENDENCY_2026-09-30`. Adopting a
-   dependency or an adapter still does.
+   research evidence is not an integration and does not require a gate; adopting
+   a dependency or an adapter still does.
 3. **Read the code before describing it.** Check the claim against the file, at
    the line. Store semantics, revision handling, and export behaviour are easy
    to describe approximately and wrong exactly.
@@ -141,4 +144,4 @@ modes to watch for.
 
 ## Completion-return contract
 
-Any session that may hand back to a Coordinator (or be resumed) returns via the corpus-owned five-section completion-return contract: DISPOSITION → REPORT → DECISIVE EVIDENCE → SCOPE-SAFETY → NEXT DECISION. Start from the corpus templates `default-handoff-preamble-v01.md` (the stable ecosystem context preamble — always prepend), then fill the session-specific content from `handoff-and-rehydration-bootstrap-v01.md` and the corpus's `coordinator-continuity-guide.md`, not a hand-written approximation.
+Any session that may hand back to a Coordinator (or be resumed) returns via the corpus-owned five-section completion-return contract: DISPOSITION → REPORT → DECISIVE EVIDENCE → SCOPE-SAFETY → NEXT DECISION. Start from the corpus's stable ecosystem-context preamble template (always prepend), then fill the session-specific content from the corpus's handoff/bootstrap template and coordinator-continuity guide, not a hand-written approximation.
