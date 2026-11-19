@@ -199,7 +199,7 @@ describe('release preflight command safety', () => {
       ['npm --version', '10.9.2\n'],
       ['npm view xurgo-atlas@0.3.0 version --json', ''],
       ['npm view xurgo-atlas dist-tags.latest --json', '"0.2.0"\n'],
-      ['git ls-remote --tags origin refs/tags/v0.5.0', ''],
+      ['git ls-remote --tags origin refs/tags/v0.5.1', ''],
 ]);
 
     const runner = {
@@ -229,7 +229,7 @@ describe('release preflight command safety', () => {
     });
 
     expect(commands).toContain('git ls-remote origin refs/heads/main');
-    expect(commands).toContain('git ls-remote --tags origin refs/tags/v0.5.0');
+    expect(commands).toContain('git ls-remote --tags origin refs/tags/v0.5.1');
     expect(commands.some((command) => command.startsWith('git fetch'))).toBe(false);
   });
 
